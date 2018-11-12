@@ -1,0 +1,209 @@
+defmodule Secp256k1 do
+  import Wallet
+
+  @type private_key :: <<_::256>>
+  @type compressed_public_key :: <<_::264>>
+  @type full_public_key :: <<_::520>>
+  @type public_key :: compressed_public_key() | full_public_key()
+  @type signature :: <<_::520>>
+
+  @cut 0xFFFFFFFF_FFFFFFFF_FFFFFFFF_FFFFFFFF_FFFFFFFF_FFFFFFFF_FFFFFFFF_FFFFFFFF
+  @full 0xFFFFFFFF_FFFFFFFF_FFFFFFFF_FFFFFFFE_BAAEDCE6_AF48A03B_BFD25E8C_D0364141
+  @half 0x7FFFFFFF_FFFFFFFF_FFFFFFFF_FFFFFFFF_5D576E73_57A4501D_DFE92F46_681B20A0
+
+  @doc "Returns {PublicKey, PrivKeyOut}"
+  @spec generate() :: {public_key(), private_key()}
+  def generate() do
+    {_public, _private} = :crypto.generate_key(:ecdh, :secp256k1)
+    # We cannot compress here because openssl can't deal with compressed
+    # points in TLS handshake, should report a bug
+    # {compress_public(public), private}
+  end
+
+  @spec generate_public_key(binary()) :: {:error, charlist()} | {:ok, binary()}
+  def generate_public_key(private_key) do
+    :libsecp256k1.ec_pubkey_create(private_key, :compressed)
+  end
+
+  @spec compress_public(public_key()) :: compressed_public_key()
+  def compress_public(public) do
+    case public do
+      <<4, x::big-integer-size(256), y::big-integer-size(256)>> ->
+        ## Compressing point
+        ## Check http://www.secg.org/SEC1-Ver-1.0.pdf page 11
+        ##
+        ref = 2 + rem(y, 2)
+        <<ref, x::big-integer-size(256)>>
+
+      <<ref, x::big-integer-size(256)>> ->
+        <<ref, x::big-integer-size(256)>>
+    end
+  end
+
+  @spec decompress_public(compressed_public_key()) :: public_key()
+  def decompress_public(public) do
+    {:ok, public} = :libsecp256k1.ec_pubkey_decompress(public)
+    public
+  end
+
+  @spec der_encode_private(binary(), binary()) :: binary()
+  def der_encode_private(private, public) do
+    :public_key.der_encode(
+      :ECPrivateKey,
+      Secp256k1.erl_encode_private(private, public)
+    )
+  end
+
+  @spec pem_encode_private(binary(), binary()) :: binary()
+  def pem_encode_private(private, public) do
+    :public_key.pem_encode([{:ECPrivateKey, der_encode_private(private, public), :not_encrypted}])
+  end
+
+  @spec erl_encode_private(binary(), binary()) ::
+          {:ECPrivateKey, 1, binary(), {:namedCurve, {1, 3, 132, 0, 10}}, binary()}
+  def erl_encode_private(private, public) do
+    {:ECPrivateKey, 1, private, {:namedCurve, {1, 3, 132, 0, 10}}, public}
+  end
+
+  @spec selfsigned(binary(), binary()) :: binary()
+  def selfsigned(private, public) do
+    :public_key.pkix_sign(erl_encode_cert(public), erl_encode_private(private, public))
+  end
+
+  @spec sign(private_key(), binary(), binary() | nil, :sha | :kec) :: signature()
+  def sign(private, msg, nonce \\ nil, algo \\ :sha) do
+    nonce =
+      case nonce do
+        nil -> :libsecp256k1.rand256()
+        other -> other
+      end
+
+    {:ok, signature, recid} =
+      :libsecp256k1.ecdsa_sign_compact(hash(algo, msg), private, :nonce_function_rfc6979, nonce)
+
+    <<recid, signature::binary>>
+  end
+
+  @spec verify(public_key() | Wallet.t(), binary(), signature()) :: boolean()
+  def verify(public, msg, signature) when is_binary(public) do
+    # :ok == :libsecp256k1.ecdsa_verify(msg, signature_bitcoin_to_x509(signature), public)
+    # Verify with openssl for now
+    x509 = signature_bitcoin_to_x509(signature)
+    :crypto.verify(:ecdsa, :sha256, msg, x509, [public, :crypto.ec_curve(:secp256k1)])
+  end
+
+  def verify(public = wallet(), msg, signature) do
+    signer = recover!(signature, msg)
+
+    verify(signer, msg, signature) &&
+      Wallet.address!(Wallet.from_pubkey(signer)) == Wallet.address!(public)
+  end
+
+  @spec recover!(signature(), binary(), :sha | :kec) :: public_key()
+  def recover!(signature, msg, algo \\ :sha) do
+    {:ok, public} = recover(signature, msg, algo)
+    public
+  end
+
+  @spec recover(signature(), binary(), :sha | :kec) :: {:ok, public_key()} | {:error, String.t()}
+  def recover(signature, msg, algo \\ :sha) do
+    <<recid, signature::binary>> = signature
+    :libsecp256k1.ecdsa_recover_compact(hash(algo, msg), signature, :compressed, recid)
+  end
+
+  @spec rlp_to_bitcoin(binary, binary, binary) :: nil | <<_::520>>
+  def rlp_to_bitcoin("", "", "") do
+    nil
+  end
+
+  def rlp_to_bitcoin(<<rec::big-unsigned>>, r, s)
+      when byte_size(r) <= 32 and byte_size(s) <= 32 do
+    rec =
+      case rec do
+        27 -> 27
+        28 -> 28
+        rec -> 28 - rem(rec, 2)
+      end
+
+    # :io.format("dump: ~p~n", [[rec, r, s]])
+    r = :binary.decode_unsigned(r)
+    s = :binary.decode_unsigned(s)
+    <<rec - 27, r::big-unsigned-size(256), s::big-unsigned-size(256)>>
+  end
+
+  def bitcoin_to_rlp(<<rec, r::big-unsigned-size(256), s::big-unsigned-size(256)>>) do
+    [rec + 27, r, s]
+  end
+
+  @doc "Converts X.509 signature to bitcoin style signature"
+  def signature_x509_to_bitcoin(signature) do
+    {_, r, s} = :public_key.der_decode(:"ECDSA-Sig-Value", signature)
+
+    # Important! This we only accept normalized signatures ever!
+    s = normalize(s)
+
+    # Garbage currently
+    rec = 27
+    # https://github.com/bitcoin/bitcoin/blob/master/src/key.cpp:252
+    # vchSig[0] = 27 + rec + (fCompressed ? 4 : 0);
+
+    <<rec, r::big-unsigned-size(256), s::big-unsigned-size(256)>>
+  end
+
+  defp normalize(n) do
+    if n > @half do
+      rem(@cut - n + @full, @cut)
+    else
+      n
+    end
+  end
+
+  def signature_bitcoin_to_x509(<<_, r::big-unsigned-size(256), s::big-unsigned-size(256)>>) do
+    :public_key.der_encode(:"ECDSA-Sig-Value", {:"ECDSA-Sig-Value", r, s})
+  end
+
+  @spec erl_encode_cert(public_key()) :: any()
+  def erl_encode_cert(public) do
+    hash = hash(:sha, public)
+
+    {:OTPTBSCertificate, :v3, 9_671_339_679_901_102_673,
+     {:SignatureAlgorithm, {1, 2, 840, 10045, 4, 3, 2}, :asn1_NOVALUE},
+     {:rdnSequence,
+      [
+        [{:AttributeTypeAndValue, {2, 5, 4, 6}, 'US'}],
+        [{:AttributeTypeAndValue, {2, 5, 4, 8}, {:utf8String, "Oregon"}}],
+        [{:AttributeTypeAndValue, {2, 5, 4, 7}, {:utf8String, "Portland"}}],
+        [{:AttributeTypeAndValue, {2, 5, 4, 10}, {:utf8String, "Company Name"}}],
+        [{:AttributeTypeAndValue, {2, 5, 4, 11}, {:utf8String, "Org"}}],
+        [{:AttributeTypeAndValue, {2, 5, 4, 3}, {:utf8String, "www.example.com"}}]
+      ]}, {:Validity, {:utcTime, '181113072916Z'}, {:utcTime, '191113072916Z'}},
+     {:rdnSequence,
+      [
+        [{:AttributeTypeAndValue, {2, 5, 4, 6}, 'US'}],
+        [{:AttributeTypeAndValue, {2, 5, 4, 8}, {:utf8String, "Oregon"}}],
+        [{:AttributeTypeAndValue, {2, 5, 4, 7}, {:utf8String, "Portland"}}],
+        [{:AttributeTypeAndValue, {2, 5, 4, 10}, {:utf8String, "Company Name"}}],
+        [{:AttributeTypeAndValue, {2, 5, 4, 11}, {:utf8String, "Org"}}],
+        [{:AttributeTypeAndValue, {2, 5, 4, 3}, {:utf8String, "www.example.com"}}]
+      ]},
+     {:OTPSubjectPublicKeyInfo,
+      {:PublicKeyAlgorithm, {1, 2, 840, 10045, 2, 1}, {:namedCurve, {1, 3, 132, 0, 10}}},
+      {:ECPoint, public}}, :asn1_NOVALUE, :asn1_NOVALUE,
+     [
+       # Identifier: Subject Key Identifier - 2.5.29.14
+       {:Extension, {2, 5, 29, 14}, false, hash},
+       # Identifier: Authority Key Identifier - 2.5.29.35
+       {:Extension, {2, 5, 29, 35}, false,
+        {:AuthorityKeyIdentifier, hash, :asn1_NOVALUE, :asn1_NOVALUE}},
+       {:Extension, {2, 5, 29, 19}, true, {:BasicConstraints, true, :asn1_NOVALUE}}
+     ]}
+  end
+
+  defp hash(:sha, msg) do
+    :crypto.hash(:sha256, msg)
+  end
+
+  defp hash(:kec, msg) do
+    Sha3.keccak_256(msg)
+  end
+end

@@ -1,0 +1,28 @@
+@startuml
+User -> Network: ["portopen", device_id, port]
+Network -> Device: ["portopen", port, ref, user_id]
+
+Network <-- Device : ["response", "portopen", ref, "ok"]
+User <-- Network: ["response", "portopen", "ok", ref]
+
+group Bidirectional Traffic: User -> Device
+
+    User -> Network: ["portsend", ref, data]
+    Network -> Device: ["portsend", ref, data]
+
+    Network <-- Device: ["response", "portsend", "ok"]
+    User <-- Network: ["response", "portsend", "ok"]
+
+end
+
+group Bidirectional Traffic: User -> Device
+
+    Network <- Device: ["portsend", ref, data]
+    User <- Network: ["portsend", ref, data]
+
+    User --> Network: ["response", "portsend", "ok"]
+    Network --> Device: ["response", "portsend", "ok"]
+
+end
+
+@enduml

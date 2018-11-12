@@ -1,0 +1,4 @@
+#!/bin/sh
+export MIX_ENV=prod
+mix deps.get
+exec iex -S mix run 

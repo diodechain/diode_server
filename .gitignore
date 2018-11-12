@@ -1,0 +1,19 @@
+# App artifacts
+/_build
+/db
+/deps
+/data
+/*.ez
+
+*.pem
+
+# Generated on crash by the VM
+erl_crash.dump
+
+/states
+/.vscode
+/config/*.secret.exs
+.elixir_ls/
+./run
+clones
+config/diode.exs

@@ -1,0 +1,372 @@
+defmodule Mockchain do
+  alias Mockchain.BlockCache, as: Block
+  use GenServer
+  defstruct peak: nil, by_hash: %{}, states: %{}, length: 0
+
+  @type t :: %Mockchain{
+          peak: Mockchain.Block.t(),
+          by_hash: %{binary() => Mockchain.Block.t()},
+          length: non_neg_integer(),
+          states: Map.t()
+        }
+
+  @cache "mockchain.db"
+
+  @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
+  def start_link(_opts) do
+    GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
+  end
+
+  @spec init(any()) :: {:ok, Mockchain.t()}
+  def init(_) do
+    state = load_blocks()
+    spawn_link(&saver_loop/0) |> Process.register(Mockchain.Saver)
+
+    {:ok, state}
+  end
+
+  @spec saver_loop :: no_return
+  def saver_loop() do
+    :erlang.garbage_collect()
+    Process.send_after(self(), :tick, 5000)
+    store = saver_loop_wait(false)
+
+    if store do
+      tmp = "#{Diode.dataDir(@cache)}.tmp"
+      File.rm(tmp)
+      store_file(tmp, get(fn state -> state end))
+      File.rename(tmp, Diode.dataDir(@cache))
+    end
+
+    saver_loop()
+  end
+
+  defp saver_loop_wait(store) do
+    receive do
+      :store ->
+        saver_loop_wait(true)
+
+      :tick ->
+        store
+    end
+  end
+
+  @doc "Function for unit tests, replaces the current state"
+  def set_state(state) do
+    call(fn _state, _from -> {:reply, :ok, state} end)
+    Store.seed_transactions()
+    :ok
+  end
+
+  defp get(fun, timeout \\ 5000) do
+    GenServer.call(__MODULE__, {:get, fun}, timeout)
+  end
+
+  defp call(fun, timeout \\ 5000) do
+    GenServer.call(__MODULE__, {:call, fun}, timeout)
+  end
+
+  def handle_call({:get, fun}, _from, state) when is_function(fun) do
+    {:reply, fun.(state), state}
+  end
+
+  def handle_call({:call, fun}, from, state) when is_function(fun) do
+    fun.(state, from)
+  end
+
+  @doc "Gaslimit for block validation and estimation"
+  def gasLimit() do
+    8_000_000
+  end
+
+  @spec averageTransactionGas() :: 200_000
+  def averageTransactionGas() do
+    200_000
+  end
+
+  def blocktimeGoal() do
+    15
+  end
+
+  @spec blockchainDelta() :: 5
+  def blockchainDelta() do
+    5
+  end
+
+  @spec peak() :: integer()
+  def peak() do
+    Block.number(peakBlock())
+  end
+
+  @spec peakBlock() :: Mockchain.Block.t()
+  def peakBlock() do
+    get(fn state -> state.peak end)
+  end
+
+  @spec peakState() :: Mockchain.State.t()
+  def peakState() do
+    Block.state(peakBlock())
+  end
+
+  @spec block(number()) :: Mockchain.Block.t()
+  def block(n) do
+    Enum.at(blocks(), -(n + 1))
+  end
+
+  @spec block_by_hash(any()) :: Mockchain.Block.t() | nil
+  def block_by_hash(nil) do
+    nil
+  end
+
+  def block_by_hash(hash) do
+    # :io.format("block_by_hash: ~p~n", [Process.info(self(), :current_stacktrace)])
+    get(fn state ->
+      Map.get(state.by_hash, hash)
+    end)
+  end
+
+  # returns all blocks from the current peak
+  @spec blocks() :: Enumerable.t()
+  def blocks() do
+    blocks(Block.hash(peakBlock()))
+  end
+
+  # returns all blocks from the given hash
+  @spec blocks(any()) :: Enumerable.t()
+  def blocks(hash) do
+    Stream.unfold(hash, fn hash ->
+      case Mockchain.block_by_hash(hash) do
+        nil -> nil
+        block -> {block, Block.parent_hash(block)}
+      end
+    end)
+  end
+
+  @spec load_blocks() :: Mockchain.t()
+  def load_blocks() do
+    chain =
+      load_file(Diode.dataDir(@cache), fn ->
+        gen = genesis()
+        Store.set_block_transactions(gen)
+        hash = Block.hash(gen)
+
+        %Mockchain{
+          peak: gen,
+          by_hash: %{hash => gen},
+          states: %{},
+          length: 1
+        }
+      end)
+
+    case chain do
+      %Mockchain{} ->
+        chain
+
+      # Compatibility import for old states
+      blocks when is_list(blocks) ->
+        %Mockchain{
+          peak: hd(blocks),
+          by_hash:
+            Enum.reduce(blocks, %{}, fn block, map ->
+              Map.put(map, Block.hash(block), block)
+            end),
+          length: length(blocks),
+          states: %{}
+        }
+    end
+  end
+
+  @spec add_block(any()) :: :added | :stored
+  def add_block(block, relay \\ true) do
+    block_hash = Block.hash(block)
+
+    if Mockchain.block_by_hash(block_hash) != nil do
+      IO.puts("Mockchain.add_block: Rejected existing block")
+    else
+      number = Block.number(block)
+
+      if number < 1 do
+        IO.puts("Mockchain.add_block: Rejected invalid genesis block")
+        :rejected
+      else
+        parent_hash = Block.parent_hash(block)
+        do_add_block(block, number, parent_hash, block_hash, relay)
+      end
+    end
+  end
+
+  defp do_add_block(block, number, parent_hash, block_hash, relay) do
+    prefix =
+      Block.hash(block)
+      |> binary_part(0, 5)
+      |> Base16.encode(false)
+
+    call(fn state, _from ->
+      peak = state.peak
+      peak_hash = Block.hash(peak)
+      author = Wallet.words(Block.miner(block))
+      info = "chain ##{number}[#{prefix}] @#{author}"
+
+      if peak_hash == parent_hash || number - blockchainDelta() > state.length do
+        if peak_hash == parent_hash do
+          IO.puts("Mockchain.add_block: Extending main #{info}")
+        else
+          IO.puts("Mockchain.add_block: Replacing main #{info}")
+        end
+
+        state = %{
+          state
+          | peak: block,
+            by_hash: Map.put(state.by_hash, block_hash, block),
+            length: number
+        }
+
+        Store.set_block_transactions(block)
+        send(Mockchain.Saver, :store)
+
+        if relay do
+          Kademlia.publish(block)
+        end
+
+        {:reply, :added, state}
+      else
+        IO.puts("Mockchain.add_block: Extending  alt #{info}")
+        state = %{state | by_hash: Map.put(state.by_hash, block_hash, block)}
+        {:reply, :stored, state}
+      end
+    end)
+  end
+
+  @spec state(number()) :: Mockchain.State.t()
+  def state(n) do
+    Block.state(block(n))
+  end
+
+  defp store_file(filename, term) do
+    case File.exists?(filename) do
+      true ->
+        term
+
+      false ->
+        content = BertInt.encode!(term)
+
+        with :ok <- File.mkdir_p(Path.dirname(filename)) do
+          File.write!(filename, content)
+          term
+        end
+    end
+  end
+
+  defp load_file(filename, default \\ nil) do
+    case File.read(filename) do
+      {:ok, content} ->
+        BertInt.decode!(content)
+
+      {:error, _} ->
+        case default do
+          fun when is_function(fun) -> fun.()
+          _ -> default
+        end
+    end
+  end
+
+  @spec state_load(binary()) :: Mockchain.State.t()
+  def state_load(state_hash) do
+    case Process.get(:state_cache) do
+      {^state_hash, state} ->
+        state
+
+      _ ->
+        name = Base16.encode(state_hash)
+        state = load_file("states/#{name}")
+        Process.put(:state_cache, {state_hash, state})
+        state
+    end
+  end
+
+  @spec state_store(Mockchain.State.t()) :: Mockchain.State.t()
+  def state_store(state) do
+    name = Base16.encode(Mockchain.State.hash(state))
+    store_file("states/#{name}", state)
+  end
+
+  defp genesis() do
+    Mockchain.GenesisFactory.testnet()
+  end
+end
+
+"""
+for transaction validation:
+
+// SendTransaction updates the pending block to include the given transaction.
+// It panics if the transaction is invalid.
+func (b *SimulatedBackend) SendTransaction(ctx context.Context, tx *types.Transaction) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	sender, err := types.Sender(types.HomesteadSigner{}, tx)
+	if err != nil {
+		panic(fmt.Errorf("invalid transaction: %v", err))
+	}
+	nonce := b.pendingState.GetNonce(sender)
+	if tx.Nonce() != nonce {
+		panic(fmt.Errorf("invalid transaction nonce: got %d, want %d", tx.Nonce(), nonce))
+	}
+
+	blocks, _ := core.GenerateChain(b.config, b.blockchain.CurrentBlock(), ethash.NewFaker(), b.database, 1, func(number int, block *core.BlockGen) {
+		for _, tx := range b.pendingBlock.Transactions() {
+			block.AddTx(tx)
+		}
+		block.AddTx(tx)
+	})
+	statedb, _ := b.blockchain.State()
+
+	b.pendingBlock = blocks[0]
+	b.pendingState, _ = state.New(b.pendingBlock.Root(), statedb.Database())
+	return nil
+}
+
+
+sate_processor.go:
+
+func ApplyTransaction(config *params.ChainConfig, bc *BlockChain, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, uint64, error) {
+	msg, err := tx.AsMessage(types.MakeSigner(config, header.Number))
+	if err != nil {
+		return nil, 0, err
+	}
+	// Create a new context to be used in the EVM environment
+	context := NewEVMContext(msg, header, bc, author)
+	// Create a new environment which holds all relevant information
+	// about the transaction and calling mechanisms.
+	vmenv := vm.NewEVM(context, statedb, config, cfg)
+	// Apply the transaction to the current state (included in the env)
+	_, gas, failed, err := ApplyMessage(vmenv, msg, gp)
+	if err != nil {
+		return nil, 0, err
+	}
+	// Update the state with pending changes
+	var root []byte
+	if config.IsByzantium(header.Number) {
+		statedb.Finalise(true)
+	} else {
+		root = statedb.IntermediateRoot(config.IsEIP158(header.Number)).Bytes()
+	}
+	*usedGas += gas
+
+	// Create a new receipt for the transaction, storing the intermediate root and gas used by the tx
+	// based on the eip phase, we're passing wether the root touch-delete accounts.
+	receipt := types.NewReceipt(root, failed, *usedGas)
+	receipt.TxHash = tx.Hash()
+	receipt.GasUsed = gas
+	// if the transaction created a contract, store the creation address in the receipt.
+	if msg.To() == nil {
+		receipt.ContractAddress = crypto.CreateAddress(vmenv.Context.Origin, tx.Nonce())
+	}
+	// Set the receipt logs and create a bloom for filtering
+	receipt.Logs = statedb.GetLogs(tx.Hash())
+	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
+
+	return receipt, gas, err
+}
+
+"""

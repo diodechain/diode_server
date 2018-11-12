@@ -1,0 +1,13 @@
+{
+    "spellright.language": [
+        "English (American)"
+    ],
+    "spellright.documentTypes": [
+        "markdown",
+        "latex",
+        "plaintext"
+    ],
+    "files.associations": {
+        "secp256k1_recovery.h": "c"
+    }
+}

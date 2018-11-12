@@ -1,0 +1,4 @@
+#!/bin/sh
+unset GIT_DIR
+cd /home/dominicletz/poc-server-ex && git checkout -f
+svc -t /home/dominicletz/poc-server-ex 
