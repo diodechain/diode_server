@@ -1,6 +1,6 @@
 defmodule Network.Rpc do
-  alias Mockchain.BlockCache, as: Block
-  alias Mockchain.Transaction
+  alias Chain.BlockCache, as: Block
+  alias Chain.Transaction
 
   def handle_jsonrpc(%{"_json" => rpcs}) when is_list(rpcs) do
     body =
@@ -41,18 +41,18 @@ defmodule Network.Rpc do
       "eth_sendRawTransaction" ->
         [hextx] = params
         bintx = Base16.decode(hextx)
-        tx = Mockchain.Transaction.from_rlp(bintx)
+        tx = Chain.Transaction.from_rlp(bintx)
 
         # Testing transaction
-        peak = Mockchain.peakBlock()
+        peak = Chain.peakBlock()
         state = Block.state(peak)
-        {:ok, rcpt} = Mockchain.Transaction.apply(tx, peak, state)
+        {:ok, rcpt} = Chain.Transaction.apply(tx, peak, state)
 
         # :io.format("Receipt: ~p~n", [rcpt])
 
-        Mockchain.Pool.add_transaction(tx)
+        Chain.Pool.add_transaction(tx)
 
-        res = Base16.encode(Mockchain.Transaction.hash(tx))
+        res = Base16.encode(Chain.Transaction.hash(tx))
 
         err =
           if rcpt.msg == :ok do
@@ -75,7 +75,7 @@ defmodule Network.Rpc do
         [txh] = params
         txh = Base16.decode(txh)
         tx = Store.transaction(txh)
-        block = Mockchain.block_by_hash(Store.transaction_block(txh))
+        block = Chain.block_by_hash(Store.transaction_block(txh))
 
         result(id, transaction_result(tx, block))
 
@@ -86,8 +86,8 @@ defmodule Network.Rpc do
         state = Block.state(block)
 
         nonce =
-          case Mockchain.State.account(state, address) do
-            %Mockchain.Account{nonce: nonce} -> nonce
+          case Chain.State.account(state, address) do
+            %Chain.Account{nonce: nonce} -> nonce
             nil -> 0
           end
 
@@ -105,7 +105,7 @@ defmodule Network.Rpc do
           if full == true do
             Enum.map(txs, fn tx -> transaction_result(tx, block) end)
           else
-            Enum.map(txs, &Mockchain.Transaction.hash/1)
+            Enum.map(txs, &Chain.Transaction.hash/1)
           end
 
         parentHash =
@@ -156,12 +156,12 @@ defmodule Network.Rpc do
         [address, ref] = params
         address = Base16.decode(address)
 
-        %Mockchain.Block{} = block = getBlock(ref)
+        %Chain.Block{} = block = getBlock(ref)
         state = Block.state(block)
 
         balance =
-          case Mockchain.State.account(state, address) do
-            %Mockchain.Account{balance: balance} -> balance
+          case Chain.State.account(state, address) do
+            %Chain.Account{balance: balance} -> balance
             nil -> 0
           end
 
@@ -171,12 +171,12 @@ defmodule Network.Rpc do
         [address, ref] = params
         address = Base16.decode(address)
 
-        %Mockchain.Block{} = block = getBlock(ref)
+        %Chain.Block{} = block = getBlock(ref)
         state = Block.state(block)
 
         code =
-          case Mockchain.State.account(state, address) do
-            %Mockchain.Account{code: code} -> code
+          case Chain.State.account(state, address) do
+            %Chain.Account{code: code} -> code
             nil -> ""
           end
 
@@ -184,7 +184,7 @@ defmodule Network.Rpc do
 
       "eth_estimateGas" ->
         # TODO real estimate
-        result(id, Mockchain.gasLimit())
+        result(id, Chain.gasLimit())
 
       "eth_sendTransaction" ->
         [%{} = opts] = params
@@ -194,8 +194,8 @@ defmodule Network.Rpc do
         wallet = Enum.find(Diode.wallets(), fn w -> Wallet.address!(w) == from end)
         tx = create_transaction(wallet, data, opts)
 
-        Mockchain.Pool.add_transaction(tx)
-        result(id, Mockchain.Transaction.hash(tx))
+        Chain.Pool.add_transaction(tx)
+        result(id, Chain.Transaction.hash(tx))
 
       "eth_call" ->
         [%{} = opts, ref] = params
@@ -207,7 +207,7 @@ defmodule Network.Rpc do
 
         block = getBlock(ref)
         state = Block.state(block)
-        {:ok, rcpt} = Mockchain.Transaction.apply(tx, block, state)
+        {:ok, rcpt} = Chain.Transaction.apply(tx, block, state)
 
         res = rcpt.evmout
 
@@ -234,7 +234,7 @@ defmodule Network.Rpc do
             result(id, nil)
 
           hash ->
-            block = Mockchain.block_by_hash(hash)
+            block = Chain.block_by_hash(hash)
             tx = Store.transaction(txbin)
 
             ret = %{
@@ -257,7 +257,7 @@ defmodule Network.Rpc do
         end
 
       "eth_blockNumber" ->
-        result(id, Mockchain.peak())
+        result(id, Chain.peak())
 
       "net_listening" ->
         result(id, true)
@@ -385,27 +385,27 @@ defmodule Network.Rpc do
 
   def getBlock(ref) do
     case ref do
-      %Mockchain.Block{} ->
+      %Chain.Block{} ->
         ref
 
-      %Mockchain.BlockCache{} ->
+      %Chain.BlockCache{} ->
         ref
 
       "latest" ->
-        Mockchain.peakBlock()
+        Chain.peakBlock()
 
       "pending" ->
-        Mockchain.Worker.candidate()
+        Chain.Worker.candidate()
 
       "earliest" ->
-        Mockchain.block(0)
+        Chain.block(0)
 
       <<"0x", _rest::binary()>> ->
         getBlock(Base16.decode_int(ref))
 
       num when is_integer(num) ->
-        case Mockchain.block(num) do
-          %Mockchain.Block{} = block -> block
+        case Chain.block(num) do
+          %Chain.Block{} = block -> block
           nil -> throw(:notfound)
         end
     end
@@ -437,16 +437,16 @@ defmodule Network.Rpc do
 
     nonce =
       Map.get_lazy(opts, "nonce", fn ->
-        Mockchain.Block.state(getBlock(blockRef))
-        |> Mockchain.State.ensure_account(from)
-        |> Mockchain.Account.nonce()
+        Chain.Block.state(getBlock(blockRef))
+        |> Chain.State.ensure_account(from)
+        |> Chain.Account.nonce()
       end)
 
     tx =
       case Map.get(opts, "to") do
         nil ->
           # Contraction creation
-          %Mockchain.Transaction{
+          %Chain.Transaction{
             to: nil,
             nonce: nonce,
             gasPrice: gasPrice,
@@ -457,7 +457,7 @@ defmodule Network.Rpc do
 
         to ->
           # Normal transaction
-          %Mockchain.Transaction{
+          %Chain.Transaction{
             to: to,
             nonce: nonce,
             gasPrice: gasPrice,
@@ -466,7 +466,7 @@ defmodule Network.Rpc do
             value: value
           }
       end
-      |> Mockchain.Transaction.sign(Wallet.privkey!(wallet))
+      |> Chain.Transaction.sign(Wallet.privkey!(wallet))
 
     tx
   end
@@ -490,7 +490,7 @@ defmodule Network.Rpc do
     end
   end
 
-  defp transaction_result(%Transaction{} = tx, %Mockchain.Block{} = block) do
+  defp transaction_result(%Transaction{} = tx, %Chain.Block{} = block) do
     [v, r, s] = Secp256k1.bitcoin_to_rlp(Transaction.signature(tx))
 
     %{

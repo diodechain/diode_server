@@ -1,12 +1,12 @@
-defmodule Mockchain.Block do
-  alias Mockchain.{Block, BlockCache, State, Transaction, TransactionReceipt, Header}
+defmodule Chain.Block do
+  alias Chain.{Block, BlockCache, State, Transaction, TransactionReceipt, Header}
 
-  defstruct transactions: [], header: %Mockchain.Header{}, receipts: []
+  defstruct transactions: [], header: %Chain.Header{}, receipts: []
 
-  @type t :: %Mockchain.Block{
-          transactions: [Mockchain.Transaction.t()],
-          header: Mockchain.Header.t(),
-          receipts: [Mockchain.TransactionReceipt.t()]
+  @type t :: %Chain.Block{
+          transactions: [Chain.Transaction.t()],
+          header: Chain.Header.t(),
+          receipts: [Chain.TransactionReceipt.t()]
         }
 
   # @min_difficulty 131072
@@ -16,17 +16,17 @@ defmodule Mockchain.Block do
   def header(%Block{header: header}), do: header
   def txhash(%Block{header: header}), do: header.transaction_hash
 
-  def parent(%Block{} = block), do: Mockchain.block_by_hash(parent_hash(block))
+  def parent(%Block{} = block), do: Chain.block_by_hash(parent_hash(block))
   def parent_hash(%Block{header: header}), do: header.previous_block
   def miner(%Block{header: header}), do: Header.miner(header)
-  @spec state(Mockchain.Block.t()) :: Mockchain.State.t()
-  def state(%Block{} = block), do: Mockchain.state_load(state_hash(block))
+  @spec state(Chain.Block.t()) :: Chain.State.t()
+  def state(%Block{} = block), do: Chain.state_load(state_hash(block))
   def state_hash(%Block{header: header}), do: header.state_hash
-  @spec hash(Mockchain.Block.t()) :: binary()
+  @spec hash(Chain.Block.t()) :: binary()
   def hash(%Block{header: header}), do: header.block_hash
-  @spec transactions(Mockchain.Block.t()) :: [Mockchain.Transaction.t()]
+  @spec transactions(Chain.Block.t()) :: [Chain.Transaction.t()]
   def transactions(%Block{transactions: transactions}), do: transactions
-  @spec timestamp(Mockchain.Block.t()) :: non_neg_integer()
+  @spec timestamp(Chain.Block.t()) :: non_neg_integer()
   def timestamp(%Block{header: header}), do: header.timestamp
   def receipts(%Block{receipts: receipts}), do: receipts
 
@@ -67,10 +67,10 @@ defmodule Mockchain.Block do
     end
   end
 
-  @spec hash_in_target?(Mockchain.Block.t(), binary) :: boolean
+  @spec hash_in_target?(Chain.Block.t(), binary) :: boolean
   def hash_in_target?(block, hash) do
     blockRef = Block.parent(block)
-    stake = Mockchain.Registry.minerValue(0, Block.miner(block), blockRef)
+    stake = Chain.Registry.minerValue(0, Block.miner(block), blockRef)
     stake = max(1, div(stake * stake, Shell.ether(1)))
 
     Hash.integer(hash) < div(stake * @max_difficulty, difficulty(block))
@@ -78,13 +78,13 @@ defmodule Mockchain.Block do
 
   @doc "Creates a new block and stores the generated state in cache file"
   @spec create(
-          Mockchain.Block.t(),
-          [Mockchain.Transaction.t()],
+          Chain.Block.t(),
+          [Chain.Transaction.t()],
           Wallet.t(),
           non_neg_integer(),
           true | false
         ) ::
-          Mockchain.Block.t()
+          Chain.Block.t()
   def create(%Block{} = parent, transactions, miner, time, trace? \\ false) do
     header = %Header{
       previous_block: hash(parent),
@@ -110,7 +110,7 @@ defmodule Mockchain.Block do
       end)
 
     state_hash =
-      Mockchain.state_store(nstate)
+      Chain.state_store(nstate)
       |> State.hash()
 
     header = %Header{
@@ -127,13 +127,13 @@ defmodule Mockchain.Block do
     BertExt.encode!(Enum.map(transactions, &Transaction.to_rlp/1))
   end
 
-  @spec simulate(Mockchain.Block.t(), true | false) :: Mockchain.Block.t()
+  @spec simulate(Chain.Block.t(), true | false) :: Chain.Block.t()
   def simulate(%Block{} = block, trace? \\ false) do
     parent =
       if Block.number(block) >= 1 do
         %Block{} = parent(block)
       else
-        Mockchain.GenesisFactory.testnet_parent()
+        Chain.GenesisFactory.testnet_parent()
       end
 
     create(parent, transactions(block), miner(block), timestamp(block), trace?)
@@ -149,7 +149,7 @@ defmodule Mockchain.Block do
     %Block{block | header: header}
   end
 
-  @spec transactionIndex(Mockchain.Block.t(), Mockchain.Transaction.t()) ::
+  @spec transactionIndex(Chain.Block.t(), Chain.Transaction.t()) ::
           nil | non_neg_integer()
   def transactionIndex(%Block{} = block, %Transaction{} = tx) do
     Enum.find_index(transactions(block), fn elem ->
@@ -177,7 +177,7 @@ defmodule Mockchain.Block do
       step = div(diff, 10)
 
       diff =
-        if delta < Mockchain.blocktimeGoal() do
+        if delta < Chain.blocktimeGoal() do
           diff + step
         else
           diff - step
@@ -211,7 +211,7 @@ defmodule Mockchain.Block do
     BlockCache.number(BlockCache.parent(block)) + 1
   end
 
-  @spec gasPrice(Mockchain.Block.t()) :: non_neg_integer()
+  @spec gasPrice(Chain.Block.t()) :: non_neg_integer()
   def gasPrice(%Block{} = block) do
     price =
       Enum.reduce(transactions(block), nil, fn tx, price ->
@@ -234,18 +234,18 @@ defmodule Mockchain.Block do
     Enum.reduce(receipts(block), 0, fn receipt, acc -> acc + receipt.gas_used end)
   end
 
-  @spec transactionReceipt(Mockchain.Block.t(), Mockchain.Transaction.t()) ::
-          Mockchain.TransactionReceipt.t()
+  @spec transactionReceipt(Chain.Block.t(), Chain.Transaction.t()) ::
+          Chain.TransactionReceipt.t()
   def transactionReceipt(%Block{} = block, %Transaction{} = tx) do
     Enum.at(receipts(block), transactionIndex(block, tx))
   end
 
-  @spec transactionGas(Mockchain.Block.t(), Mockchain.Transaction.t()) :: non_neg_integer()
+  @spec transactionGas(Chain.Block.t(), Chain.Transaction.t()) :: non_neg_integer()
   def transactionGas(%Block{} = block, %Transaction{} = tx) do
     transactionReceipt(block, tx).gas_used
   end
 
-  @spec transactionStatus(Mockchain.Block.t(), Mockchain.Transaction.t()) :: 0 | 1
+  @spec transactionStatus(Chain.Block.t(), Chain.Transaction.t()) :: 0 | 1
   def transactionStatus(%Block{} = block, %Transaction{} = tx) do
     case transactionReceipt(block, tx).msg do
       :revert -> 0
@@ -254,7 +254,7 @@ defmodule Mockchain.Block do
     end
   end
 
-  @spec transactionOut(Mockchain.Block.t(), Mockchain.Transaction.t()) :: binary() | nil
+  @spec transactionOut(Chain.Block.t(), Chain.Transaction.t()) :: binary() | nil
   def transactionOut(%Block{} = block, %Transaction{} = tx) do
     transactionReceipt(block, tx).evmout
   end
@@ -285,7 +285,7 @@ defmodule Mockchain.Block do
 
   @spec gasLimit(Block.t()) :: non_neg_integer()
   def gasLimit(%Block{} = _block) do
-    Mockchain.gasLimit()
+    Chain.gasLimit()
   end
 
   @spec extraData(Block.t()) :: <<_::528>>

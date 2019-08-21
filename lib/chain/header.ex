@@ -1,4 +1,4 @@
-defmodule Mockchain.Header do
+defmodule Chain.Header do
   import Wallet
 
   # Removed nonce since there is already a salt in the miner_signature
@@ -10,7 +10,7 @@ defmodule Mockchain.Header do
             transaction_hash: nil,
             timestamp: 0
 
-  @type t :: %Mockchain.Header{
+  @type t :: %Chain.Header{
           previous_block: binary() | nil,
           miner_signature: binary() | nil,
           miner_pubkey: binary() | nil,
@@ -43,17 +43,17 @@ defmodule Mockchain.Header do
     ])
   end
 
-  @spec update_hash(Mockchain.Header.t()) :: Mockchain.Header.t()
-  def update_hash(%Mockchain.Header{} = header) do
+  @spec update_hash(Chain.Header.t()) :: Chain.Header.t()
+  def update_hash(%Chain.Header{} = header) do
     %{header | block_hash: Diode.hash(encode_chicken(header))}
   end
 
-  @spec sign(Mockchain.Header.t(), Wallet.t(), nil | binary()) :: Mockchain.Header.t()
-  def sign(%Mockchain.Header{} = header, wallet() = miner, nonce \\ nil) do
+  @spec sign(Chain.Header.t(), Wallet.t(), nil | binary()) :: Chain.Header.t()
+  def sign(%Chain.Header{} = header, wallet() = miner, nonce \\ nil) do
     %{header | miner_signature: Secp256k1.sign(Wallet.privkey!(miner), encode_egg(header), nonce)}
   end
 
-  @spec miner(Mockchain.Header.t()) :: Wallet.t()
+  @spec miner(Chain.Header.t()) :: Wallet.t()
   def miner(header) do
     Wallet.from_pubkey(header.miner_pubkey)
   end

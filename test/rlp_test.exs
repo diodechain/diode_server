@@ -52,8 +52,8 @@ defmodule RlpTest do
         # 0xF86708843B9ACA0082A2A0949E0A6D367859C47E7895557D5F763B954952FCB08084D09DE08A2CA0F40915BA7822D7CDA5C42B530E21616249E700082A4E7401E8C62775E7C5E219A01BE95441D88652AE5ED7E57ECF837EB1DDF844024E55E5EFB6CD2AA555C913DD
       )
 
-    tx = Mockchain.Transaction.from_rlp(bin)
-    bin2 = Rlp.encode!(Mockchain.Transaction.to_rlp(tx))
+    tx = Chain.Transaction.from_rlp(bin)
+    bin2 = Rlp.encode!(Chain.Transaction.to_rlp(tx))
     assert bin == bin2
   end
 end

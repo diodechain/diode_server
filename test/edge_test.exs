@@ -30,18 +30,18 @@ defmodule EdgeTest do
   end
 
   test "getblock" do
-    assert rpc(:client_1, ["getblockpeak"]) == ["response", "getblockpeak", Mockchain.peak()]
+    assert rpc(:client_1, ["getblockpeak"]) == ["response", "getblockpeak", Chain.peak()]
   end
 
   test "getaccountvalue" do
     ["error", "getaccountvalue", "account does not exist"] =
-      rpc(:client_1, ["getaccountvalue", Mockchain.peak(), "01234567890123456789", 0])
+      rpc(:client_1, ["getaccountvalue", Chain.peak(), "01234567890123456789", 0])
 
-    {wallet, _balance} = hd(Mockchain.GenesisFactory.genesis_accounts())
+    {wallet, _balance} = hd(Chain.GenesisFactory.genesis_accounts())
     addr = Wallet.address!(wallet)
 
     ["response", "getaccountvalue", ret] =
-      rpc(:client_1, ["getaccountvalue", Mockchain.peak(), addr, 0])
+      rpc(:client_1, ["getaccountvalue", Chain.peak(), addr, 0])
 
     # Should be empty
     assert length(ret) == 2
@@ -51,7 +51,7 @@ defmodule EdgeTest do
     loc =
       location(
         server_id: Wallet.address!(Store.wallet()),
-        peak_block: Mockchain.block(Mockchain.peak()).header.block_hash
+        peak_block: Chain.block(Chain.peak()).header.block_hash
       )
       |> Location.device_sign(clientkey(1))
 

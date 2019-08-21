@@ -1,4 +1,4 @@
-defmodule Mockchain.Worker do
+defmodule Chain.Worker do
   use GenServer
 
   defstruct creds: nil,
@@ -9,11 +9,11 @@ defmodule Mockchain.Worker do
             mode: 1,
             time: nil
 
-  @type t :: %Mockchain.Worker{
+  @type t :: %Chain.Worker{
           creds: Wallet.t(),
-          proposal: [Mockchain.Transaction.t()],
+          proposal: [Chain.Transaction.t()],
           parent_hash: binary(),
-          candidate: Mockchain.Block.t(),
+          candidate: Chain.Block.t(),
           target: non_neg_integer(),
           mode: non_neg_integer() | :poll | :disabled
         }
@@ -22,8 +22,8 @@ defmodule Mockchain.Worker do
     GenServer.call(__MODULE__, :candidate)
   end
 
-  defp transactions(%Mockchain.Worker{proposal: proposal}), do: proposal
-  defp parent_hash(%Mockchain.Worker{parent_hash: parent_hash}), do: parent_hash
+  defp transactions(%Chain.Worker{proposal: proposal}), do: proposal
+  defp parent_hash(%Chain.Worker{parent_hash: parent_hash}), do: parent_hash
 
   @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
   def start_link(_mode) do
@@ -31,7 +31,7 @@ defmodule Mockchain.Worker do
   end
 
   def init(mode) do
-    state = %Mockchain.Worker{creds: Store.wallet(), mode: mode}
+    state = %Chain.Worker{creds: Store.wallet(), mode: mode}
     activate_timer(state)
     {:ok, state}
   end
@@ -48,8 +48,8 @@ defmodule Mockchain.Worker do
   def handle_cast(:update, state) do
     state = %{
       state
-      | parent_hash: Mockchain.Block.hash(Mockchain.peakBlock()),
-        proposal: Mockchain.Pool.proposal(),
+      | parent_hash: Chain.Block.hash(Chain.peakBlock()),
+        proposal: Chain.Pool.proposal(),
         candidate: nil
     }
 
@@ -75,23 +75,23 @@ defmodule Mockchain.Worker do
 
     block =
       Enum.reduce_while(1..100, candidate, fn _, candidate ->
-        candidate = Mockchain.Block.sign(candidate, creds)
-        hash = Mockchain.Block.hash(candidate)
+        candidate = Chain.Block.sign(candidate, creds)
+        hash = Chain.Block.hash(candidate)
 
-        if Mockchain.Block.hash_in_target?(candidate, hash) do
+        if Chain.Block.hash_in_target?(candidate, hash) do
           {:halt, candidate}
         else
           {:cont, candidate}
         end
       end)
 
-    hash = Mockchain.Block.hash(block)
+    hash = Chain.Block.hash(block)
 
-    if Mockchain.Block.hash_in_target?(block, hash) do
-      if Mockchain.add_block(block) == :added do
-        done = Mockchain.Block.transactions(block)
-        keys = Enum.map(done, &Mockchain.Transaction.hash/1)
-        Mockchain.Pool.remove_transactions(keys)
+    if Chain.Block.hash_in_target?(block, hash) do
+      if Chain.add_block(block) == :added do
+        done = Chain.Block.transactions(block)
+        keys = Enum.map(done, &Chain.Transaction.hash/1)
+        Chain.Pool.remove_transactions(keys)
       end
 
       update()
@@ -102,41 +102,41 @@ defmodule Mockchain.Worker do
   end
 
   defp generate_candidate(state = %{parent_hash: nil}) do
-    parent_hash = Mockchain.Block.hash(Mockchain.peakBlock())
+    parent_hash = Chain.Block.hash(Chain.peakBlock())
     generate_candidate(%{state | parent_hash: parent_hash})
   end
 
   defp generate_candidate(state = %{proposal: nil}) do
-    generate_candidate(%{state | proposal: Mockchain.Pool.proposal()})
+    generate_candidate(%{state | proposal: Chain.Pool.proposal()})
   end
 
   defp generate_candidate(state = %{candidate: nil, creds: creds}) do
     prev_hash = parent_hash(state)
-    parent = %Mockchain.Block{} = Mockchain.block_by_hash(prev_hash)
+    parent = %Chain.Block{} = Chain.block_by_hash(prev_hash)
     time = System.os_time(:second)
-    account = Mockchain.State.ensure_account(Mockchain.peakState(), Wallet.address!(creds))
+    account = Chain.State.ensure_account(Chain.peakState(), Wallet.address!(creds))
 
     tx =
-      %Mockchain.Transaction{
-        nonce: Mockchain.Account.nonce(account),
+      %Chain.Transaction{
+        nonce: Chain.Account.nonce(account),
         gasPrice: 0,
         gasLimit: 1_000_000_000,
         to: Diode.registryAddress(),
         data: ABI.encode_spec("blockReward")
       }
-      |> Mockchain.Transaction.sign(Wallet.privkey!(creds))
+      |> Chain.Transaction.sign(Wallet.privkey!(creds))
 
     txs = [tx | transactions(state)]
-    block = Mockchain.Block.create(parent, txs, creds, time)
-    done = Mockchain.Block.transactions(block)
+    block = Chain.Block.create(parent, txs, creds, time)
+    done = Chain.Block.transactions(block)
 
     if done != txs do
       failed = MapSet.difference(MapSet.new(txs), MapSet.new(done))
-      keys = Enum.map(failed, &Mockchain.Transaction.hash/1)
-      Mockchain.Pool.remove_transactions(keys)
+      keys = Enum.map(failed, &Chain.Transaction.hash/1)
+      Chain.Pool.remove_transactions(keys)
     end
 
-    diff = Mockchain.Block.difficulty(block)
+    diff = Chain.Block.difficulty(block)
     generate_candidate(%{state | candidate: block, target: diff, time: time})
   end
 

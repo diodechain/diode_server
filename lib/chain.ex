@@ -1,26 +1,26 @@
-defmodule Mockchain do
-  alias Mockchain.BlockCache, as: Block
+defmodule Chain do
+  alias Chain.BlockCache, as: Block
   use GenServer
   defstruct peak: nil, by_hash: %{}, states: %{}, length: 0
 
-  @type t :: %Mockchain{
-          peak: Mockchain.Block.t(),
-          by_hash: %{binary() => Mockchain.Block.t()},
+  @type t :: %Chain{
+          peak: Chain.Block.t(),
+          by_hash: %{binary() => Chain.Block.t()},
           length: non_neg_integer(),
           states: Map.t()
         }
 
-  @cache "mockchain.db"
+  @cache "chain.db"
 
   @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
   end
 
-  @spec init(any()) :: {:ok, Mockchain.t()}
+  @spec init(any()) :: {:ok, Chain.t()}
   def init(_) do
     state = load_blocks()
-    spawn_link(&saver_loop/0) |> Process.register(Mockchain.Saver)
+    spawn_link(&saver_loop/0) |> Process.register(Chain.Saver)
 
     {:ok, state}
   end
@@ -98,22 +98,22 @@ defmodule Mockchain do
     Block.number(peakBlock())
   end
 
-  @spec peakBlock() :: Mockchain.Block.t()
+  @spec peakBlock() :: Chain.Block.t()
   def peakBlock() do
     get(fn state -> state.peak end)
   end
 
-  @spec peakState() :: Mockchain.State.t()
+  @spec peakState() :: Chain.State.t()
   def peakState() do
     Block.state(peakBlock())
   end
 
-  @spec block(number()) :: Mockchain.Block.t() | nil
+  @spec block(number()) :: Chain.Block.t() | nil
   def block(n) do
     Enum.at(blocks(), -(n + 1))
   end
 
-  @spec block_by_hash(any()) :: Mockchain.Block.t() | nil
+  @spec block_by_hash(any()) :: Chain.Block.t() | nil
   def block_by_hash(nil) do
     nil
   end
@@ -135,14 +135,14 @@ defmodule Mockchain do
   @spec blocks(any()) :: Enumerable.t()
   def blocks(hash) do
     Stream.unfold(hash, fn hash ->
-      case Mockchain.block_by_hash(hash) do
+      case Chain.block_by_hash(hash) do
         nil -> nil
         block -> {block, Block.parent_hash(block)}
       end
     end)
   end
 
-  @spec load_blocks() :: Mockchain.t()
+  @spec load_blocks() :: Chain.t()
   def load_blocks() do
     chain =
       load_file(Diode.dataDir(@cache), fn ->
@@ -150,7 +150,7 @@ defmodule Mockchain do
         Store.set_block_transactions(gen)
         hash = Block.hash(gen)
 
-        %Mockchain{
+        %Chain{
           peak: gen,
           by_hash: %{hash => gen},
           states: %{},
@@ -159,12 +159,12 @@ defmodule Mockchain do
       end)
 
     case chain do
-      %Mockchain{} ->
+      %Chain{} ->
         chain
 
       # Compatibility import for old states
       blocks when is_list(blocks) ->
-        %Mockchain{
+        %Chain{
           peak: hd(blocks),
           by_hash:
             Enum.reduce(blocks, %{}, fn block, map ->
@@ -180,13 +180,13 @@ defmodule Mockchain do
   def add_block(block, relay \\ true) do
     block_hash = Block.hash(block)
 
-    if Mockchain.block_by_hash(block_hash) != nil do
-      IO.puts("Mockchain.add_block: Rejected existing block")
+    if Chain.block_by_hash(block_hash) != nil do
+      IO.puts("Chain.add_block: Rejected existing block")
     else
       number = Block.number(block)
 
       if number < 1 do
-        IO.puts("Mockchain.add_block: Rejected invalid genesis block")
+        IO.puts("Chain.add_block: Rejected invalid genesis block")
         :rejected
       else
         parent_hash = Block.parent_hash(block)
@@ -209,9 +209,9 @@ defmodule Mockchain do
 
       if peak_hash == parent_hash || number - blockchainDelta() > state.length do
         if peak_hash == parent_hash do
-          IO.puts("Mockchain.add_block: Extending main #{info}")
+          IO.puts("Chain.add_block: Extending main #{info}")
         else
-          IO.puts("Mockchain.add_block: Replacing main #{info}")
+          IO.puts("Chain.add_block: Replacing main #{info}")
         end
 
         state = %{
@@ -222,7 +222,7 @@ defmodule Mockchain do
         }
 
         Store.set_block_transactions(block)
-        send(Mockchain.Saver, :store)
+        send(Chain.Saver, :store)
 
         if relay do
           Kademlia.publish(block)
@@ -230,14 +230,14 @@ defmodule Mockchain do
 
         {:reply, :added, state}
       else
-        IO.puts("Mockchain.add_block: Extending  alt #{info}")
+        IO.puts("Chain.add_block: Extending  alt #{info}")
         state = %{state | by_hash: Map.put(state.by_hash, block_hash, block)}
         {:reply, :stored, state}
       end
     end)
   end
 
-  @spec state(number()) :: Mockchain.State.t()
+  @spec state(number()) :: Chain.State.t()
   def state(n) do
     Block.state(block(n))
   end
@@ -270,7 +270,7 @@ defmodule Mockchain do
     end
   end
 
-  @spec state_load(binary()) :: Mockchain.State.t()
+  @spec state_load(binary()) :: Chain.State.t()
   def state_load(state_hash) do
     case Process.get(:state_cache) do
       {^state_hash, state} ->
@@ -284,14 +284,14 @@ defmodule Mockchain do
     end
   end
 
-  @spec state_store(Mockchain.State.t()) :: Mockchain.State.t()
+  @spec state_store(Chain.State.t()) :: Chain.State.t()
   def state_store(state) do
-    name = Base16.encode(Mockchain.State.hash(state))
+    name = Base16.encode(Chain.State.hash(state))
     store_file("states/#{name}", state)
   end
 
   defp genesis() do
-    Mockchain.GenesisFactory.testnet()
+    Chain.GenesisFactory.testnet()
   end
 end
 

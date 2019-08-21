@@ -1,5 +1,5 @@
 defmodule Network.PeerHandler do
-  alias Mockchain.BlockCache, as: Block
+  alias Chain.BlockCache, as: Block
 
   use GenServer
   alias Object.Server, as: Server
@@ -72,7 +72,7 @@ defmodule Network.PeerHandler do
   def handle_continue(:send_hello, state) do
     hello = Diode.self()
 
-    send!(state.socket, [@hello, Object.encode!(hello), Block.hash(Mockchain.block(0))])
+    send!(state.socket, [@hello, Object.encode!(hello), Block.hash(Chain.block(0))])
 
     receive do
       {:ssl, _socket, msg} ->
@@ -127,7 +127,7 @@ defmodule Network.PeerHandler do
   end
 
   defp handle_msg([@hello, server, genesis_hash], state) do
-    genesis = Block.hash(Mockchain.block(0))
+    genesis = Block.hash(Chain.block(0))
 
     if genesis != genesis_hash do
       :io.format("Hello wrong genesis: ~p ~p~n", [peer(state), genesis_hash])
@@ -181,9 +181,9 @@ defmodule Network.PeerHandler do
     {[@response, @store, "ok"], state}
   end
 
-  defp handle_msg([@publish, %Mockchain.Transaction{} = tx], state) do
-    if Mockchain.Transaction.valid?(tx) do
-      Mockchain.Pool.add_transaction(tx)
+  defp handle_msg([@publish, %Chain.Transaction{} = tx], state) do
+    if Chain.Transaction.valid?(tx) do
+      Chain.Pool.add_transaction(tx)
       {[@response, @publish, "ok"], state}
     else
       {[@response, @publish, "error"], state}
@@ -210,7 +210,7 @@ defmodule Network.PeerHandler do
     {[@response, @publish, msg], state}
   end
 
-  defp handle_msg([@publish, %Mockchain.Block{} = block], state) do
+  defp handle_msg([@publish, %Chain.Block{} = block], state) do
     case Block.parent(block) do
       # Block is based on unknown predecessor
       # keep block in block backup list
@@ -237,16 +237,16 @@ defmodule Network.PeerHandler do
 
         {[@response, @publish, "missing_parent"], %{state | blocks: blocks}}
 
-      %Mockchain.Block{} ->
+      %Chain.Block{} ->
         case Block.valid?(block) do
           true ->
-            Mockchain.add_block(block)
+            Chain.add_block(block)
 
             # replay block backup list
             Enum.each(state.blocks, fn oldblock ->
               if Block.parent(oldblock) != nil and
                    Block.valid?(oldblock) do
-                Mockchain.add_block(oldblock, false)
+                Chain.add_block(oldblock, false)
               end
             end)
 
@@ -261,7 +261,7 @@ defmodule Network.PeerHandler do
   end
 
   defp handle_msg(msg = [@response, @publish, "missing_parent"], state = %{oldest_parent: nil}) do
-    {:value, {[@publish, %Mockchain.Block{} = block], _from}} = :queue.peek(state.calls)
+    {:value, {[@publish, %Chain.Block{} = block], _from}} = :queue.peek(state.calls)
     handle_msg(msg, %{state | oldest_parent: block})
   end
 
@@ -270,7 +270,7 @@ defmodule Network.PeerHandler do
 
     # if there is a missing parent we're batching 65k blocks at once
     parents =
-      Enum.reduce_while(Mockchain.blocks(parent_hash), [], fn block, blocks ->
+      Enum.reduce_while(Chain.blocks(parent_hash), [], fn block, blocks ->
         next = [block | blocks]
 
         if byte_size(:erlang.term_to_binary(next)) > 260_000 do

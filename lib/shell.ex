@@ -14,7 +14,7 @@ defmodule Shell do
     registryContract = Diode.registryAddress()
     Shell.call(registryContract, "ContractStake", ["address"], [fleetContract])
 
-    wallet = Mockchain.GenesisFactory.genesis_accounts |> hd |> elem(0)
+    wallet = Chain.GenesisFactory.genesis_accounts |> hd |> elem(0)
     Shell.call_from(wallet, registryContract, "ContractStake", ["address"], [fleetContract])
   """
   def call(address, name, types \\ [], values \\ [], opts \\ [])
@@ -26,15 +26,15 @@ defmodule Shell do
       when is_list(types) and is_list(values) do
     opts =
       opts
-      |> Keyword.put_new(:gas, Mockchain.gasLimit() * 100)
+      |> Keyword.put_new(:gas, Chain.gasLimit() * 100)
       |> Keyword.put_new(:gasPrice, 0)
 
     tx = transaction(wallet, address, name, types, values, opts)
 
     blockRef = Keyword.get(opts, :blockRef, "latest")
     block = Network.Rpc.getBlock(blockRef)
-    state = Mockchain.Block.state(block)
-    {:ok, rcpt} = Mockchain.Transaction.apply(tx, block, state)
+    state = Chain.Block.state(block)
+    {:ok, rcpt} = Chain.Transaction.apply(tx, block, state)
 
     ret =
       case rcpt.msg do
@@ -48,7 +48,7 @@ defmodule Shell do
   def submit_from(wallet, address, name, types, values, opts \\ [])
       when is_list(types) and is_list(values) do
     tx = transaction(wallet, address, name, types, values, opts)
-    Mockchain.Pool.add_transaction(tx)
+    Chain.Pool.add_transaction(tx)
   end
 
   def transaction(wallet, address, name, types, values, opts \\ [])
@@ -60,7 +60,7 @@ defmodule Shell do
 
     opts =
       opts
-      |> Keyword.put_new(:gas, Mockchain.gasLimit())
+      |> Keyword.put_new(:gas, Chain.gasLimit())
       |> Keyword.put_new(:gasPrice, 0)
       |> Keyword.put(:to, address)
       |> Enum.map(fn {key, value} -> {Atom.to_string(key), value} end)
@@ -70,9 +70,9 @@ defmodule Shell do
   end
 
   def get_balance(address) do
-    Mockchain.peakState()
-    |> Mockchain.State.ensure_account(address)
-    |> Mockchain.Account.balance()
+    Chain.peakState()
+    |> Chain.State.ensure_account(address)
+    |> Chain.Account.balance()
   end
 
   @spec get_miner_stake(binary()) :: non_neg_integer()
@@ -84,15 +84,15 @@ defmodule Shell do
   end
 
   def get_slot(address, slot) do
-    Mockchain.peakState()
-    |> Mockchain.State.ensure_account(address)
-    |> Mockchain.Account.storageValue(slot)
+    Chain.peakState()
+    |> Chain.State.ensure_account(address)
+    |> Chain.Account.storageValue(slot)
   end
 
   def get_code(address) do
-    Mockchain.peakState()
-    |> Mockchain.State.ensure_account(address)
-    |> Mockchain.Account.code()
+    Chain.peakState()
+    |> Chain.State.ensure_account(address)
+    |> Chain.Account.code()
   end
 
   def ether(x), do: 1000 * finney(x)

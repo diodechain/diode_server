@@ -1,5 +1,5 @@
-defmodule Mockchain.Pool do
-  alias Mockchain.Transaction
+defmodule Chain.Pool do
+  alias Chain.Transaction
   use GenServer
   defstruct transactions: %{}
 
@@ -8,9 +8,9 @@ defmodule Mockchain.Pool do
     GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
   end
 
-  @spec init(any()) :: {:ok, Mockchain.Pool.t()}
+  @spec init(any()) :: {:ok, Chain.Pool.t()}
   def init(_init_arg) do
-    {:ok, %Mockchain.Pool{}}
+    {:ok, %Chain.Pool{}}
   end
 
   def remove_transaction(key) do
@@ -22,7 +22,7 @@ defmodule Mockchain.Pool do
       {:reply, :ok, %{pool | transactions: Map.drop(transactions, keys)}}
     end)
 
-    Mockchain.Worker.update()
+    Chain.Worker.update()
   end
 
   @spec add_transaction(Transaction.t()) :: :ok
@@ -34,7 +34,7 @@ defmodule Mockchain.Pool do
       {:reply, :ok, %{pool | transactions: txs}}
     end)
 
-    Mockchain.Worker.update()
+    Chain.Worker.update()
   end
 
   @spec flush() :: [Transaction.t()]
@@ -46,8 +46,8 @@ defmodule Mockchain.Pool do
 
   @doc "Returns the optimal mining proposal"
   def proposal() do
-    limit = Mockchain.gasLimit()
-    avg = Mockchain.averageTransactionGas()
+    limit = Chain.gasLimit()
+    avg = Chain.averageTransactionGas()
 
     transactions()
     |> Enum.sort(fn a, b ->

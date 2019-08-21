@@ -1,4 +1,4 @@
-defmodule Mockchain.Registry do
+defmodule Chain.Registry do
   @moduledoc """
     Wrapper for the DiodeRegistry contract functions
     as needed by the inner workings of the chain

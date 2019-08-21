@@ -1,5 +1,5 @@
-defmodule Mockchain.Transaction do
-  alias Mockchain.TransactionReceipt
+defmodule Chain.Transaction do
+  alias Chain.TransactionReceipt
 
   defstruct nonce: 1,
             gasPrice: 0,
@@ -10,27 +10,27 @@ defmodule Mockchain.Transaction do
             init: nil,
             data: nil
 
-  def nonce(%Mockchain.Transaction{nonce: nonce}), do: nonce
-  def data(%Mockchain.Transaction{data: nil}), do: ""
-  def data(%Mockchain.Transaction{data: data}), do: data
-  def gasPrice(%Mockchain.Transaction{gasPrice: gasPrice}), do: gasPrice
-  def gasLimit(%Mockchain.Transaction{gasLimit: gasLimit}), do: gasLimit
-  def value(%Mockchain.Transaction{value: val}), do: val
-  def signature(%Mockchain.Transaction{signature: sig}), do: sig
-  def payload(%Mockchain.Transaction{to: nil, init: nil}), do: ""
-  def payload(%Mockchain.Transaction{to: nil, init: init}), do: init
-  def payload(%Mockchain.Transaction{data: nil}), do: ""
-  def payload(%Mockchain.Transaction{data: data}), do: data
-  def to(%Mockchain.Transaction{to: nil} = tx), do: new_contract_address(tx)
-  def to(%Mockchain.Transaction{to: to}), do: to
+  def nonce(%Chain.Transaction{nonce: nonce}), do: nonce
+  def data(%Chain.Transaction{data: nil}), do: ""
+  def data(%Chain.Transaction{data: data}), do: data
+  def gasPrice(%Chain.Transaction{gasPrice: gasPrice}), do: gasPrice
+  def gasLimit(%Chain.Transaction{gasLimit: gasLimit}), do: gasLimit
+  def value(%Chain.Transaction{value: val}), do: val
+  def signature(%Chain.Transaction{signature: sig}), do: sig
+  def payload(%Chain.Transaction{to: nil, init: nil}), do: ""
+  def payload(%Chain.Transaction{to: nil, init: init}), do: init
+  def payload(%Chain.Transaction{data: nil}), do: ""
+  def payload(%Chain.Transaction{data: data}), do: data
+  def to(%Chain.Transaction{to: nil} = tx), do: new_contract_address(tx)
+  def to(%Chain.Transaction{to: to}), do: to
 
-  @spec from_rlp(binary()) :: Mockchain.Transaction.t()
+  @spec from_rlp(binary()) :: Chain.Transaction.t()
   def from_rlp(bin) do
     [nonce, gasPrice, gasLimit, to, value, init, rec, r, s] = Rlp.decode!(bin)
 
     to = Rlp.bin2addr(to)
 
-    %Mockchain.Transaction{
+    %Chain.Transaction{
       nonce: Rlp.bin2num(nonce),
       gasPrice: Rlp.bin2num(gasPrice),
       gasLimit: Rlp.bin2num(gasLimit),
@@ -42,14 +42,14 @@ defmodule Mockchain.Transaction do
     }
   end
 
-  @spec valid?(Mockchain.Transaction.t()) :: boolean()
+  @spec valid?(Chain.Transaction.t()) :: boolean()
   def valid?(tx) do
     validate(tx) == true
   end
 
-  @spec validate(Mockchain.Transaction.t()) :: true | {non_neg_integer(), any()}
+  @spec validate(Chain.Transaction.t()) :: true | {non_neg_integer(), any()}
   def validate(tx) do
-    with {1, %Mockchain.Transaction{}} <- {1, tx},
+    with {1, %Chain.Transaction{}} <- {1, tx},
          {2, 65} <- {2, byte_size(signature(tx))},
          {4, true} <- {4, value(tx) >= 0},
          {5, true} <- {5, gasPrice(tx) >= 0},
@@ -61,17 +61,17 @@ defmodule Mockchain.Transaction do
     end
   end
 
-  @spec contract_creation?(Mockchain.Transaction.t()) :: boolean()
-  def contract_creation?(%Mockchain.Transaction{to: to}) do
+  @spec contract_creation?(Chain.Transaction.t()) :: boolean()
+  def contract_creation?(%Chain.Transaction{to: to}) do
     to == nil
   end
 
-  @spec new_contract_address(Mockchain.Transaction.t()) :: binary()
-  def new_contract_address(%Mockchain.Transaction{to: to}) when to != nil do
+  @spec new_contract_address(Chain.Transaction.t()) :: binary()
+  def new_contract_address(%Chain.Transaction{to: to}) when to != nil do
     nil
   end
 
-  def new_contract_address(%Mockchain.Transaction{nonce: nonce} = tx) do
+  def new_contract_address(%Chain.Transaction{nonce: nonce} = tx) do
     address = Wallet.address!(origin(tx))
 
     Rlp.encode!([address, nonce])
@@ -79,59 +79,59 @@ defmodule Mockchain.Transaction do
     |> Hash.to_address()
   end
 
-  @spec to_rlp(Mockchain.Transaction.t()) :: [...]
+  @spec to_rlp(Chain.Transaction.t()) :: [...]
   def to_rlp(tx) do
     [tx.nonce, tx.gasPrice, tx.gasLimit, tx.to, tx.value, payload(tx)] ++
       Secp256k1.bitcoin_to_rlp(tx.signature)
   end
 
-  @spec from(Mockchain.Transaction.t()) :: <<_::160>>
+  @spec from(Chain.Transaction.t()) :: <<_::160>>
   def from(tx) do
     Wallet.address!(origin(tx))
   end
 
-  @spec recover(Mockchain.Transaction.t()) :: binary()
+  @spec recover(Chain.Transaction.t()) :: binary()
   def recover(tx) do
     Secp256k1.recover!(signature(tx), to_message(tx), :kec)
   end
 
-  @spec origin(Mockchain.Transaction.t()) :: Wallet.t()
+  @spec origin(Chain.Transaction.t()) :: Wallet.t()
   def origin(tx) do
     recover(tx) |> Wallet.from_pubkey()
   end
 
-  @spec sign(Mockchain.Transaction.t(), <<_::256>>) :: Mockchain.Transaction.t()
-  def sign(tx = %Mockchain.Transaction{}, priv) do
+  @spec sign(Chain.Transaction.t(), <<_::256>>) :: Chain.Transaction.t()
+  def sign(tx = %Chain.Transaction{}, priv) do
     %{tx | signature: Secp256k1.sign(priv, to_message(tx), nil, :kec)}
   end
 
-  @spec hash(Mockchain.Transaction.t()) :: binary()
+  @spec hash(Chain.Transaction.t()) :: binary()
   def hash(tx) do
     to_rlp(tx) |> Rlp.encode!() |> Diode.hash()
   end
 
-  @spec to_message(Mockchain.Transaction.t()) :: binary()
+  @spec to_message(Chain.Transaction.t()) :: binary()
   def to_message(tx) do
     [tx.nonce, tx.gasPrice, tx.gasLimit, tx.to, tx.value, payload(tx)]
     |> Rlp.encode!()
   end
 
-  @spec apply(Mockchain.Transaction.t(), Mockchain.Block.t(), Mockchain.State.t(), false | true) ::
-          {:error, :not_enough_balance} | {:ok, Mockchain.Receipt.t()}
+  @spec apply(Chain.Transaction.t(), Chain.Block.t(), Chain.State.t(), false | true) ::
+          {:error, :not_enough_balance} | {:ok, Chain.Receipt.t()}
   def apply(
-        tx = %Mockchain.Transaction{nonce: nonce},
-        env = %Mockchain.Block{},
-        state = %Mockchain.State{},
+        tx = %Chain.Transaction{nonce: nonce},
+        env = %Chain.Block{},
+        state = %Chain.State{},
         trace? \\ false
       ) do
     # :io.format("tx origin: ~p~n", [origin(tx)])
 
     from = from(tx)
-    # IO.puts("Nonce: #{nonce} => #{Mockchain.State.account(state, from).nonce}")
+    # IO.puts("Nonce: #{nonce} => #{Chain.State.account(state, from).nonce}")
 
     # Note: Even a non-existing account can send transaction, as long as value and gasprice are 0
-    case Mockchain.State.ensure_account(state, from) do
-      from_acc = %Mockchain.Account{nonce: ^nonce} ->
+    case Chain.State.ensure_account(state, from) do
+      from_acc = %Chain.Account{nonce: ^nonce} ->
         fee = gasLimit(tx) * gasPrice(tx)
 
         # Deducting fee and value from source account
@@ -152,11 +152,11 @@ defmodule Mockchain.Transaction do
     # Creating / finding destination account
     {acc, code} =
       if contract_creation?(tx) do
-        acc = %Mockchain.Account{nonce: 1}
+        acc = %Chain.Account{nonce: 1}
         {acc, payload(tx)}
       else
-        acc = Mockchain.State.ensure_account(state, to(tx))
-        {acc, Mockchain.Account.code(acc)}
+        acc = Chain.State.ensure_account(state, to(tx))
+        {acc, Chain.Account.code(acc)}
       end
 
     # Adding tx.value to it's balance
@@ -164,8 +164,8 @@ defmodule Mockchain.Transaction do
 
     new_state =
       state
-      |> Mockchain.State.set_account(from, from_acc)
-      |> Mockchain.State.set_account(to(tx), acc)
+      |> Chain.State.set_account(from, from_acc)
+      |> Chain.State.set_account(to(tx), acc)
 
     evm = Evm.init(tx, new_state, env, acc.storageRoot, code, trace?)
 
@@ -174,19 +174,19 @@ defmodule Mockchain.Transaction do
         {:ok, evm} ->
           new_state = Evm.state(evm)
 
-          from_acc = Mockchain.State.account(new_state, from)
+          from_acc = Chain.State.account(new_state, from)
           from_acc = %{from_acc | balance: from_acc.balance + Evm.gas(evm) * gasPrice(tx)}
-          new_state = Mockchain.State.set_account(new_state, from, from_acc)
+          new_state = Chain.State.set_account(new_state, from, from_acc)
 
           # The destination might be selfdestructed
           new_state =
-            case Mockchain.State.account(new_state, to(tx)) do
+            case Chain.State.account(new_state, to(tx)) do
               nil ->
                 new_state
 
               acc ->
                 acc = if contract_creation?(tx), do: %{acc | code: Evm.out(evm)}, else: acc
-                Mockchain.State.set_account(new_state, to(tx), acc)
+                Chain.State.set_account(new_state, to(tx), acc)
             end
 
           # :io.format("evm: ~240p~n", [evm])
@@ -204,7 +204,7 @@ defmodule Mockchain.Transaction do
         {:error, msg, gasLeft} ->
           # Only applying the full fee (restoring the tx.value)
           state =
-            Mockchain.State.set_account(state, from, %{
+            Chain.State.set_account(state, from, %{
               from_acc
               | balance: from_acc.balance + tx.value
             })
@@ -216,7 +216,7 @@ defmodule Mockchain.Transaction do
           gasUsed = gasLimit(tx) - gasLeft
 
           state =
-            Mockchain.State.set_account(state, from, %{
+            Chain.State.set_account(state, from, %{
               from_acc
               | balance: from_acc.balance + gasLeft * gasPrice(tx) + tx.value
             })

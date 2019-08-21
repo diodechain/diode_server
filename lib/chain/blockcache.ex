@@ -1,5 +1,5 @@
-defmodule Mockchain.BlockCache do
-  alias Mockchain.Block
+defmodule Chain.BlockCache do
+  alias Chain.Block
   use GenServer
 
   defstruct difficulty: 0, totalDifficulty: 0, number: -1, receipts: []
@@ -18,7 +18,7 @@ defmodule Mockchain.BlockCache do
   end
 
   def create_cache(block) do
-    %Mockchain.BlockCache{
+    %Chain.BlockCache{
       difficulty: Block.difficulty(block),
       totalDifficulty: Block.totalDifficulty(block),
       number: Block.number(block),
@@ -27,7 +27,7 @@ defmodule Mockchain.BlockCache do
   end
 
   def cache(nil) do
-    %Mockchain.BlockCache{}
+    %Chain.BlockCache{}
   end
 
   def cache(block) do

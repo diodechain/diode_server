@@ -1,7 +1,7 @@
 defmodule EvmTest do
   use ExUnit.Case, async: true
-  alias Mockchain.Transaction
-  alias Mockchain.TransactionReceipt
+  alias Chain.Transaction
+  alias Chain.TransactionReceipt
 
   test "init" do
     evm = Evm.init()
@@ -14,8 +14,8 @@ defmodule EvmTest do
     priv = Wallet.privkey!(wallet)
     miner = Wallet.new()
 
-    state = Mockchain.State.new()
-    block = %Mockchain.Block{header: %Mockchain.Header{miner_pubkey: Wallet.pubkey!(miner)}}
+    state = Chain.State.new()
+    block = %Chain.Block{header: %Chain.Header{miner_pubkey: Wallet.pubkey!(miner)}}
 
     #     pragma solidity >=0.4.22 <0.6.0;
 
@@ -38,14 +38,14 @@ defmodule EvmTest do
     ctx = %{Transaction.from_rlp(bin) | gasLimit: 100_000_000}
     ctx = Transaction.sign(ctx, priv)
 
-    user_acc = %Mockchain.Account{
+    user_acc = %Chain.Account{
       nonce: ctx.nonce,
       balance: ctx.value + 2 * Transaction.gasLimit(ctx) * Transaction.gasPrice(ctx)
     }
 
     assert Wallet.pubkey!(Transaction.origin(ctx)) == Wallet.pubkey!(wallet)
 
-    state = Mockchain.State.set_account(state, Wallet.address!(wallet), user_acc)
+    state = Chain.State.set_account(state, Wallet.address!(wallet), user_acc)
 
     # Fail test 1: Too little balance
     ctx_fail = %{ctx | gasLimit: ctx.gasLimit * 1_000_000} |> Transaction.sign(priv)
@@ -58,8 +58,8 @@ defmodule EvmTest do
     {:ok, %TransactionReceipt{msg: :ok, state: state}} = Transaction.apply(ctx, block, state)
 
     # Checking value of i at position 0
-    acc = Mockchain.State.account(state, Transaction.new_contract_address(ctx))
-    value = Mockchain.Account.storageInteger(acc, 0)
+    acc = Chain.State.account(state, Transaction.new_contract_address(ctx))
+    value = Chain.Account.storageInteger(acc, 0)
     assert value == 0
 
     # Method call increment
@@ -84,8 +84,8 @@ defmodule EvmTest do
     assert evmout == ""
 
     # Checking value of i at position 0
-    acc = Mockchain.State.account(state, Transaction.new_contract_address(ctx))
-    value = Mockchain.Account.storageInteger(acc, 0)
+    acc = Chain.State.account(state, Transaction.new_contract_address(ctx))
+    value = Chain.Account.storageInteger(acc, 0)
     assert value == 1
   end
 end

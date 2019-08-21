@@ -1,7 +1,7 @@
-defmodule Mockchain.GenesisFactory do
-  alias Mockchain.Account, as: Account
+defmodule Chain.GenesisFactory do
+  alias Chain.Account, as: Account
 
-  @spec testnet() :: Mockchain.Block.t()
+  @spec testnet() :: Chain.Block.t()
   def testnet() do
     genesis(genesis_accounts(), genesis_transactions(genesis_miner()), genesis_miner())
   end
@@ -52,53 +52,53 @@ defmodule Mockchain.GenesisFactory do
     )
   end
 
-  @spec genesis_transactions(Wallet.t()) :: [Mockchain.Transaction.t(), ...]
+  @spec genesis_transactions(Wallet.t()) :: [Chain.Transaction.t(), ...]
   def genesis_transactions(miner) do
     # Call "blockReward()":
     priv = miner |> Wallet.privkey!()
 
     tx =
-      %Mockchain.Transaction{
+      %Chain.Transaction{
         nonce: 0,
         gasPrice: 0,
         gasLimit: 1_000_000_000,
         to: Diode.registryAddress(),
         data: ABI.encode_spec("blockReward")
       }
-      |> Mockchain.Transaction.sign(priv)
+      |> Chain.Transaction.sign(priv)
 
     [tx]
   end
 
-  @spec genesis_parent(Mockchain.State.t(), Wallet.t()) :: Mockchain.Block.t()
+  @spec genesis_parent(Chain.State.t(), Wallet.t()) :: Chain.Block.t()
   def genesis_parent(state, miner) do
-    %Mockchain.Block{
-      header: %Mockchain.Header{
+    %Chain.Block{
+      header: %Chain.Header{
         block_hash: nil,
-        state_hash: Mockchain.State.hash(state),
+        state_hash: Chain.State.hash(state),
         miner_pubkey: Wallet.pubkey!(miner)
       }
     }
   end
 
   def genesis_state(accounts) do
-    Enum.reduce(accounts, Mockchain.State.new(), fn {wallet, user_account}, state ->
-      Mockchain.State.set_account(state, Wallet.address!(wallet), user_account)
+    Enum.reduce(accounts, Chain.State.new(), fn {wallet, user_account}, state ->
+      Chain.State.set_account(state, Wallet.address!(wallet), user_account)
     end)
   end
 
-  @spec genesis(any(), [Mockchain.Transaction.t()], Wallet.t()) :: Mockchain.Block.t()
+  @spec genesis(any(), [Chain.Transaction.t()], Wallet.t()) :: Chain.Block.t()
   def genesis(accounts, transactions, miner) do
     state = genesis_state(accounts)
-    Mockchain.state_store(state)
+    Chain.state_store(state)
 
     parent = genesis_parent(state, miner)
-    block = Mockchain.Block.create(parent, transactions, miner, 1_555_510_594)
-    header = Mockchain.Block.header(block)
+    block = Chain.Block.create(parent, transactions, miner, 1_555_510_594)
+    header = Chain.Block.header(block)
 
     header =
       %{header | miner_signature: <<0::520>>}
-      |> Mockchain.Header.update_hash()
+      |> Chain.Header.update_hash()
 
     %{block | header: header}
   end

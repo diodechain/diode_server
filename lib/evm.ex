@@ -2,10 +2,10 @@ defmodule Evm do
   @moduledoc """
   Wrapper around epoch/aevm
   """
-  alias Mockchain.Transaction
+  alias Chain.Transaction
 
   defmodule State do
-    defstruct mockchain_state: nil,
+    defstruct chain_state: nil,
               from: nil,
               origin: nil,
               tx: nil,
@@ -20,8 +20,8 @@ defmodule Evm do
               selfdestructs: []
 
     @spec store(Evm.State.t()) :: MerkleTree.merkle()
-    def store(%State{mockchain_state: st} = state) do
-      Mockchain.State.ensure_account(st, address(state)).storageRoot
+    def store(%State{chain_state: st} = state) do
+      Chain.State.ensure_account(st, address(state)).storageRoot
     end
 
     def code(%State{code: code}), do: code
@@ -33,8 +33,8 @@ defmodule Evm do
 
     def address(%State{tx: tx}), do: Transaction.to(tx)
 
-    def account(%State{mockchain_state: st} = state),
-      do: Mockchain.State.ensure_account(st, address(state))
+    def account(%State{chain_state: st} = state),
+      do: Chain.State.ensure_account(st, address(state))
 
     ###################################
     ##### AEVM ChainAPI functions #####
@@ -49,20 +49,20 @@ defmodule Evm do
               type: :exception | :revert | :ok
             )
 
-    def set_store(store, %State{mockchain_state: st} = state) do
+    def set_store(store, %State{chain_state: st} = state) do
       # :io.format("set_store(~p) : ~p~n", [address(state), MerkleTree.to_list(store)])
       account = %{account(state) | storageRoot: store}
-      %State{state | mockchain_state: Mockchain.State.set_account(st, address(state), account)}
+      %State{state | chain_state: Chain.State.set_account(st, address(state), account)}
     end
 
-    def get_balance(address, %State{mockchain_state: st}) do
-      Mockchain.State.ensure_account(st, :binary.part(address, 12, 20))
-      |> Mockchain.Account.balance()
+    def get_balance(address, %State{chain_state: st}) do
+      Chain.State.ensure_account(st, :binary.part(address, 12, 20))
+      |> Chain.Account.balance()
     end
 
-    def get_extcode(address, %State{mockchain_state: st}) do
-      Mockchain.State.ensure_account(st, :binary.part(address, 12, 20))
-      |> Mockchain.Account.code()
+    def get_extcode(address, %State{chain_state: st}) do
+      Chain.State.ensure_account(st, :binary.part(address, 12, 20))
+      |> Chain.Account.code()
     end
 
     def call_contract(_target, <<0::256>>, _gas, _value, _callData, _callStack, _origin, state) do
@@ -77,9 +77,9 @@ defmodule Evm do
           callData,
           [caller | _callStack],
           _origin,
-          %State{mockchain_state: st} = state
+          %State{chain_state: st} = state
         ) do
-      t = Mockchain.State.ensure_account(st, :binary.part(code, 12, 20))
+      t = Chain.State.ensure_account(st, :binary.part(code, 12, 20))
 
       tx = %{
         state.tx
@@ -95,12 +95,12 @@ defmodule Evm do
         if value == 0 or from == tx.to do
           st
         else
-          from_acc = Mockchain.State.account(st, from)
-          to_acc = Mockchain.State.ensure_account(st, tx.to)
+          from_acc = Chain.State.account(st, from)
+          to_acc = Chain.State.ensure_account(st, tx.to)
 
           st
-          |> Mockchain.State.set_account(from, %{from_acc | balance: from_acc.balance - value})
-          |> Mockchain.State.set_account(tx.to, %{to_acc | balance: to_acc.balance + value})
+          |> Chain.State.set_account(from, %{from_acc | balance: from_acc.balance - value})
+          |> Chain.State.set_account(tx.to, %{to_acc | balance: to_acc.balance + value})
         end
 
       if t.code != nil do
@@ -110,7 +110,7 @@ defmodule Evm do
             evm(%{
               state
               | tx: tx,
-                mockchain_state: st1,
+                chain_state: st1,
                 code: t.code,
                 from: caller
             })
@@ -122,7 +122,7 @@ defmodule Evm do
             {call_result(result: Evm.out(evm), gas_spent: gas - Evm.gas(evm), type: :ok),
              %{
                state
-               | mockchain_state: Evm.state(evm),
+               | chain_state: Evm.state(evm),
                  selfdestructs: Evm.raw(evm).chain_state.selfdestructs
              }}
 
@@ -142,10 +142,10 @@ defmodule Evm do
     def create_account(
           value,
           code,
-          evm = %{chain_state: %State{mockchain_state: st, tx: tx} = state, gas: gas}
+          evm = %{chain_state: %State{chain_state: st, tx: tx} = state, gas: gas}
         ) do
       address = State.address(state)
-      account = Mockchain.State.account(st, address)
+      account = Chain.State.account(st, address)
 
       to_address =
         Rlp.encode!([address, account.nonce])
@@ -153,14 +153,14 @@ defmodule Evm do
         |> Hash.to_address()
 
       account = %{account | nonce: account.nonce + 1, balance: account.balance - value}
-      to_account = %Mockchain.Account{nonce: 1, balance: value}
+      to_account = %Chain.Account{nonce: 1, balance: value}
 
       st =
         st
-        |> Mockchain.State.set_account(to_address, to_account)
-        |> Mockchain.State.set_account(address, account)
+        |> Chain.State.set_account(to_address, to_account)
+        |> Chain.State.set_account(address, account)
 
-      state = %{state | mockchain_state: st}
+      state = %{state | chain_state: st}
 
       tx = %{tx | value: value, data: nil, to: to_address, gasLimit: gas}
 
@@ -177,13 +177,13 @@ defmodule Evm do
             st = Evm.state(evm2)
 
             st =
-              case Mockchain.State.account(st, to_address) do
+              case Chain.State.account(st, to_address) do
                 nil ->
                   st
 
                 to_account ->
                   to_account = %{to_account | code: Evm.out(evm2)}
-                  Mockchain.State.set_account(st, to_address, to_account)
+                  Chain.State.set_account(st, to_address, to_account)
               end
 
             evm = Evm.set_state(evm, st)
@@ -283,7 +283,7 @@ defmodule Evm do
     from = :binary.decode_unsigned(Transaction.from(tx))
 
     state = %State{
-      mockchain_state: %Mockchain.State{},
+      chain_state: %Chain.State{},
       tx: tx,
       from: from,
       origin: from,
@@ -298,8 +298,8 @@ defmodule Evm do
 
   def init(
         tx = %Transaction{},
-        state = %Mockchain.State{},
-        block = %Mockchain.Block{},
+        state = %Chain.State{},
+        block = %Chain.Block{},
         _store,
         code,
         trace? \\ false
@@ -307,17 +307,17 @@ defmodule Evm do
     from = :binary.decode_unsigned(Transaction.from(tx))
 
     state = %State{
-      mockchain_state: state,
+      chain_state: state,
       code: code,
       trace: trace? or Diode.trace?(),
       tx: tx,
       from: from,
       origin: from,
-      coinbase: Mockchain.Block.coinbase(block),
-      difficulty: Mockchain.Block.difficulty(block),
-      gasLimit: Mockchain.Block.gasLimit(block),
-      timestamp: Mockchain.Block.timestamp(block),
-      number: Mockchain.Block.number(block)
+      coinbase: Chain.Block.coinbase(block),
+      difficulty: Chain.Block.difficulty(block),
+      gasLimit: Chain.Block.gasLimit(block),
+      timestamp: Chain.Block.timestamp(block),
+      number: Chain.Block.number(block)
     }
 
     State.evm(state)
@@ -340,10 +340,10 @@ defmodule Evm do
       state = evm2.chain_state
 
       st =
-        Enum.reduce(state.selfdestructs, state.mockchain_state, fn {to, benefector}, st ->
+        Enum.reduce(state.selfdestructs, state.chain_state, fn {to, benefector}, st ->
           # Fetching balance and deleting the account
-          balance = Mockchain.Account.balance(Mockchain.State.ensure_account(st, to))
-          st = Mockchain.State.delete_account(st, to)
+          balance = Chain.Account.balance(Chain.State.ensure_account(st, to))
+          st = Chain.State.delete_account(st, to)
 
           # Sending balance to destination contract
           address = <<benefector::160>>
@@ -351,13 +351,13 @@ defmodule Evm do
           if benefector == 0 or address == to do
             st
           else
-            beneficiary = Mockchain.State.ensure_account(st, address)
+            beneficiary = Chain.State.ensure_account(st, address)
             beneficiary = %{beneficiary | balance: beneficiary.balance + balance}
-            Mockchain.State.set_account(st, address, beneficiary)
+            Chain.State.set_account(st, address, beneficiary)
           end
         end)
 
-      {:ok, %{evm2 | chain_state: %{state | mockchain_state: st}}}
+      {:ok, %{evm2 | chain_state: %{state | chain_state: st}}}
     else
       _ -> ret
     end
@@ -443,11 +443,11 @@ defmodule Evm do
   end
 
   def state(evm) do
-    evm.chain_state.mockchain_state
+    evm.chain_state.chain_state
   end
 
   def set_state(evm, state) do
-    %{evm | chain_state: %{evm.chain_state | mockchain_state: state}}
+    %{evm | chain_state: %{evm.chain_state | chain_state: state}}
   end
 
   def gas_cost(atom) do

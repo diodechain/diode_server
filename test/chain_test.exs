@@ -1,12 +1,12 @@
-defmodule MockchainTest do
+defmodule ChainTest do
   use ExUnit.Case, async: true
-  alias Mockchain.{Account, Block, Transaction, State}
-  # alias Mockchain.BlockHeader, as: Header
+  alias Chain.{Account, Block, Transaction, State}
+  # alias Chain.BlockHeader, as: Header
 
   test "length" do
-    peak = Mockchain.peak()
-    peak_block = Mockchain.peakBlock()
-    other = Mockchain.block(peak)
+    peak = Chain.peak()
+    peak_block = Chain.peakBlock()
+    other = Chain.block(peak)
 
     assert peak_block == other
   end
@@ -29,8 +29,8 @@ defmodule MockchainTest do
   end
 
   test "ethereum-tests" do
-    # JSON_TEST=../ethereum-tests/BlockchainTests/bcGasPricerTest/notxs.json mix test test/mockchain_test.exs
-    # JSON_TEST=../ethereum-tests/BlockchainTests/bcWalletTest/walletReorganizeOwners.json mix test test/mockchain_test.exs
+    # JSON_TEST=../ethereum-tests/BlockchainTests/bcGasPricerTest/notxs.json mix test test/chain_test.exs
+    # JSON_TEST=../ethereum-tests/BlockchainTests/bcWalletTest/walletReorganizeOwners.json mix test test/chain_test.exs
     case System.get_env("JSON_TEST") do
       nil ->
         for name <- Path.wildcard("test/ethereum-tests/**/*.json") do
@@ -121,10 +121,10 @@ defmodule MockchainTest do
 
     transactions = []
     miner = Wallet.new()
-    genesis = Mockchain.GenesisFactory.genesis(accounts, transactions, miner)
+    genesis = Chain.GenesisFactory.genesis(accounts, transactions, miner)
     hash = Block.hash(genesis)
 
-    Mockchain.set_state(%Mockchain{
+    Chain.set_state(%Chain{
       peak: genesis,
       by_hash: %{hash => genesis},
       states: %{},
@@ -204,7 +204,7 @@ defmodule MockchainTest do
         #   Block.receipts(head) |> Enum.map(fn rcpt -> %{rcpt | state: nil} end)
         # ])
 
-        :added = Mockchain.add_block(head, false)
+        :added = Chain.add_block(head, false)
         [head | chain]
       end)
 
@@ -259,7 +259,7 @@ defmodule MockchainTest do
       end
     end
 
-    post_keys = Mockchain.State.accounts(state) |> Map.keys()
+    post_keys = Chain.State.accounts(state) |> Map.keys()
     reference_keys = Keyword.keys(reference_accounts) |> Enum.map(&Wallet.address!/1)
     assert post_keys == reference_keys
   end

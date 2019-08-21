@@ -1,6 +1,6 @@
 defmodule Store do
-  alias Mockchain.BlockCache, as: Block
-  alias Mockchain.Transaction
+  alias Chain.BlockCache, as: Block
+  alias Chain.Transaction
 
   use GenServer
   require Logger
@@ -37,7 +37,7 @@ defmodule Store do
     IO.puts("Starting node #{Wallet.printable(Store.wallet())}")
 
     LocalStore.init()
-    # Mockchain.blocks(1000)
+    # Chain.blocks(1000)
     # KBuckets.init()
 
     create_table!(:aliases, [
@@ -154,14 +154,14 @@ defmodule Store do
     end
   end
 
-  @spec set_transaction(Mockchain.Transaction.t(), <<_::256>>) ::
+  @spec set_transaction(Chain.Transaction.t(), <<_::256>>) ::
           {:aborted, any()} | {:atomic, any()}
   def set_transaction(tx = %Transaction{}, block_hash = <<_::256>>) do
     write_one({:transactions, Transaction.hash(tx), tx, block_hash})
   end
 
-  @spec set_block_transactions(Mockchain.Block.t()) :: :ok
-  def set_block_transactions(block = %Mockchain.Block{}) do
+  @spec set_block_transactions(Chain.Block.t()) :: :ok
+  def set_block_transactions(block = %Chain.Block{}) do
     for tx <- block.transactions do
       set_transaction(tx, Block.hash(block))
       # :io.format("~p~n", [Transaction.hash(tx)])
@@ -172,7 +172,7 @@ defmodule Store do
 
   def seed_transactions() do
     :mnesia.clear_table(:transactions)
-    for block <- Mockchain.blocks(), do: set_block_transactions(block)
+    for block <- Chain.blocks(), do: set_block_transactions(block)
     :ok
   end
 end

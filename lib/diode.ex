@@ -35,10 +35,10 @@ defmodule Diode do
         id: KademliaServer
       ),
       worker(Kademlia, [args]),
-      worker(Mockchain, [args]),
-      worker(Mockchain.BlockCache, [args]),
-      worker(Mockchain.Pool, [args]),
-      worker(Mockchain.Worker, [workerMode()])
+      worker(Chain, [args]),
+      worker(Chain.BlockCache, [args]),
+      worker(Chain.Pool, [args]),
+      worker(Chain.Worker, [workerMode()])
     ]
 
     IO.puts("Edge Port: #{edgePort()}")

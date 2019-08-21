@@ -1,4 +1,4 @@
-defmodule Mockchain.TransactionReceipt do
+defmodule Chain.TransactionReceipt do
   defstruct state: nil,
             msg: nil,
             evmout: nil,
@@ -8,8 +8,8 @@ defmodule Mockchain.TransactionReceipt do
             logs: [],
             trace: nil
 
-  @type t :: %Mockchain.TransactionReceipt{
-          state: Mockchain.State.t() | nil,
+  @type t :: %Chain.TransactionReceipt{
+          state: Chain.State.t() | nil,
           msg: binary() | :ok | :revert,
           evmout: any(),
           gas_used: non_neg_integer() | nil,
@@ -18,6 +18,6 @@ defmodule Mockchain.TransactionReceipt do
           logs: []
         }
 
-  @spec state(Mockchain.TransactionReceipt.t()) :: Mockchain.State.t()
-  def state(%Mockchain.TransactionReceipt{state: state}), do: state
+  @spec state(Chain.TransactionReceipt.t()) :: Chain.State.t()
+  def state(%Chain.TransactionReceipt{state: state}), do: state
 end

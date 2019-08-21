@@ -159,30 +159,30 @@ defmodule Network.EdgeHandler do
         {:noreply, state}
 
       ["getblockpeak"] ->
-        send!(socket, ["response", "getblockpeak", Mockchain.peak()])
+        send!(socket, ["response", "getblockpeak", Chain.peak()])
         {:noreply, state}
 
       ["getblock", index] when is_integer(index) ->
-        send!(socket, ["response", "getblock", Mockchain.block(index)])
+        send!(socket, ["response", "getblock", Chain.block(index)])
         {:noreply, state}
 
       ["getblockheader", index] when is_integer(index) ->
-        send!(socket, ["response", "getblockheader", Mockchain.block(index).header])
+        send!(socket, ["response", "getblockheader", Chain.block(index).header])
         {:noreply, state}
 
       ["getstateroots", index] ->
-        merkel = Mockchain.state(index).store
+        merkel = Chain.state(index).store
         send!(socket, ["response", "getstateroots", MerkleTree.root_hashes(merkel)])
         {:noreply, state}
 
       ["getaccount", index, id] ->
-        mstate = Mockchain.state(index)
+        mstate = Chain.state(index)
 
-        case Mockchain.State.account(mstate, id) do
+        case Chain.State.account(mstate, id) do
           nil ->
             send!(socket, ["error", "getaccount", "account does not exist"])
 
-          account = %Mockchain.Account{} ->
+          account = %Chain.Account{} ->
             proof = MerkleTree.get_proofs(mstate.store, id)
 
             send!(socket, [
@@ -192,7 +192,7 @@ defmodule Network.EdgeHandler do
                 nonce: account.nonce,
                 balance: account.balance,
                 storageRoot: MerkleTree.root_hash(account.storageRoot),
-                code: Mockchain.Account.codehash(account)
+                code: Chain.Account.codehash(account)
               },
               proof
             ])
@@ -201,13 +201,13 @@ defmodule Network.EdgeHandler do
         {:noreply, state}
 
       ["getaccountroots", index, id] ->
-        mstate = Mockchain.state(index)
+        mstate = Chain.state(index)
 
-        case Mockchain.State.account(mstate, id) do
+        case Chain.State.account(mstate, id) do
           nil ->
             send!(socket, ["error", "getaccountroots", "account does not exist"])
 
-          %Mockchain.Account{storageRoot: storageRoot} ->
+          %Chain.Account{storageRoot: storageRoot} ->
             send!(socket, [
               "response",
               "getaccountroots",
@@ -218,13 +218,13 @@ defmodule Network.EdgeHandler do
         {:noreply, state}
 
       ["getaccountvalue", index, id, key] ->
-        mstate = Mockchain.state(index)
+        mstate = Chain.state(index)
 
-        case Mockchain.State.account(mstate, id) do
+        case Chain.State.account(mstate, id) do
           nil ->
             send!(socket, ["error", "getaccountvalue", "account does not exist"])
 
-          %Mockchain.Account{storageRoot: storageRoot} ->
+          %Chain.Account{storageRoot: storageRoot} ->
             send!(socket, [
               "response",
               "getaccountvalue",
