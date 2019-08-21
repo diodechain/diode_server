@@ -7,17 +7,18 @@ defmodule Diode do
     import Supervisor.Spec, warn: false
 
     children = [
-      # Define workers and child supervisors to be supervised
-      #      Plug.Adapters.Cowboy.child_spec(
-      #        :https,
-      #        Kademlia,
-      #        [],
-      #        port: ssl_port,
-      #        otp_app: :kademlia,
-      #        keyfile: "ssl/key.pem",
-      #        certfile: "ssl/cer.pem"
-      #        # cacertfile: "ssl/certs.pem",
-      #      ),
+      worker(Store, [args]),
+      worker(Chain, [args]),
+      worker(Chain.BlockCache, [args]),
+      worker(Chain.Pool, [args]),
+      worker(Chain.Worker, [workerMode()]),
+
+      # Starting External Interfaces
+      Supervisor.child_spec({Network.Server, {edgePort(), Network.EdgeHandler}}, id: EdgeServer),
+      Supervisor.child_spec({Network.Server, {kademliaPort(), Network.PeerHandler}},
+        id: KademliaServer
+      ),
+      worker(Kademlia, [args]),
       Plug.Adapters.Cowboy.child_spec(:http, Network.RpcHttp, [],
         ip: {127, 0, 0, 1},
         port: rpcPort(),
@@ -28,24 +29,14 @@ defmodule Diode do
              {:_, Plug.Adapters.Cowboy.Handler, {Network.RpcHttp, []}}
            ]}
         ]
-      ),
-      worker(Store, [args]),
-      Supervisor.child_spec({Network.Server, {edgePort(), Network.EdgeHandler}}, id: EdgeServer),
-      Supervisor.child_spec({Network.Server, {kademliaPort(), Network.PeerHandler}},
-        id: KademliaServer
-      ),
-      worker(Kademlia, [args]),
-      worker(Chain, [args]),
-      worker(Chain.BlockCache, [args]),
-      worker(Chain.Pool, [args]),
-      worker(Chain.Worker, [workerMode()])
+      )
     ]
 
+    IO.puts("====== ENV #{Mix.env()} ======")
+    :persistent_term.put(:env, Mix.env())
     IO.puts("Edge Port: #{edgePort()}")
     IO.puts("Peer Port: #{kademliaPort()}")
     IO.puts("RPC  Port: #{rpcPort()}")
-
-    :persistent_term.put(:env, Mix.env())
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
@@ -83,17 +74,23 @@ defmodule Diode do
 
   @spec miner() :: Wallet.t()
   def miner() do
-    get_config(:miner, Wallet.privkey!(Store.wallet()))
-    |> Wallet.from_privkey()
+    Store.wallet()
   end
 
   @spec wallets() :: [Wallet.t()]
+  @doc """
+    Decode env parameter such as
+    export WALLETS="0x1234567890 0x987654321"
+  """
   def wallets() do
-    other =
-      get_config(:wallets, [])
-      |> Enum.map(&Wallet.from_privkey/1)
-
-    [miner() | other]
+    get_env("WALLETS", "")
+    |> String.split(" ")
+    |> Enum.map(fn int ->
+      decode_int(int)
+      |> :binary.encode_unsigned()
+      |> Wallet.from_privkey()
+    end)
+    |> List.insert_at(0, miner())
   end
 
   def registryAddress() do
@@ -157,22 +154,21 @@ defmodule Diode do
     end
   end
 
-  defp get_env_int(name, default) do
-    case get_env(name, default) do
+  def get_env_int(name, default) do
+    decode_int(get_env(name, default))
+  end
+
+  defp decode_int(int) do
+    case int do
+      <<"0x", _::binary>> = bin ->
+        Base16.decode_int(bin)
+
       bin when is_binary(bin) ->
         {num, _} = Integer.parse(bin)
         num
 
       int when is_integer(int) ->
         int
-    end
-  end
-
-  defp get_config(name, default) do
-    case Application.fetch_env(Diode, name) do
-      :error when is_function(default) -> default.()
-      :error -> default
-      {:ok, value} -> value
     end
   end
 end

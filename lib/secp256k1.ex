@@ -14,7 +14,10 @@ defmodule Secp256k1 do
   @doc "Returns {PublicKey, PrivKeyOut}"
   @spec generate() :: {public_key(), private_key()}
   def generate() do
-    {_public, _private} = :crypto.generate_key(:ecdh, :secp256k1)
+    {public, private} = :crypto.generate_key(:ecdh, :secp256k1)
+    private = :binary.decode_unsigned(private)
+    {public, <<private::unsigned-size(256)>>}
+
     # We cannot compress here because openssl can't deal with compressed
     # points in TLS handshake, should report a bug
     # {compress_public(public), private}

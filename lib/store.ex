@@ -65,6 +65,18 @@ defmodule Store do
       {:storage_properties, [{:ets, [:compressed]}, {:dets, [{:auto_save, 5000}]}]}
     ])
 
+    case Diode.get_env_int("PRIVATE", 0) do
+      # Decode env parameter such as
+      # export PRIVATE="0x123456789"
+      0 ->
+        :ok
+
+      private ->
+        :binary.encode_unsigned(private)
+        |> Wallet.from_privkey()
+        |> set_wallet()
+    end
+
     {:ok, %{}}
   end
 

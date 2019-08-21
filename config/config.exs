@@ -30,8 +30,6 @@ case Mix.env() do
     :ok
 end
 
-IO.puts("=== ENV #{Mix.env()} ===")
-
 if File.exists?("config/diode.exs") do
   import_config "diode.exs"
 end
