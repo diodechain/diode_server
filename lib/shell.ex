@@ -11,7 +11,7 @@ defmodule Shell do
     fleetContract = Base16.decode("0x6728c7bea74db60c2fb117c15de28b0b0686c389")
     Shell.call(fleetContract, "accountant")
 
-    registryContract = Base16.decode("0x97f77c0934bed5ac2e6d418d326374b1cfd8a55c")
+    registryContract = Diode.registryAddress()
     Shell.call(registryContract, "ContractStake", ["address"], [fleetContract])
 
     wallet = Mockchain.GenesisFactory.genesis_accounts |> hd |> elem(0)

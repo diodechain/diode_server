@@ -108,7 +108,7 @@ defmodule Mockchain do
     Block.state(peakBlock())
   end
 
-  @spec block(number()) :: Mockchain.Block.t()
+  @spec block(number()) :: Mockchain.Block.t() | nil
   def block(n) do
     Enum.at(blocks(), -(n + 1))
   end

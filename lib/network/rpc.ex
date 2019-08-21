@@ -21,7 +21,13 @@ defmodule Network.Rpc do
       "id" => id
     } = body_params
 
-    ret = handle_jsonrpc(id, method, params)
+    ret =
+      try do
+        handle_jsonrpc(id, method, params)
+      catch
+        :notfound -> result(id, nil, 404, %{"message" => "Not found"})
+      end
+
     # :io.format("handle_jsonrpc(~p) =>~n~p~n", [body_params, ret])
     ret
   end
@@ -92,11 +98,7 @@ defmodule Network.Rpc do
         [ref, full] = params
         block = getBlock(ref)
 
-        uncles = []
-        uncleSha = Sha3.keccak_256(Rlp.encode!(uncles))
-
         miner = Block.miner(block)
-
         txs = Block.transactions(block)
 
         txs =
@@ -111,6 +113,9 @@ defmodule Network.Rpc do
             nil -> <<0::256>>
             bin -> bin
           end
+
+        uncles = []
+        uncleSha = Sha3.keccak_256(Rlp.encode!(uncles))
 
         ret = %{
           "number" => Block.number(block),
@@ -380,13 +385,29 @@ defmodule Network.Rpc do
 
   def getBlock(ref) do
     case ref do
-      %Mockchain.Block{} -> ref
-      %Mockchain.BlockCache{} -> ref
-      "latest" -> Mockchain.peakBlock()
-      "pending" -> Mockchain.Worker.candidate()
-      "earliest" -> Mockchain.block(0)
-      <<"0x", _rest::binary()>> -> getBlock(Base16.decode_int(ref))
-      num when is_integer(num) -> Base16.decode_int(num)
+      %Mockchain.Block{} ->
+        ref
+
+      %Mockchain.BlockCache{} ->
+        ref
+
+      "latest" ->
+        Mockchain.peakBlock()
+
+      "pending" ->
+        Mockchain.Worker.candidate()
+
+      "earliest" ->
+        Mockchain.block(0)
+
+      <<"0x", _rest::binary()>> ->
+        getBlock(Base16.decode_int(ref))
+
+      num when is_integer(num) ->
+        case Mockchain.block(num) do
+          %Mockchain.Block{} = block -> block
+          nil -> throw(:notfound)
+        end
     end
   end
 

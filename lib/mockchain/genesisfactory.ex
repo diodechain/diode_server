@@ -7,7 +7,7 @@ defmodule Mockchain.GenesisFactory do
   end
 
   def testnet_parent() do
-    genesis_parent(genesis_state(genesis_accounts()))
+    genesis_parent(genesis_state(genesis_accounts()), genesis_miner())
   end
 
   defp addrBalance(addr, balance) do
@@ -70,12 +70,13 @@ defmodule Mockchain.GenesisFactory do
     [tx]
   end
 
-  @spec genesis_parent(Mockchain.State.t()) :: Mockchain.Block.t()
-  def genesis_parent(state) do
+  @spec genesis_parent(Mockchain.State.t(), Wallet.t()) :: Mockchain.Block.t()
+  def genesis_parent(state, miner) do
     %Mockchain.Block{
       header: %Mockchain.Header{
         block_hash: nil,
-        state_hash: Mockchain.State.hash(state)
+        state_hash: Mockchain.State.hash(state),
+        miner_pubkey: Wallet.pubkey!(miner)
       }
     }
   end
@@ -91,7 +92,7 @@ defmodule Mockchain.GenesisFactory do
     state = genesis_state(accounts)
     Mockchain.state_store(state)
 
-    parent = genesis_parent(state)
+    parent = genesis_parent(state, miner)
     block = Mockchain.Block.create(parent, transactions, miner, 1_555_510_594)
     header = Mockchain.Block.header(block)
 
