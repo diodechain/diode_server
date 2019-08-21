@@ -120,7 +120,8 @@ defmodule MockchainTest do
     accounts = [{base, %Account{balance: 100_000_000, nonce: 0}} | accounts]
 
     transactions = []
-    genesis = Mockchain.GenesisFactory.genesis(accounts, transactions)
+    miner = Wallet.new()
+    genesis = Mockchain.GenesisFactory.genesis(accounts, transactions, miner)
     hash = Block.hash(genesis)
 
     Mockchain.set_state(%Mockchain{

@@ -1,4 +1,5 @@
 #!/bin/sh
+export ERL_CRASH_DUMP_BYTES=5000000000
 export MIX_ENV=prod
 mix deps.get
 exec iex -S mix run 

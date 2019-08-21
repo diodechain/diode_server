@@ -380,17 +380,13 @@ defmodule Network.Rpc do
 
   def getBlock(ref) do
     case ref do
-      "latest" ->
-        Mockchain.peakBlock()
-
-      "pending" ->
-        Mockchain.Worker.candidate()
-
-      "earliest" ->
-        Mockchain.block(0)
-
-      <<"0x", _rest::binary()>> = num ->
-        Mockchain.block(Base16.decode_int(num))
+      %Mockchain.Block{} -> ref
+      %Mockchain.BlockCache{} -> ref
+      "latest" -> Mockchain.peakBlock()
+      "pending" -> Mockchain.Worker.candidate()
+      "earliest" -> Mockchain.block(0)
+      <<"0x", _rest::binary()>> -> getBlock(Base16.decode_int(ref))
+      num when is_integer(num) -> Base16.decode_int(num)
     end
   end
 

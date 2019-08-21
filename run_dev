@@ -1,4 +1,5 @@
 #!/bin/sh
+rm -rf data/ state/
 export MIX_ENV=dev
 mix deps.get
 exec iex -S mix run 

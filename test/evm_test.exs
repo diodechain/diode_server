@@ -10,10 +10,12 @@ defmodule EvmTest do
   end
 
   test "create contract" do
+    wallet = Wallet.new()
+    priv = Wallet.privkey!(wallet)
+    miner = Wallet.new()
+
     state = Mockchain.State.new()
-    block = %Mockchain.Block{}
-    {_, priv} = Secp256k1.generate()
-    wallet = Wallet.from_privkey(priv)
+    block = %Mockchain.Block{header: %Mockchain.Header{miner_pubkey: Wallet.pubkey!(miner)}}
 
     #     pragma solidity >=0.4.22 <0.6.0;
 

@@ -363,10 +363,6 @@ defmodule Evm do
     end
   end
 
-  @spec eval_internal(any) ::
-          {:ok, %{chain_state: Evm.State.t(), gas: number, out: nil | bitstring, refund: any}}
-          | {:error, any, any}
-          | {:revert, any, any}
   def eval_internal(evm) do
     # bef = evm.gas
     ret = :aevm_eeevm.eval(evm)

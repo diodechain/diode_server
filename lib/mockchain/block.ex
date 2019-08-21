@@ -69,7 +69,11 @@ defmodule Mockchain.Block do
 
   @spec hash_in_target?(Mockchain.Block.t(), binary) :: boolean
   def hash_in_target?(block, hash) do
-    Hash.integer(hash) < div(@max_difficulty, difficulty(block))
+    blockRef = Block.parent(block)
+    stake = Mockchain.Registry.minerValue(0, Block.miner(block), blockRef)
+    stake = max(1, div(stake * stake, Shell.ether(1)))
+
+    Hash.integer(hash) < div(stake * @max_difficulty, difficulty(block))
   end
 
   @doc "Creates a new block and stores the generated state in cache file"

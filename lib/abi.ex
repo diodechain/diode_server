@@ -1,4 +1,6 @@
 defmodule ABI do
+  import Wallet
+
   def encode_args(types, values) when is_list(types) and is_list(values) do
     Enum.zip(types, values)
     |> Enum.map(fn {type, value} -> encode(type, value) end)
@@ -46,6 +48,7 @@ defmodule ABI do
   def encode("int", value), do: encode("int256", value)
   def encode("address", value) when is_integer(value), do: encode("uint160", value)
   def encode("address", value) when is_binary(value), do: encode("bytes20", value)
+  def encode("address", value = wallet()), do: encode("bytes20", Wallet.address!(value))
   def encode("bool", true), do: encode("uint8", 1)
   def encode("bool", false), do: encode("uint8", 0)
   def encode("bool", value), do: encode("uint8", value)

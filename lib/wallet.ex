@@ -23,7 +23,7 @@ defmodule Wallet do
   end
 
   @spec from_privkey(<<_::256>>) :: Wallet.t()
-  def from_privkey(privkey = <<_::256>>) do
+  def from_privkey(privkey) when byte_size(privkey) <= 32 and byte_size(privkey) >= 30 do
     {:ok, pubkey} = Secp256k1.generate_public_key(privkey)
     wallet(from_pubkey(pubkey), privkey: privkey)
   end
