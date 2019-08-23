@@ -317,8 +317,11 @@ defmodule Network.Rpc do
                     "gasUsed" => rcpt.gas_used,
                     "output" => rcpt.evmout
                   },
-                  "subtraces" => 0,
+                  "subtraces" => {:raw, 0},
                   "traceAddress" => [],
+                  "transactionHash" => Transaction.hash(tx),
+                  "transactionPosition" => {:raw, Block.transactionIndex(block, tx)},
+                  "blockNumber" => {:raw, Block.number(block)},
                   "type" =>
                     if Transaction.contract_creation?(tx) do
                       "create"
@@ -327,7 +330,6 @@ defmodule Network.Rpc do
                     end
                 }
               ],
-              "transactionHash" => Block.txhash(block),
               "vmTrace" => nil
             }
           end)
@@ -376,6 +378,22 @@ defmodule Network.Rpc do
         ]
 
         result(id, ret)
+
+      _ ->
+        if Diode.dev_mode?() do
+          handle_dev(id, method, params)
+        else
+          :io.format("Unhandled: ~p ~p~n", [method, params])
+          {422, "what method?"}
+        end
+    end
+  end
+
+  def handle_dev(id, method, params) do
+    case method do
+      "evm_mine" ->
+        Chain.Worker.work()
+        result(id, 200, "")
 
       _ ->
         :io.format("Unhandled: ~p ~p~n", [method, params])

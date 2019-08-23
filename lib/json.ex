@@ -46,6 +46,10 @@ defmodule Json do
     Base16.encode(int, bigX)
   end
 
+  defp do_encode("", _bigX) do
+    "0x"
+  end
+
   defp do_encode(bin, bigX) when is_binary(bin) do
     if String.printable?(bin) do
       bin

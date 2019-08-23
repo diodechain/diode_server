@@ -22,6 +22,10 @@ defmodule Chain.Worker do
     GenServer.call(__MODULE__, :candidate)
   end
 
+  def work() do
+    GenServer.call(__MODULE__, :work)
+  end
+
   defp transactions(%Chain.Worker{proposal: proposal}), do: proposal
   defp parent_hash(%Chain.Worker{parent_hash: parent_hash}), do: parent_hash
 
@@ -69,7 +73,15 @@ defmodule Chain.Worker do
     {:reply, state.candidate, state}
   end
 
+  def handle_call(:work, _from, state) do
+    {:reply, :ok, do_work(state)}
+  end
+
   def handle_info(:work, state) do
+    {:noreply, do_work(state)}
+  end
+
+  defp do_work(state) do
     state = generate_candidate(state)
     %{creds: creds, candidate: candidate} = state
 
@@ -98,7 +110,7 @@ defmodule Chain.Worker do
     end
 
     activate_timer(state)
-    {:noreply, %{state | candidate: block}}
+    %{state | candidate: block}
   end
 
   defp generate_candidate(state = %{parent_hash: nil}) do
