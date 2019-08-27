@@ -26,44 +26,18 @@ defmodule Store do
     end
 
     Application.ensure_all_started(:mnesia)
-
-    create_table!(:keyValue, [
-      {:disc_copies, [node()]},
-      {:attributes, Keyword.keys(keyValue(keyValue()))},
-      {:storage_properties, [{:ets, [:compressed]}, {:dets, [{:auto_save, 5000}]}]}
-    ])
+    create_table!(:keyValue, Keyword.keys(keyValue(keyValue())))
 
     ensure_identity()
     IO.puts("Starting node #{Wallet.printable(Store.wallet())}")
 
-    LocalStore.init()
+    KademliaStore.init()
+    TicketStore.init()
     # Chain.blocks(1000)
     # KBuckets.init()
 
-    create_table!(:aliases, [
-      {:disc_copies, [node()]},
-      {:attributes, [:alias, :object_id]},
-      {:storage_properties, [{:ets, [:compressed]}, {:dets, [{:auto_save, 5000}]}]}
-    ])
-
-    create_table!(:transactions, [
-      {:disc_copies, [node()]},
-      {:attributes, [:hash, :tx_struct, :block]},
-      {:storage_properties, [{:ets, [:compressed]}, {:dets, [{:auto_save, 5000}]}]}
-    ])
-
-    create_table!(:owners, [
-      {:disc_copies, [node()]},
-      {:attributes, [:network_id, :value]},
-      {:storage_properties, [{:ets, [:compressed]}, {:dets, [{:auto_save, 5000}]}]}
-    ])
-
-    create_table!(:owner_whitelist, [
-      {:disc_copies, [node()]},
-      {:attributes, [:device_id, :network_id]},
-      # {:index, [1]},
-      {:storage_properties, [{:ets, [:compressed]}, {:dets, [{:auto_save, 5000}]}]}
-    ])
+    create_table!(:aliases, [:alias, :object_id])
+    create_table!(:transactions, [:hash, :tx_struct, :block])
 
     case Diode.get_env_int("PRIVATE", 0) do
       # Decode env parameter such as
@@ -131,8 +105,21 @@ defmodule Store do
     device_id
   end
 
-  @spec create_table!(atom(), keyword()) :: :ok
-  def create_table!(table, props) do
+  def create_table!(table, attributes, props \\ []) do
+    props =
+      case props do
+        [] ->
+          [
+            {:disc_copies, [node()]},
+            {:attributes, attributes},
+            # {:index, [1]},
+            {:storage_properties, [{:ets, [:compressed]}, {:dets, [{:auto_save, 5000}]}]}
+          ]
+
+        _ ->
+          [{:attributes, attributes} | props]
+      end
+
     case :mnesia.create_table(table, props) do
       {:atomic, :ok} -> :ok
       {:aborted, {:already_exists, _}} -> :ok

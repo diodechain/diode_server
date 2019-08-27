@@ -161,7 +161,7 @@ defmodule Network.PeerHandler do
 
   defp handle_msg([@find_value, id], state) do
     reply =
-      case LocalStore.find(id) do
+      case KademliaStore.find(id) do
         nil ->
           nodes =
             Kademlia.find_node_lookup(id)
@@ -177,7 +177,7 @@ defmodule Network.PeerHandler do
   end
 
   defp handle_msg([@store, key, value], state) do
-    LocalStore.store(key, value)
+    KademliaStore.store(key, value)
     {[@response, @store, "ok"], state}
   end
 

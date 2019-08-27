@@ -2,15 +2,15 @@ defmodule EdgeTest do
   use ExUnit.Case, async: true
   alias Network.Server, as: Server
   alias Network.EdgeHandler, as: EdgeHandler
-  alias Object.Location, as: Location
-  import Location
+  alias Object.Ticket, as: Ticket
+  import Ticket
 
   test "connect" do
     # Test that clients are connected
     assert call(:client_1, :ping) == {:ok, :pong}
     assert call(:client_2, :ping) == {:ok, :pong}
     conns = Server.get_connections(EdgeHandler)
-    assert Map.size(conns) == 2
+    assert map_size(conns) == 2
 
     # Test that clients are connected to this node
     {:ok, peer_1} = call(:client_1, :peerid)
@@ -47,33 +47,69 @@ defmodule EdgeTest do
     assert length(ret) == 2
   end
 
-  test "hello" do
-    loc =
-      location(
-        server_id: Wallet.address!(Store.wallet()),
-        peak_block: Chain.block(Chain.peak()).header.block_hash
-      )
-      |> Location.device_sign(clientkey(1))
+  test "ticket" do
+    TicketStore.clear()
 
-    assert rpc(:client_1, ["hello", Location.peak_block(loc), Location.device_signature(loc)]) ==
+    loc =
+      ticket(
+        server_id: Wallet.address!(Store.wallet()),
+        total_connections: 1,
+        total_bytes: 0,
+        local_address: "spam",
+        peak_block: Chain.block(Chain.peak()).header.block_hash,
+        fleet_contract: <<0::unsigned-size(160)>>
+      )
+      |> Ticket.device_sign(clientkey(1))
+
+    # The first ticket submission should work
+    assert rpc(:client_1, [
+             "ticket",
+             Ticket.peak_block(loc),
+             Ticket.fleet_contract(loc),
+             Ticket.total_connections(loc),
+             Ticket.total_bytes(loc),
+             Ticket.local_address(loc),
+             Ticket.device_signature(loc)
+           ]) ==
              [
                "response",
-               "hello",
+               "ticket",
                "thanks!"
+             ]
+
+    # Submitting a second ticket with the same count should fail
+    assert rpc(:client_1, [
+             "ticket",
+             Ticket.peak_block(loc),
+             Ticket.fleet_contract(loc),
+             Ticket.total_connections(loc),
+             Ticket.total_bytes(loc),
+             Ticket.local_address(loc),
+             Ticket.device_signature(loc)
+           ]) ==
+             [
+               "response",
+               "ticket",
+               "too_low",
+               Ticket.peak_block(loc),
+               Ticket.total_connections(loc),
+               Ticket.total_bytes(loc),
+               Ticket.local_address(loc),
+               Ticket.device_signature(loc)
              ]
 
     ["response", "getobject", loc2] = rpc(:client_1, ["getobject", Wallet.address!(clientid(1))])
 
     loc2 = Object.decode_list!(loc2)
-    assert Location.device_blob(loc) == Location.device_blob(loc2)
+    assert Ticket.device_blob(loc) == Ticket.device_blob(loc2)
 
     assert Secp256k1.verify(
              Store.wallet(),
-             Location.server_blob(loc2),
-             Location.server_signature(loc2)
+             Ticket.server_blob(loc2),
+             Ticket.server_signature(loc2)
            ) == true
 
-    public = Secp256k1.recover!(Location.server_signature(loc2), Location.server_blob(loc2))
+    public = Secp256k1.recover!(Ticket.server_signature(loc2), Ticket.server_blob(loc2))
     id = Wallet.from_pubkey(public) |> Wallet.address!()
 
     assert Wallet.address!(Store.wallet()) == Wallet.address!(Wallet.from_pubkey(public))

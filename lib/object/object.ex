@@ -5,7 +5,7 @@ defmodule Object do
     always is the signature of BertExt.encode!([value1, value2, ..., valueN]))
     Also the signatures public key is always equal to the key
   """
-  @type key :: <<_::120>>
+  @type key :: <<_::160>>
   @callback key(tuple()) :: key()
 
   def decode!(bin) when is_binary(bin) do
@@ -33,6 +33,10 @@ defmodule Object do
     modname(record).key(record)
   end
 
+  def ticket_id(record) do
+    modname(record).ticket_id(record)
+  end
+
   defp modname(record) do
     name = Atom.to_string(elem(record, 0))
 
@@ -42,8 +46,8 @@ defmodule Object do
 
   defp extname(name) do
     case name do
-      :location ->
-        "location"
+      :ticket ->
+        "ticket"
 
       :server ->
         "server"
@@ -53,8 +57,8 @@ defmodule Object do
 
   defp recordname(name) do
     case name do
-      "location" ->
-        :location
+      "ticket" ->
+        :ticket
 
       "server" ->
         :server

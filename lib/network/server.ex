@@ -178,8 +178,6 @@ defmodule Network.Server do
       :io.format("Server: Rejecting self-connection~p")
       nil
     else
-      network_id = Store.get_network_for_device(remote_id)
-
       # register ensure this process is stored under the correct remote_id
       # and also ensure setops(active:true) is not sent before server.ex
       # finished the handshake
@@ -190,7 +188,6 @@ defmodule Network.Server do
       state = %{
         socket: socket,
         node_id: remote_id,
-        network_id: network_id,
         server_port: server_port
       }
 

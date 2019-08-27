@@ -13,12 +13,12 @@ defmodule KademliaTest do
     conns = Server.get_connections(PeerHandler)
     # :io.format("~p~n", [conns])
 
-    assert Map.size(conns) == 0
+    assert map_size(conns) == 0
 
     for n <- 1..@network_size do
       pid = Server.ensure_node_connection(PeerHandler, nil, "localhost", kademliaPort(n))
       assert GenServer.call(pid, :ping) == :pong
-      assert Map.size(Server.get_connections(PeerHandler)) == n
+      assert map_size(Server.get_connections(PeerHandler)) == n
     end
 
     # network = GenServer.call(Kademlia, :get_network)

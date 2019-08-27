@@ -1,7 +1,7 @@
 defmodule Network.EdgeHandler do
   use GenServer
-  alias Object.Location, as: Location
-  import Location
+  alias Object.Ticket, as: Ticket
+  import Ticket
 
   defmodule PortClient do
     defstruct pid: nil, mon: nil, socket: nil, ref: nil, write: true
@@ -84,7 +84,7 @@ defmodule Network.EdgeHandler do
     end
   end
 
-  @type state :: %{socket: any(), node_id: any(), peer: tuple(), ports: PortCollection.t()}
+  @type state :: %{socket: any(), node_id: Wallet.t(), peer: tuple(), ports: PortCollection.t()}
   @spec init(state()) :: {:ok, state()}
   def init(state) do
     {:ok, peer} = :ssl.peername(state.socket)
@@ -116,20 +116,48 @@ defmodule Network.EdgeHandler do
     msg = decode(msg)
 
     case msg do
-      ["hello", block, device_signature] ->
+      [
+        "ticket",
+        block,
+        fleet_contract,
+        total_connections,
+        total_bytes,
+        local_address,
+        device_signature
+      ] ->
         dl =
-          location(
+          ticket(
             server_id: Wallet.address!(Store.wallet()),
+            fleet_contract: fleet_contract,
+            total_connections: total_connections,
+            total_bytes: total_bytes,
+            local_address: local_address,
             peak_block: block,
             device_signature: device_signature
           )
 
-        if Location.device_verify(dl, state.node_id) do
-          dl = Location.server_sign(dl, Wallet.privkey!(Store.wallet()))
-          Kademlia.store(Object.key(dl), Object.encode!(dl))
-          send!(socket, ["response", "hello", "thanks!"])
+        if Ticket.device_verify(dl, nodeid(state)) do
+          case TicketStore.add(dl) do
+            :ok ->
+              dl = Ticket.server_sign(dl, Wallet.privkey!(Store.wallet()))
+              Kademlia.store(Object.key(dl), Object.encode!(dl))
+
+              send!(socket, ["response", "ticket", "thanks!"])
+
+            {:too_low, last} ->
+              send!(socket, [
+                "response",
+                "ticket",
+                "too_low",
+                Ticket.peak_block(last),
+                Ticket.total_connections(last),
+                Ticket.total_bytes(last),
+                Ticket.local_address(last),
+                Ticket.device_signature(last)
+              ])
+          end
         else
-          send!(socket, ["error", "hello", "signature mismatch"])
+          send!(socket, ["error", "ticket", "signature mismatch"])
         end
 
         {:noreply, state}
@@ -484,4 +512,7 @@ defmodule Network.EdgeHandler do
   defp send!(socket, data) do
     :ok = :ssl.send(socket, encode(data))
   end
+
+  @spec nodeid(state()) :: Wallet.t()
+  def nodeid(%{node_id: id}), do: id
 end

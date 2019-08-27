@@ -81,8 +81,8 @@ defmodule Kademlia do
     {:ok, %Kademlia{network: KBuckets.new(Store.wallet())}, {:continue, :seed}}
   end
 
-  def append(network_id, key, value, store_self \\ false) do
-    GenServer.call(__MODULE__, {:append, network_id, key, value, store_self})
+  def append(key, value, store_self \\ false) do
+    GenServer.call(__MODULE__, {:append, key, value, store_self})
   end
 
   @spec find_node(any()) :: nil | KBuckets.Item.t()
@@ -236,8 +236,8 @@ defmodule Kademlia do
     fun.(from, state)
   end
 
-  def handle_call({:append, network_id, key, value, _store_self}, _from, queue) do
-    LocalStore.append!(network_id, key, value)
+  def handle_call({:append, key, value, _store_self}, _from, queue) do
+    KademliaStore.append!(key, value)
     {:reply, :ok, queue}
   end
 
@@ -313,13 +313,13 @@ defmodule Kademlia do
 
     case call do
       [^store_cmd, key, value] ->
-        LocalStore.store(key, value)
+        KademliaStore.store(key, value)
 
       [^find_node_cmd, _key] ->
         []
 
       [^find_value_cmd, key] ->
-        case LocalStore.find(key) do
+        case KademliaStore.find(key) do
           nil -> []
           value -> {:value, value}
         end
