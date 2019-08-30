@@ -20,7 +20,7 @@ defmodule ABI do
 
   def encode_spec(name, types \\ []) do
     signature = "#{name}(#{Enum.join(types, ",")})"
-    binary_part(Sha3.keccak_256(signature), 0, 4)
+    binary_part(Hash.keccak_256(signature), 0, 4)
   end
 
   # uint<M>: unsigned integer type of M bits, 0 < M <= 256, M % 8 == 0. e.g. uint32, uint8, uint256.

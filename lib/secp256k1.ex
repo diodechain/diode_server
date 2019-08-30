@@ -203,10 +203,10 @@ defmodule Secp256k1 do
   end
 
   defp hash(:sha, msg) do
-    :crypto.hash(:sha256, msg)
+    Hash.sha3_256(msg)
   end
 
   defp hash(:kec, msg) do
-    Sha3.keccak_256(msg)
+    Hash.keccak_256(msg)
   end
 end

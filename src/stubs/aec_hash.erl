@@ -18,7 +18,7 @@
 
 -spec hash(hash_type(), hashable()) -> hash().
 hash(evm, Bin) when is_binary(Bin) ->
-    'Elixir.Sha3':keccak_256(Bin);
+    'Elixir.Hash':keccak_256(Bin);
 hash(_ObjType, Bin) when is_binary(Bin) ->
     blake2b_256_hash(Bin).
 

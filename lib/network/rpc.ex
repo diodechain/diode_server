@@ -115,7 +115,7 @@ defmodule Network.Rpc do
           end
 
         uncles = []
-        uncleSha = Sha3.keccak_256(Rlp.encode!(uncles))
+        uncleSha = Hash.keccak_256(Rlp.encode!(uncles))
 
         ret = %{
           "number" => Block.number(block),

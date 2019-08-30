@@ -37,7 +37,7 @@ defmodule Wallet do
     address =
       Secp256k1.decompress_public(pubkey)
       |> binary_part(1, 64)
-      |> Sha3.keccak_256()
+      |> Hash.keccak_256()
       |> binary_part(12, 20)
 
     wallet(from_address(address), pubkey: pubkey)

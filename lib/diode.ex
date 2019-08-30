@@ -69,7 +69,7 @@ defmodule Diode do
   @spec hash(binary()) :: binary()
   def hash(bin) do
     # Ethereum is using KEC instead ...
-    :crypto.hash(:sha256, bin)
+    Hash.sha3_256(bin)
   end
 
   @spec miner() :: Wallet.t()

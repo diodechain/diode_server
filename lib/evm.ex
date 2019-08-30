@@ -149,7 +149,7 @@ defmodule Evm do
 
       to_address =
         Rlp.encode!([address, account.nonce])
-        |> Sha3.keccak_256()
+        |> Hash.keccak_256()
         |> Hash.to_address()
 
       account = %{account | nonce: account.nonce + 1, balance: account.balance - value}

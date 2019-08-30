@@ -75,7 +75,7 @@ defmodule Chain.Transaction do
     address = Wallet.address!(origin(tx))
 
     Rlp.encode!([address, nonce])
-    |> Sha3.keccak_256()
+    |> Hash.keccak_256()
     |> Hash.to_address()
   end
 
