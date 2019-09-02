@@ -50,6 +50,10 @@ defmodule Chain.Worker do
   end
 
   def handle_cast(:update, state) do
+    {:noreply, do_update(state)}
+  end
+
+  defp do_update(state) do
     state = %{
       state
       | parent_hash: Chain.Block.hash(Chain.peakBlock()),
@@ -61,7 +65,7 @@ defmodule Chain.Worker do
       send(self(), :work)
     end
 
-    {:noreply, state}
+    state
   end
 
   def handle_call(:candidate, _from, state = %{candidate: nil}) do
@@ -106,11 +110,11 @@ defmodule Chain.Worker do
         Chain.Pool.remove_transactions(keys)
       end
 
-      update()
+      do_update(state)
+    else
+      activate_timer(state)
+      %{state | candidate: block}
     end
-
-    activate_timer(state)
-    %{state | candidate: block}
   end
 
   defp generate_candidate(state = %{parent_hash: nil}) do

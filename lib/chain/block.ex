@@ -268,6 +268,30 @@ defmodule Chain.Block do
     transactionReceipt(block, tx).evmout
   end
 
+  def logs(%Block{} = block) do
+    List.zip([transactions(block), receipts(block)])
+    |> Enum.map(fn {tx, rcpt} ->
+      Enum.map(rcpt.logs, fn log ->
+        {address, topics, data} = log
+
+        %{
+          "blockNumber" => Block.number(block),
+          "blockHash" => Block.hash(block),
+          "transactionHash" => Transaction.hash(tx),
+          "transactionIndex" => Block.transactionIndex(block, tx),
+          "address" => address,
+          "data" => data,
+          "topics" => topics
+        }
+      end)
+    end)
+    |> List.flatten()
+    |> Enum.with_index(0)
+    |> Enum.map(fn {log, idx} ->
+      Map.put(log, "logIndex", idx)
+    end)
+  end
+
   #########################################################
   ###### FUNCTIONS BELOW THIS LINE ARE STILL JUNK #########
   #########################################################

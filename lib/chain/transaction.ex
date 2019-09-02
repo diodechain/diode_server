@@ -130,6 +130,8 @@ defmodule Chain.Transaction do
     # IO.puts("Nonce: #{nonce} => #{Chain.State.account(state, from).nonce}")
 
     # Note: Even a non-existing account can send transaction, as long as value and gasprice are 0
+    # :io.format("Trying nonce ~p (should be ~p) on account ~p~n", [nonce, Chain.State.ensure_account(state, from).nonce, from])
+    # :io.format("~p~n", [:erlang.process_info(self(), :current_stacktrace)])
     case Chain.State.ensure_account(state, from) do
       from_acc = %Chain.Account{nonce: ^nonce} ->
         fee = gasLimit(tx) * gasPrice(tx)

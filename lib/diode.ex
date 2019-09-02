@@ -37,6 +37,11 @@ defmodule Diode do
     IO.puts("Edge Port: #{edgePort()}")
     IO.puts("Peer Port: #{kademliaPort()}")
     IO.puts("RPC  Port: #{rpcPort()}")
+    IO.puts("")
+
+    if dev_mode?() and [] == wallets() do
+      System.put_env("WALLETS", Base16.encode(Wallet.privkey!(Wallet.new())))
+    end
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
@@ -84,13 +89,14 @@ defmodule Diode do
   """
   def wallets() do
     get_env("WALLETS", "")
-    |> String.split(" ")
+    |> String.split(" ", trim: true)
     |> Enum.map(fn int ->
       decode_int(int)
       |> :binary.encode_unsigned()
       |> Wallet.from_privkey()
     end)
-    |> List.insert_at(0, miner())
+
+    # |> List.insert_at(0, miner())
   end
 
   def registryAddress() do

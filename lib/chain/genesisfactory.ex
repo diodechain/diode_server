@@ -22,7 +22,7 @@ defmodule Chain.GenesisFactory do
   def genesis_accounts() do
     accountant = 0x96CDE043E986040CB13FFAFD80EB8CEAC196FB84
 
-    [
+    std = [
       # The Accountant
       addrBalance(accountant, ether(1000)),
       # The Faucet
@@ -43,6 +43,15 @@ defmodule Chain.GenesisFactory do
         |> Account.storageSetValue(1, accountant)
       )
     ]
+
+    if Diode.dev_mode?() do
+      std ++
+        Enum.map(Diode.wallets(), fn wallet ->
+          {wallet, %Account{balance: ether(1000)}}
+        end)
+    else
+      std
+    end
   end
 
   def genesis_miner() do

@@ -17,9 +17,10 @@ defmodule Network.Rpc do
   def handle_jsonrpc(body_params) when is_map(body_params) do
     %{
       "method" => method,
-      "params" => params,
       "id" => id
     } = body_params
+
+    params = Map.get(body_params, "params", [])
 
     ret =
       try do
@@ -34,7 +35,8 @@ defmodule Network.Rpc do
 
   defp handle_jsonrpc(id, method, params) do
     if Diode.dev_mode?() do
-      IO.puts("#{method}")
+      # :io.format("~s ~p~n", [method, params])
+      :io.format("~s~n", [method])
     end
 
     case method do
@@ -245,7 +247,8 @@ defmodule Network.Rpc do
               "cumulativeGasUsed" => Block.gasUsed(block),
               "gasUsed" => Block.transactionGas(block, tx),
               "contractAddress" => Transaction.new_contract_address(tx),
-              "logs" => [],
+              "logs" =>
+                Block.logs(block) |> Enum.filter(fn log -> log["transactionHash"] == txh end),
               "logsBloom" => Block.logsBloom(block),
               "status" => Block.transactionStatus(block, tx)
 
@@ -255,6 +258,35 @@ defmodule Network.Rpc do
 
             result(id, ret)
         end
+
+      "eth_getLogs" ->
+        [%{"fromBlock" => blockRef}] = params
+
+        try do
+          block = getBlock(blockRef)
+          result(id, Block.logs(block))
+        catch
+          :notfound -> result(id, [])
+        end
+
+      # eth_getLogs [#{<<"fromBlock">> => <<"0x7">>}]
+      # curl -X POST --data '{"jsonrpc":"2.0","method":"eth_getLogs","params":["0x16"],"id":73}'
+      # {
+      #   "id":1,
+      #   "jsonrpc":"2.0",
+      #   "result": [{
+      #     "logIndex": "0x1", // 1
+      #     "blockNumber":"0x1b4", // 436
+      #     "blockHash": "0x8216c5785ac562ff41e2dcfdf5785ac562ff41e2dcfdf829c5a142f1fccd7d",
+      #     "transactionHash":  "0xdf829c5a142f1fccd7d8216c5785ac562ff41e2dcfdf5785ac562ff41e2dcf",
+      #     "transactionIndex": "0x0", // 0
+      #     "address": "0x16c5785ac562ff41e2dcfdf829c5a142f1fccd7d",
+      #     "data":"0x0000000000000000000000000000000000000000000000000000000000000000",
+      #     "topics": ["0x59ebeb90bc63057b6515673c3ecf9438e5058bca0f92585014eced636878c9a5"]
+      #     },{
+      #       ...
+      #     }]
+      # }
 
       "eth_blockNumber" ->
         result(id, Chain.peak())
@@ -391,9 +423,29 @@ defmodule Network.Rpc do
 
   def handle_dev(id, method, params) do
     case method do
+      "evm_snapshot" ->
+        case params do
+          [] ->
+            snapshot = Chain.state()
+            file = :erlang.phash2(snapshot) |> Base16.encode(false)
+            path = Diode.dataDir(file)
+            Chain.store_file(path, snapshot)
+            result(id, file)
+
+          [file] ->
+            if Enum.member?(File.ls!(Diode.dataDir()), file) do
+              Chain.load_file(Diode.dataDir(file))
+              |> Chain.set_state()
+
+              result(id, "")
+            else
+              result(id, "", 404)
+            end
+        end
+
       "evm_mine" ->
         Chain.Worker.work()
-        result(id, 200, "")
+        result(id, "", 200)
 
       _ ->
         :io.format("Unhandled: ~p ~p~n", [method, params])
@@ -455,9 +507,19 @@ defmodule Network.Rpc do
 
     nonce =
       Map.get_lazy(opts, "nonce", fn ->
-        Chain.Block.state(getBlock(blockRef))
-        |> Chain.State.ensure_account(from)
-        |> Chain.Account.nonce()
+        nonce =
+          Chain.Block.state(getBlock(blockRef))
+          |> Chain.State.ensure_account(from)
+          |> Chain.Account.nonce()
+
+        # There might be multiple transactions pending submitted with sendTransaction
+        Enum.reduce(Chain.Pool.transactions(), nonce, fn tx, nonce ->
+          if Transaction.from(tx) == from and Transaction.nonce(tx) >= nonce do
+            Transaction.nonce(tx) + 1
+          else
+            nonce
+          end
+        end)
       end)
 
     tx =

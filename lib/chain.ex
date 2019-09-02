@@ -58,6 +58,10 @@ defmodule Chain do
     :ok
   end
 
+  def state() do
+    call(fn state, _from -> {:reply, state, state} end)
+  end
+
   defp get(fun, timeout \\ 5000) do
     GenServer.call(__MODULE__, {:get, fun}, timeout)
   end
@@ -242,7 +246,7 @@ defmodule Chain do
     Block.state(block(n))
   end
 
-  defp store_file(filename, term) do
+  def store_file(filename, term) do
     case File.exists?(filename) do
       true ->
         term
@@ -257,7 +261,7 @@ defmodule Chain do
     end
   end
 
-  defp load_file(filename, default \\ nil) do
+  def load_file(filename, default \\ nil) do
     case File.read(filename) do
       {:ok, content} ->
         BertInt.decode!(content)

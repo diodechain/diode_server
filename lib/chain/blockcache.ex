@@ -79,6 +79,7 @@ defmodule Chain.BlockCache do
   defdelegate hash(block), to: Block
   defdelegate hash_valid?(block), to: Block
   defdelegate header(block), to: Block
+  defdelegate logs(block), to: Block
   defdelegate logsBloom(block), to: Block
   defdelegate miner(block), to: Block
   defdelegate nonce(block), to: Block
