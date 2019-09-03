@@ -112,9 +112,9 @@ defmodule Chain.Worker do
 
       do_update(state)
     else
-      activate_timer(state)
       %{state | candidate: block}
     end
+    |> activate_timer()
   end
 
   defp generate_candidate(state = %{parent_hash: nil}) do
@@ -174,5 +174,7 @@ defmodule Chain.Worker do
       _default ->
         :ok
     end
+
+    state
   end
 end
