@@ -6,7 +6,7 @@ defmodule KBuckets do
   import Wallet
 
   defmodule Item do
-    defstruct node_id: nil, last_seen: nil, object: nil
+    defstruct node_id: nil, last_seen: nil, object: nil, retries: 0
   end
 
   defimpl String.Chars, for: Item do
@@ -186,6 +186,22 @@ defmodule KBuckets do
     tree =
       update_bucket(tree, key, fn {:leaf, prefix, bucket} ->
         {:leaf, prefix, Map.delete(bucket, key)}
+      end)
+
+    {:kbucket, self_id, tree}
+  end
+
+  @spec update_item(kbuckets(), item() | item_id()) :: kbuckets()
+  def update_item({:kbucket, self_id, tree}, item) do
+    key = key(item)
+
+    tree =
+      update_bucket(tree, key, fn {:leaf, prefix, bucket} ->
+        if Map.has_key?(bucket, key) do
+          {:leaf, prefix, Map.put(bucket, key, item)}
+        else
+          {:leaf, prefix, bucket}
+        end
       end)
 
     {:kbucket, self_id, tree}

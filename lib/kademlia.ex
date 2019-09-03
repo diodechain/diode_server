@@ -78,7 +78,12 @@ defmodule Kademlia do
   end
 
   def init(:ok) do
-    {:ok, %Kademlia{network: KBuckets.new(Store.wallet())}, {:continue, :seed}}
+    kb =
+      Chain.load_file(Diode.dataDir("kademlia.etf"), fn ->
+        %Kademlia{network: KBuckets.new(Store.wallet())}
+      end)
+
+    {:ok, kb, {:continue, :seed}}
   end
 
   def append(key, value, store_self \\ false) do
@@ -245,6 +250,12 @@ defmodule Kademlia do
     {:reply, state.network, state}
   end
 
+  def handle_info(:save, state) do
+    spawn(fn -> Chain.store_file(Diode.dataDir("kademlia.etf"), state) end)
+    Process.send_after(self(), :save, 60_000)
+    {:noreply, state}
+  end
+
   # Private call used by PeerHandler when connections are established
   def handle_cast({:register_node, node_id, server}, state) do
     kb =
@@ -262,24 +273,54 @@ defmodule Kademlia do
 
   # Private call used by PeerHandler when connections fail
   def handle_cast({:failed_node, item}, state) do
-    # Todo add retry counter
-    kb = KBuckets.delete_item(state.network, item)
+    retries = item.retries
+
+    kb =
+      if retries > 3 do
+        KBuckets.delete_item(state.network, item)
+      else
+        KBuckets.update_item(state.network, %{item | retries: retries + 1})
+      end
+
     {:noreply, %Kademlia{network: kb}}
   end
 
   def handle_cast({:publish, object}, state) do
-    Network.Server.get_connections(Network.PeerHandler)
-    |> Enum.take_random(3)
-    |> Enum.each(fn {_, pid} ->
-      GenServer.cast(pid, {:rpc, [Client.publish(), object]})
-    end)
-
+    broadcast(state, 3, [Client.publish(), object])
     {:noreply, state}
+  end
+
+  defp broadcast(state, n, msg) do
+    ensure_connections(state, n)
+    |> Enum.each(fn pid ->
+      GenServer.cast(pid, {:rpc, msg})
+    end)
+  end
+
+  defp ensure_connections(state, n) do
+    candidates =
+      Network.Server.get_connections(Network.PeerHandler)
+      |> Map.values()
+
+    if length(candidates) < n do
+      list =
+        KBuckets.to_list(state.network)
+        |> Enum.filter(&(not KBuckets.is_self(&1)))
+        |> Enum.filter(&(not Enum.member?(candidates, &1)))
+        |> Enum.take_random(n - length(candidates))
+        |> Enum.map(&ensure_node_connection/1)
+
+      candidates ++ list
+    else
+      Enum.take_random(candidates, n)
+    end
   end
 
   def handle_continue(:seed, state) do
     seed = Diode.seed()
     %URI{userinfo: node_id, host: address, port: port} = URI.parse(seed)
+
+    Process.send_after(self(), :save, 60_000)
 
     id =
       case node_id do
@@ -287,7 +328,9 @@ defmodule Kademlia do
         str -> Wallet.from_address(Base16.decode(str))
       end
 
+    ensure_connections(state, 3)
     Network.Server.ensure_node_connection(Network.PeerHandler, id, address, port)
+
     {:noreply, state}
   end
 
@@ -326,10 +369,8 @@ defmodule Kademlia do
     end
   end
 
-  defp rpc(%KBuckets.Item{node_id: node_id, object: server} = node, call) do
-    host = Server.host(server)
-    port = Server.server_port(server)
-    pid = Network.Server.ensure_node_connection(Network.PeerHandler, node_id, host, port)
+  defp rpc(%KBuckets.Item{node_id: node_id} = node, call) do
+    pid = ensure_node_connection(node)
     tid = Task.async(GenServer, :call, [pid, {:rpc, call}])
 
     case Task.yield(tid, 5000) || Task.shutdown(tid) do
@@ -341,5 +382,11 @@ defmodule Kademlia do
         GenServer.cast(Kademlia, {:failed_node, node})
         []
     end
+  end
+
+  defp ensure_node_connection(%KBuckets.Item{node_id: node_id, object: server}) do
+    host = Server.host(server)
+    port = Server.server_port(server)
+    Network.Server.ensure_node_connection(Network.PeerHandler, node_id, host, port)
   end
 end

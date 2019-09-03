@@ -227,6 +227,7 @@ defmodule Chain do
 
         Store.set_block_transactions(block)
         send(Chain.Saver, :store)
+        Chain.Pool.remove_transactions(block)
 
         if relay do
           Kademlia.publish(block)

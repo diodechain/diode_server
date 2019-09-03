@@ -17,6 +17,12 @@ defmodule Chain.Pool do
     remove_transactions([key])
   end
 
+  def remove_transactions(%Chain.Block{} = block) do
+    done = Chain.Block.transactions(block)
+    keys = Enum.map(done, &Chain.Transaction.hash/1)
+    remove_transactions(keys)
+  end
+
   def remove_transactions(keys) do
     call(fn pool = %{transactions: transactions}, _from ->
       {:reply, :ok, %{pool | transactions: Map.drop(transactions, keys)}}

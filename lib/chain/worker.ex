@@ -1,4 +1,5 @@
 defmodule Chain.Worker do
+  alias Chain.Block
   use GenServer
 
   defstruct creds: nil,
@@ -13,7 +14,7 @@ defmodule Chain.Worker do
           creds: Wallet.t(),
           proposal: [Chain.Transaction.t()],
           parent_hash: binary(),
-          candidate: Chain.Block.t(),
+          candidate: Block.t(),
           target: non_neg_integer(),
           mode: non_neg_integer() | :poll | :disabled
         }
@@ -54,26 +55,25 @@ defmodule Chain.Worker do
   end
 
   defp do_update(state) do
-    state = %{
+    state2 = %{
       state
-      | parent_hash: Chain.Block.hash(Chain.peakBlock()),
-        proposal: Chain.Pool.proposal(),
-        candidate: nil
+      | parent_hash: Block.hash(Chain.peakBlock()),
+        proposal: Chain.Pool.proposal()
     }
 
-    if state.mode == :poll and state.proposal != [] do
-      send(self(), :work)
+    if state == state2 do
+      state
+    else
+      if state.mode == :poll and state.proposal != [] do
+        send(self(), :work)
+      end
+
+      %{state2 | candidate: nil}
     end
-
-    state
-  end
-
-  def handle_call(:candidate, _from, state = %{candidate: nil}) do
-    state = generate_candidate(state)
-    {:reply, state.candidate, state}
   end
 
   def handle_call(:candidate, _from, state) do
+    state = generate_candidate(state)
     {:reply, state.candidate, state}
   end
 
@@ -91,25 +91,19 @@ defmodule Chain.Worker do
 
     block =
       Enum.reduce_while(1..100, candidate, fn _, candidate ->
-        candidate = Chain.Block.sign(candidate, creds)
-        hash = Chain.Block.hash(candidate)
+        candidate = Block.sign(candidate, creds)
+        hash = Block.hash(candidate)
 
-        if Chain.Block.hash_in_target?(candidate, hash) do
+        if Block.hash_in_target?(candidate, hash) do
           {:halt, candidate}
         else
           {:cont, candidate}
         end
       end)
 
-    hash = Chain.Block.hash(block)
+    hash = Block.hash(block)
 
-    if Chain.Block.hash_in_target?(block, hash) do
-      if Chain.add_block(block) == :added do
-        done = Chain.Block.transactions(block)
-        keys = Enum.map(done, &Chain.Transaction.hash/1)
-        Chain.Pool.remove_transactions(keys)
-      end
-
+    if Block.hash_in_target?(block, hash) and Chain.add_block(block) == :added do
       do_update(state)
     else
       %{state | candidate: block}
@@ -118,7 +112,7 @@ defmodule Chain.Worker do
   end
 
   defp generate_candidate(state = %{parent_hash: nil}) do
-    parent_hash = Chain.Block.hash(Chain.peakBlock())
+    parent_hash = Block.hash(Chain.peakBlock())
     generate_candidate(%{state | parent_hash: parent_hash})
   end
 
@@ -128,9 +122,9 @@ defmodule Chain.Worker do
 
   defp generate_candidate(state = %{candidate: nil, creds: creds}) do
     prev_hash = parent_hash(state)
-    parent = %Chain.Block{} = Chain.block_by_hash(prev_hash)
+    parent = %Block{} = Chain.block_by_hash(prev_hash)
     time = System.os_time(:second)
-    account = Chain.State.ensure_account(Chain.peakState(), Wallet.address!(creds))
+    account = Chain.State.ensure_account(Block.state(parent), Wallet.address!(creds))
 
     tx =
       %Chain.Transaction{
@@ -143,8 +137,8 @@ defmodule Chain.Worker do
       |> Chain.Transaction.sign(Wallet.privkey!(creds))
 
     txs = [tx | transactions(state)]
-    block = Chain.Block.create(parent, txs, creds, time)
-    done = Chain.Block.transactions(block)
+    block = Block.create(parent, txs, creds, time)
+    done = Block.transactions(block)
 
     if done != txs do
       failed = MapSet.difference(MapSet.new(txs), MapSet.new(done))
@@ -152,7 +146,7 @@ defmodule Chain.Worker do
       Chain.Pool.remove_transactions(keys)
     end
 
-    diff = Chain.Block.difficulty(block)
+    diff = Block.difficulty(block)
     generate_candidate(%{state | candidate: block, target: diff, time: time})
   end
 
