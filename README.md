@@ -6,7 +6,8 @@ This executable should be started on any (AWS/GCP/Azure Node) and will talk the 
 # Pre-Requisites
 
 * Elixir 1.7.4
-* make & autoconf & libtool-bin & gcc & g++ 
+* make & autoconf & libtool-bin & gcc & g++
+* cpulimit (if you run production server node)
 
 # Server
 * daemontools
@@ -14,6 +15,7 @@ This executable should be started on any (AWS/GCP/Azure Node) and will talk the 
 # Running
 
 Execute on mac/linux:
+
 ```
 ./run
 ```

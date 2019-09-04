@@ -1,2 +1,2 @@
 #!/bin/bash
-rm data/* states/*
+find ./states ./data -type f -maxdepth 1 -delete

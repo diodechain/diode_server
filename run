@@ -2,4 +2,11 @@
 export ERL_CRASH_DUMP_BYTES=5000000000
 export MIX_ENV=prod
 mix deps.get
-exec cpulimit -l 75 -f -- iex -S mix run 
+OS="$(uname -s)"
+
+if [ "$OS" = "Darwin" ]
+then
+    exec cpulimit -l 75 -- iex -S mix run
+else
+    exec cpulimit -l 75 -f -- iex -S mix run
+fi
