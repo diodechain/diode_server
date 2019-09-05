@@ -67,6 +67,10 @@ defmodule Network.Rpc do
             }
           end
 
+        if Diode.dev_mode?() do
+          Chain.Worker.work()
+        end
+
         result(id, res, 200, err)
 
       "parity_pendingTransactions" ->
@@ -197,6 +201,11 @@ defmodule Network.Rpc do
         tx = create_transaction(wallet, data, opts)
 
         Chain.Pool.add_transaction(tx)
+
+        if Diode.dev_mode?() do
+          Chain.Worker.work()
+        end
+
         result(id, Chain.Transaction.hash(tx))
 
       "eth_call" ->
