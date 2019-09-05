@@ -61,13 +61,6 @@ eval(State) ->
             {error, What, GasLeft}
     end.
 
-eval_code(State = #{ address := 0 }) ->
-    %% Primitive call. Used for transactions. Once contract calls go through
-    %% the chain API we won't get here!
-    <<TxType:256, _/binary>> = aevm_eeevm_state:data(State),
-    Trace = aevm_eeevm_state:trace_fun(State),
-    Trace("  PrimCall ~p\n", [TxType]),
-    {ok, State};
 eval_code(State) ->
     try {ok, loop(aevm_eeevm_state:cp(State), valid_jumpdests(State))}
     catch
