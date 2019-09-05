@@ -83,6 +83,11 @@ defmodule Chain do
     8_000_000
   end
 
+  @doc "GasPrice for block validation and estimation"
+  def gasPrice() do
+    0
+  end
+
   @spec averageTransactionGas() :: 200_000
   def averageTransactionGas() do
     200_000

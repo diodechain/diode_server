@@ -300,6 +300,9 @@ defmodule Network.Rpc do
       "eth_blockNumber" ->
         result(id, Chain.peak())
 
+      "eth_gasPrice" ->
+        result(id, Chain.gasPrice())
+
       "net_listening" ->
         result(id, true)
 
