@@ -6,7 +6,7 @@ OS="$(uname -s)"
 
 if [ "$OS" = "Darwin" ]
 then
-    exec cpulimit -l 75 -- iex -S mix run
+    cpulimit -l 75 -- iex -S mix run
 else
-    exec cpulimit -l 75 -f -- iex -S mix run
+    cpulimit -l 75 -f -- iex -S mix run 
 fi
