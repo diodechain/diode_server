@@ -29,7 +29,9 @@ defmodule Store do
     create_table!(:keyValue, Keyword.keys(keyValue(keyValue())))
 
     ensure_identity()
-    IO.puts("Starting node #{Wallet.printable(Store.wallet())}")
+    IO.puts("==== Mining Node ====")
+    IO.puts("Node: #{Wallet.printable(Store.wallet())}")
+    IO.puts("")
 
     KademliaStore.init()
     TicketStore.init()

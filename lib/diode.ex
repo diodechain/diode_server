@@ -40,8 +40,24 @@ defmodule Diode do
     IO.puts("")
 
     if dev_mode?() and [] == wallets() do
-      System.put_env("WALLETS", Base16.encode(Wallet.privkey!(Wallet.new())))
+      wallets = for _n <- 1..5, do: Wallet.new()
+      keys = Enum.map(wallets, fn w -> Base16.encode(Wallet.privkey!(w)) end)
+      System.put_env("WALLETS", Enum.join(keys, " "))
+
+      IO.puts("====== DEV Accounts ======")
+
+      for w <- wallets do
+        IO.puts("#{Wallet.printable(w)} priv #{Base16.encode(Wallet.privkey!(w))}")
+      end
+    else
+      IO.puts("====== Accounts ======")
+
+      for w <- wallets() do
+        IO.puts("#{Wallet.printable(w)}")
+      end
     end
+
+    IO.puts("")
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options

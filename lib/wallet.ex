@@ -67,7 +67,9 @@ defmodule Wallet do
   def address(wallet(address: address)), do: {:ok, address}
 
   def printable(nil), do: "nil"
-  def printable(wallet), do: "#{words(wallet)} (#{Base16.encode(address!(wallet))})"
+
+  def printable(wallet),
+    do: "#{String.pad_trailing(words(wallet), 16)} (#{Base16.encode(address!(wallet))})"
 
   def words(nil), do: "nil"
   def words(wallet), do: Words.encode(address!(wallet))
