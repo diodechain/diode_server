@@ -455,6 +455,19 @@ defmodule Network.Rpc do
             end
         end
 
+      "evm_revert" ->
+        case params do
+          [file] ->
+            if Enum.member?(File.ls!(Diode.dataDir()), file) do
+              Chain.load_file(Diode.dataDir(file))
+              |> Chain.set_state()
+
+              result(id, "")
+            else
+              result(id, "", 404)
+            end
+        end
+
       "evm_mine" ->
         Chain.Worker.work()
         result(id, "", 200)
