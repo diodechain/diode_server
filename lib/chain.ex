@@ -270,7 +270,7 @@ defmodule Chain do
   def load_file(filename, default \\ nil) do
     case File.read(filename) do
       {:ok, content} ->
-        BertInt.decode!(content)
+        BertInt.decode_unsafe!(content)
 
       {:error, _} ->
         case default do
