@@ -26,7 +26,7 @@ defmodule Chain.GenesisFactory do
       # The Accountant
       addrBalance(accountant, ether(1000)),
       # The Faucet
-      addrBalance(0xbada81fae68925fec725790c34b68b5faca90d45, ether(1000)),
+      addrBalance(0xBADA81FAE68925FEC725790C34B68B5FACA90D45, ether(1000)),
       # Reserved A-D
       addrBalance(0x34E3961098DE3348B465CC82791BD0F7EBCE3ECD, ether(1000)),
       addrBalance(0xC0C416B326133D74335E6828D558EFE315BD597E, ether(1000)),
