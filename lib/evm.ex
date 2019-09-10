@@ -135,7 +135,7 @@ defmodule Evm do
             {call_result(gas_spent: gas - gasLeft, type: :revert, result: reason), state}
         end
       else
-        {call_result(gas_spent: 0, type: :revert, result: :no_code), state}
+        {call_result(gas_spent: 0, type: :ok, result: ""), %{state | chain_state: st1}}
       end
     end
 
