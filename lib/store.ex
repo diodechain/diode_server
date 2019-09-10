@@ -30,7 +30,7 @@ defmodule Store do
 
     ensure_identity()
     IO.puts("==== Mining Node ====")
-    IO.puts("Node: #{Wallet.printable(Store.wallet())}")
+    IO.puts("#{Wallet.printable(Store.wallet())}")
     IO.puts("")
 
     KademliaStore.init()

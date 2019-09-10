@@ -32,6 +32,13 @@ defmodule Network.EdgeHandler do
           }
   end
 
+  @moduledoc """
+    There are currently three access rights for "Ports" which are
+    loosely following Posix conventions:
+      1) r = Read
+      2) w = Write
+      3) s = Shared
+  """
   defmodule PortCollection do
     defstruct refs: %{}
     @type t :: %PortCollection{refs: %{reference() => Port.t()}}

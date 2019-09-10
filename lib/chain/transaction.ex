@@ -47,6 +47,15 @@ defmodule Chain.Transaction do
     validate(tx) == true
   end
 
+  @spec type(Chain.Transaction.t()) :: :call | :create
+  def type(tx) do
+    if contract_creation?(tx) do
+      :create
+    else
+      :call
+    end
+  end
+
   @spec validate(Chain.Transaction.t()) :: true | {non_neg_integer(), any()}
   def validate(tx) do
     with {1, %Chain.Transaction{}} <- {1, tx},

@@ -1,5 +1,6 @@
 defmodule Chain do
   alias Chain.BlockCache, as: Block
+  alias Chain.Transaction
   use GenServer
   defstruct peak: nil, by_hash: %{}, states: %{}, length: 0
 
@@ -221,6 +222,31 @@ defmodule Chain do
           IO.puts("Chain.add_block: Extending main #{info}")
         else
           IO.puts("Chain.add_block: Replacing main #{info}")
+        end
+
+        if Diode.dev_mode?() do
+          for {tx, rcpt} <- Enum.zip([Block.transactions(block), Block.receipts(block)]) do
+            status =
+              case rcpt.msg do
+                :revert -> ABI.decode_revert(rcpt.evmout)
+                _ -> {rcpt.msg, rcpt.evmout}
+              end
+
+            hash = Base16.encode(Transaction.hash(tx))
+            from = Base16.encode(Transaction.from(tx))
+            to = Base16.encode(Transaction.to(tx))
+            type = Atom.to_string(Transaction.type(tx))
+            value = Transaction.value(tx)
+            code = Base16.encode(Transaction.payload(tx))
+
+            IO.puts("")
+            IO.puts("\tTransaction: #{hash} Type: #{type}")
+            IO.puts("\tFrom:        #{from} To: #{to}")
+            IO.puts("\tValue:       #{value} Code: #{code}")
+            IO.puts("\tStatus:      #{inspect(status)}")
+          end
+
+          IO.puts("")
         end
 
         state = %{

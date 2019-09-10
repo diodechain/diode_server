@@ -337,26 +337,14 @@ defmodule Network.Rpc do
               "stateDiff" => nil,
               "trace" => [
                 %{
-                  "action" =>
-                    if Transaction.contract_creation?(tx) do
-                      %{
-                        "callType" => "create",
-                        "from" => Transaction.from(tx),
-                        "gas" => Transaction.gasLimit(tx),
-                        "init" => Transaction.payload(tx),
-                        "to" => Transaction.to(tx),
-                        "value" => Transaction.value(tx)
-                      }
-                    else
-                      %{
-                        "callType" => "call",
-                        "from" => Transaction.from(tx),
-                        "gas" => Transaction.gasLimit(tx),
-                        "input" => Transaction.payload(tx),
-                        "to" => Transaction.to(tx),
-                        "value" => Transaction.value(tx)
-                      }
-                    end,
+                  "action" => %{
+                    "callType" => Atom.to_string(Transaction.type(tx)),
+                    "from" => Transaction.from(tx),
+                    "gas" => Transaction.gasLimit(tx),
+                    "init" => Transaction.payload(tx),
+                    "to" => Transaction.to(tx),
+                    "value" => Transaction.value(tx)
+                  },
                   "result" => %{
                     "gasUsed" => rcpt.gas_used,
                     "output" => rcpt.evmout
