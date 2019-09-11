@@ -274,14 +274,16 @@ defmodule Chain.Block do
       Enum.map(rcpt.logs, fn log ->
         {address, topics, data} = log
 
+        # Note: truffle is picky on the size of the address, failed before 'Hash.to_address()' call.
         %{
-          "blockNumber" => Block.number(block),
-          "blockHash" => Block.hash(block),
-          "transactionHash" => Transaction.hash(tx),
           "transactionIndex" => Block.transactionIndex(block, tx),
-          "address" => address,
+          "transactionHash" => Transaction.hash(tx),
+          "blockHash" => Block.hash(block),
+          "blockNumber" => Block.number(block),
+          "address" => Hash.to_address(address),
           "data" => data,
-          "topics" => topics
+          "topics" => topics,
+          "type" => "mined"
         }
       end)
     end)

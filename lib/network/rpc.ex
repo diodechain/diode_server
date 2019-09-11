@@ -29,16 +29,18 @@ defmodule Network.Rpc do
         :notfound -> result(id, nil, 404, %{"message" => "Not found"})
       end
 
-    # :io.format("handle_jsonrpc(~p) =>~n~p~n", [body_params, ret])
+    if Diode.dev_mode?() do
+      if method == "__eth_getTransactionReceipt" do
+        :io.format("~s ~0p =>~n~0p~n", [method, params, ret])
+      else
+        :io.format("~s~n", [method])
+      end
+    end
+
     ret
   end
 
   defp handle_jsonrpc(id, method, params) do
-    if Diode.dev_mode?() do
-      # :io.format("~s ~p~n", [method, params])
-      :io.format("~s~n", [method])
-    end
-
     case method do
       "eth_sendRawTransaction" ->
         [hextx] = params
@@ -248,18 +250,28 @@ defmodule Network.Rpc do
             block = Chain.block_by_hash(hash)
             tx = Store.transaction(txbin)
 
+            logs =
+              Block.logs(block)
+              |> Enum.filter(fn log -> log["transactionHash"] == txbin end)
+
+            [v, r, s] = Secp256k1.bitcoin_to_rlp(Transaction.signature(tx))
+
             ret = %{
               "transactionHash" => txh,
               "transactionIndex" => Block.transactionIndex(block, tx),
-              "blockNumber" => Block.number(block),
               "blockHash" => Block.hash(block),
-              "cumulativeGasUsed" => Block.gasUsed(block),
+              "blockNumber" => Block.number(block),
+              "from" => Transaction.from(tx),
+              "to" => Transaction.to(tx),
               "gasUsed" => Block.transactionGas(block, tx),
+              "cumulativeGasUsed" => Block.gasUsed(block),
               "contractAddress" => Transaction.new_contract_address(tx),
-              "logs" =>
-                Block.logs(block) |> Enum.filter(fn log -> log["transactionHash"] == txh end),
+              "logs" => logs,
+              "status" => Block.transactionStatus(block, tx),
               "logsBloom" => Block.logsBloom(block),
-              "status" => Block.transactionStatus(block, tx)
+              "v" => v,
+              "r" => r,
+              "s" => s
 
               # Blockscout does not handle extra keys
               # "out" => Block.transactionOut(block, tx)
