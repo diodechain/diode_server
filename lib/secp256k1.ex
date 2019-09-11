@@ -102,13 +102,14 @@ defmodule Secp256k1 do
       Wallet.address!(Wallet.from_pubkey(signer)) == Wallet.address!(public)
   end
 
-  @spec recover!(signature(), binary(), :sha | :kec) :: public_key()
+  @spec recover!(signature(), binary(), :sha | :kec | :none) :: public_key()
   def recover!(signature, msg, algo \\ :sha) do
     {:ok, public} = recover(signature, msg, algo)
     public
   end
 
-  @spec recover(signature(), binary(), :sha | :kec) :: {:ok, public_key()} | {:error, String.t()}
+  @spec recover(signature(), binary(), :sha | :kec | :none) ::
+          {:ok, public_key()} | {:error, String.t()}
   def recover(signature, msg, algo \\ :sha) do
     <<recid, signature::binary>> = signature
     :libsecp256k1.ecdsa_recover_compact(hash(algo, msg), signature, :compressed, recid)
@@ -200,6 +201,10 @@ defmodule Secp256k1 do
         {:AuthorityKeyIdentifier, hash, :asn1_NOVALUE, :asn1_NOVALUE}},
        {:Extension, {2, 5, 29, 19}, true, {:BasicConstraints, true, :asn1_NOVALUE}}
      ]}
+  end
+
+  defp hash(:none, <<msg::binary-size(32)>>) do
+    msg
   end
 
   defp hash(:sha, msg) do

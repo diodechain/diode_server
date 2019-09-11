@@ -15,4 +15,8 @@ defmodule Hash do
   def sha3_256(string) do
     :crypto.hash(:sha256, string)
   end
+
+  def ripemd160(string) do
+    :crypto.hash(:ripemd160, string)
+  end
 end

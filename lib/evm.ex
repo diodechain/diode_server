@@ -103,39 +103,34 @@ defmodule Evm do
           |> Chain.State.set_account(tx.to, %{to_acc | balance: to_acc.balance + value})
         end
 
-      if t.code != nil do
-        # :io.format("BEFORE target = ~p code = ~p gasLimit = ~p~n", [target, code, gas])
-        ret =
-          Evm.eval_internal(
-            evm(%{
-              state
-              | tx: tx,
-                chain_state: st1,
-                code: t.code,
-                from: caller
-            })
-          )
+      ret =
+        Evm.eval_internal(
+          evm(%{
+            state
+            | tx: tx,
+              chain_state: st1,
+              code: t.code,
+              from: caller
+          })
+        )
 
-        case ret do
-          {:ok, evm} ->
-            # :io.format("AFTER target = ~p gasLimit = ~p gas = ~p~n", [target, gas, Evm.gas(evm)])
-            {call_result(result: Evm.out(evm), gas_spent: gas - Evm.gas(evm), type: :ok),
-             %{
-               state
-               | chain_state: Evm.state(evm),
-                 selfdestructs: Evm.raw(evm).chain_state.selfdestructs
-             }}
+      case ret do
+        {:ok, evm} ->
+          # :io.format("AFTER target = ~p gasLimit = ~p gas = ~p~n", [target, gas, Evm.gas(evm)])
+          {call_result(result: Evm.out(evm), gas_spent: gas - Evm.gas(evm), type: :ok),
+           %{
+             state
+             | chain_state: Evm.state(evm),
+               selfdestructs: Evm.raw(evm).chain_state.selfdestructs
+           }}
 
-          {:error, reason, gasLeft} ->
-            # :io.format("AFTER target = ~p gasLimit = ~p gas = ~p~n", [target, gas, gasLeft])
-            {call_result(gas_spent: gas - gasLeft, type: :exception, result: reason), state}
+        {:error, reason, gasLeft} ->
+          # :io.format("AFTER target = ~p gasLimit = ~p gas = ~p~n", [target, gas, gasLeft])
+          {call_result(gas_spent: gas - gasLeft, type: :exception, result: reason), state}
 
-          {:revert, reason, gasLeft} ->
-            # :io.format("AFTER target = ~p gasLimit = ~p gas = ~p~n", [target, gas, gasLeft])
-            {call_result(gas_spent: gas - gasLeft, type: :revert, result: reason), state}
-        end
-      else
-        {call_result(gas_spent: 0, type: :ok, result: ""), %{state | chain_state: st1}}
+        {:revert, reason, gasLeft} ->
+          # :io.format("AFTER target = ~p gasLimit = ~p gas = ~p~n", [target, gas, gasLeft])
+          {call_result(gas_spent: gas - gasLeft, type: :revert, result: reason), state}
       end
     end
 
@@ -364,6 +359,35 @@ defmodule Evm do
   end
 
   def eval_internal(evm) do
+    addr = State.address(evm.chain_state)
+    to = Hash.integer(addr)
+
+    case code(evm) do
+      nil ->
+        case PreCompiles.get(to) do
+          nil -> {:ok, %{evm | out: ""}}
+          fun -> eval_internal_precompile(evm, fun)
+        end
+
+      _ ->
+        eval_internal_evm(evm)
+    end
+  end
+
+  def eval_internal_precompile(evm, fun) do
+    input = data(evm)
+    gascost = fun.(:gas, input)
+
+    if gascost > evm.gas do
+      {:error, :out_of_gas, 0}
+    else
+      result = fun.(:run, input)
+      result = binary_part(<<0::unsigned-size(256), result::binary>>, byte_size(result), 32)
+      {:ok, %{evm | out: result, gas: evm.gas - gascost}}
+    end
+  end
+
+  def eval_internal_evm(evm) do
     # bef = evm.gas
     ret = :aevm_eeevm.eval(evm)
     # ret = {_, %{trace: trace}} = :aevm_eeevm.eval(evm)
@@ -416,6 +440,10 @@ defmodule Evm do
 
   def gas(evm) do
     evm.gas
+  end
+
+  def code(evm) do
+    evm.code
   end
 
   def logs(evm) do
