@@ -119,6 +119,10 @@ defmodule Diode do
     Base16.decode("0x5000000000000000000000000000000000000000")
   end
 
+  def fleetAddress() do
+    Base16.decode("0x6000000000000000000000000000000000000000")
+  end
+
   @spec dataDir(binary()) :: binary()
   def dataDir(file \\ "") do
     get_env("DATA_DIR", File.cwd!() <> "/data/") <> file
