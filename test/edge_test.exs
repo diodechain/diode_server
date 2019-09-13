@@ -21,11 +21,11 @@ defmodule EdgeTest do
     # Test that clients connected match the test file identities
     [id1, id2] = Map.keys(conns)
 
-    if id1 == clientid(1) do
-      assert id2 == clientid(2)
+    if Wallet.equal?(id1, clientid(1)) do
+      assert Wallet.equal?(id2, clientid(2))
     else
-      assert id1 == clientid(2)
-      assert id2 == clientid(1)
+      assert Wallet.equal?(id1, clientid(2))
+      assert Wallet.equal?(id2, clientid(1))
     end
   end
 
@@ -49,8 +49,9 @@ defmodule EdgeTest do
 
   test "ticket" do
     TicketStore.clear()
+    :persistent_term.put(:no_tickets, true)
 
-    loc =
+    tck =
       ticket(
         server_id: Wallet.address!(Store.wallet()),
         total_connections: 1,
@@ -64,12 +65,12 @@ defmodule EdgeTest do
     # The first ticket submission should work
     assert rpc(:client_1, [
              "ticket",
-             Ticket.peak_block(loc),
-             Ticket.fleet_contract(loc),
-             Ticket.total_connections(loc),
-             Ticket.total_bytes(loc),
-             Ticket.local_address(loc),
-             Ticket.device_signature(loc)
+             Ticket.peak_block(tck),
+             Ticket.fleet_contract(tck),
+             Ticket.total_connections(tck),
+             Ticket.total_bytes(tck),
+             Ticket.local_address(tck),
+             Ticket.device_signature(tck)
            ]) ==
              [
                "response",
@@ -80,28 +81,28 @@ defmodule EdgeTest do
     # Submitting a second ticket with the same count should fail
     assert rpc(:client_1, [
              "ticket",
-             Ticket.peak_block(loc),
-             Ticket.fleet_contract(loc),
-             Ticket.total_connections(loc),
-             Ticket.total_bytes(loc),
-             Ticket.local_address(loc),
-             Ticket.device_signature(loc)
+             Ticket.peak_block(tck),
+             Ticket.fleet_contract(tck),
+             Ticket.total_connections(tck),
+             Ticket.total_bytes(tck),
+             Ticket.local_address(tck),
+             Ticket.device_signature(tck)
            ]) ==
              [
                "response",
                "ticket",
                "too_low",
-               Ticket.peak_block(loc),
-               Ticket.total_connections(loc),
-               Ticket.total_bytes(loc),
-               Ticket.local_address(loc),
-               Ticket.device_signature(loc)
+               Ticket.peak_block(tck),
+               Ticket.total_connections(tck),
+               Ticket.total_bytes(tck),
+               Ticket.local_address(tck),
+               Ticket.device_signature(tck)
              ]
 
     ["response", "getobject", loc2] = rpc(:client_1, ["getobject", Wallet.address!(clientid(1))])
 
     loc2 = Object.decode_list!(loc2)
-    assert Ticket.device_blob(loc) == Ticket.device_blob(loc2)
+    assert Ticket.device_blob(tck) == Ticket.device_blob(loc2)
 
     assert Secp256k1.verify(
              Store.wallet(),
@@ -124,6 +125,11 @@ defmodule EdgeTest do
     ["response", "getnode", node] = rpc(:client_1, ["getnode", id])
     node = Object.decode_list!(node)
     assert(Object.key(node) == id)
+
+    # Testing disconnect
+    ["error", 401, "bad input"] = rpc(:client_1, ["garbage", String.pad_leading("", 1024)])
+    {:ok, ["goodbye", "ticket expected", "you might get blacklisted"]} = crecv(:client_1)
+    {:error, :timeout} = crecv(:client_1)
   end
 
   test "port" do
@@ -324,11 +330,13 @@ defmodule EdgeTest do
   end
 
   setup do
+    :persistent_term.put(:no_tickets, false)
     ensure_clients()
   end
 
   setup_all do
     IO.puts("Starting clients")
+    :persistent_term.put(:no_tickets, false)
     ensure_clients()
 
     on_exit(fn ->
@@ -400,18 +408,80 @@ defmodule EdgeTest do
     end
   end
 
+  defp create_ticket(socket, state = %{unpaid_bytes: ub, paid_bytes: pb}) do
+    if ub >= pb + 1024 and not :persistent_term.get(:no_tickets) do
+      do_create_ticket(socket, state)
+    else
+      state
+    end
+  end
+
+  defp do_create_ticket(socket, state) do
+    tck =
+      ticket(
+        server_id: Wallet.address!(Store.wallet()),
+        total_connections: state.conns,
+        total_bytes: state.paid_bytes + 1024,
+        local_address: "spam",
+        peak_block: Chain.block(Chain.peak()).header.block_hash,
+        fleet_contract: <<0::unsigned-size(160)>>
+      )
+      |> Ticket.device_sign(state.key)
+
+    data = [
+      "ticket",
+      Ticket.peak_block(tck),
+      Ticket.fleet_contract(tck),
+      Ticket.total_connections(tck),
+      Ticket.total_bytes(tck),
+      Ticket.local_address(tck),
+      Ticket.device_signature(tck)
+    ]
+
+    :ssl.send(socket, Json.encode!(data))
+
+    %{state | paid_bytes: state.paid_bytes + 1024}
+  end
+
+  def handle_tickets(socket, state, msg) do
+    if not :persistent_term.get(:no_tickets) do
+      case Json.decode!(msg) do
+        ["response", "ticket", "thanks!"] ->
+          state
+
+        ["response", "ticket", "too_low", _peak, conns, bytes, _address, _signature] ->
+          state = %{state | conns: conns, paid_bytes: bytes, unpaid_bytes: bytes + 1024}
+          create_ticket(socket, state)
+
+        _ ->
+          false
+      end
+    else
+      false
+    end
+  end
+
   def clientloop(socket, state) do
+    state = create_ticket(socket, state)
+
     receive do
       {:ssl, _, msg} ->
         # IO.puts("Received #{msg}")
+        state = %{state | unpaid_bytes: state.unpaid_bytes + byte_size(msg)}
 
-        case state.recv do
-          nil ->
-            clientloop(socket, %{state | data: :queue.in(msg, state.data)})
+        case handle_tickets(socket, state, msg) do
+          false ->
+            case state.recv do
+              nil ->
+                clientloop(socket, %{state | data: :queue.in(msg, state.data)})
 
-          from ->
-            send(from, {:ret, msg})
-            clientloop(socket, %{state | recv: nil})
+              from ->
+                send(from, {:ret, msg})
+                clientloop(socket, %{state | recv: nil})
+            end
+
+          state ->
+            clientloop(socket, state)
         end
 
       {:ssl_closed, _} ->
@@ -448,6 +518,7 @@ defmodule EdgeTest do
         # IO.puts("Sending #{data}")
         :ok = :ssl.send(socket, data)
         send(pid, {:ret, :ok})
+        state = %{state | unpaid_bytes: state.unpaid_bytes + byte_size(data)}
         clientloop(socket, state)
 
       msg ->
@@ -508,7 +579,7 @@ defmodule EdgeTest do
   end
 
   defp clientid(n) do
-    Wallet.from_pubkey(Certs.id_from_file("./test/pems/device#{n}_certificate.pem"))
+    Wallet.from_privkey(clientkey(n))
   end
 
   defp clientkey(n) do
@@ -518,10 +589,23 @@ defmodule EdgeTest do
   defp client(n) do
     cert = "./test/pems/device#{n}_certificate.pem"
     {:ok, socket} = :ssl.connect('localhost', 41043, options(cert), 5000)
+    wallet = clientid(n)
+    key = Wallet.privkey!(wallet)
+    fleet = <<0::160>>
+
+    {conns, bytes} =
+      case TicketStore.find(Wallet.address!(wallet), fleet) do
+        nil -> {1, 0}
+        tck -> {Ticket.total_connections(tck) + 1, Ticket.total_bytes(tck)}
+      end
 
     state = %{
       data: :queue.new(),
-      recv: nil
+      recv: nil,
+      key: key,
+      unpaid_bytes: bytes,
+      paid_bytes: bytes,
+      conns: conns
     }
 
     pid = Process.spawn(__MODULE__, :clientboot, [socket, state], [])

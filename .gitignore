@@ -17,3 +17,4 @@ erl_crash.dump
 ./run
 clones
 config/diode.exs
+.history/
