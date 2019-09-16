@@ -53,9 +53,11 @@ defmodule EvmTest do
 
     # Fail test 2: Too little gas
     ctx_fail = %{ctx | gasLimit: 1} |> Transaction.sign(priv)
-    {:ok, %TransactionReceipt{msg: :out_of_gas}} = Transaction.apply(ctx_fail, block, state)
 
-    {:ok, %TransactionReceipt{msg: :ok, state: state}} = Transaction.apply(ctx, block, state)
+    {:ok, _state, %TransactionReceipt{msg: :out_of_gas}} =
+      Transaction.apply(ctx_fail, block, state)
+
+    {:ok, state, %TransactionReceipt{msg: :ok}} = Transaction.apply(ctx, block, state)
 
     # Checking value of i at position 0
     acc = Chain.State.account(state, Transaction.new_contract_address(ctx))
@@ -76,9 +78,9 @@ defmodule EvmTest do
 
     # Fail test 3: value on non_payable method
     tx_fail = %{tx | value: 1} |> Transaction.sign(priv)
-    {:ok, %TransactionReceipt{msg: :revert}} = Transaction.apply(tx_fail, block, state)
+    {:ok, _state, %TransactionReceipt{msg: :revert}} = Transaction.apply(tx_fail, block, state)
 
-    {:ok, %TransactionReceipt{msg: :ok, state: state, evmout: evmout}} =
+    {:ok, state, %TransactionReceipt{msg: :ok, evmout: evmout}} =
       Transaction.apply(tx, block, state)
 
     assert evmout == ""

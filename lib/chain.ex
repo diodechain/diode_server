@@ -56,7 +56,13 @@ defmodule Chain do
   def set_state(state) do
     call(fn _state, _from -> {:reply, :ok, state} end)
     Store.seed_transactions()
+    Chain.Worker.update()
     :ok
+  end
+
+  @doc "Function for unit tests, resets state to genesis state"
+  def reset_state() do
+    set_state(genesis_state())
   end
 
   def state() do
@@ -154,19 +160,7 @@ defmodule Chain do
 
   @spec load_blocks() :: Chain.t()
   def load_blocks() do
-    chain =
-      load_file(Diode.dataDir(@cache), fn ->
-        gen = genesis()
-        Store.set_block_transactions(gen)
-        hash = Block.hash(gen)
-
-        %Chain{
-          peak: gen,
-          by_hash: %{hash => gen},
-          states: %{},
-          length: 1
-        }
-      end)
+    chain = load_file(Diode.dataDir(@cache), &genesis_state/0)
 
     case chain do
       %Chain{} ->
@@ -184,6 +178,19 @@ defmodule Chain do
           states: %{}
         }
     end
+  end
+
+  defp genesis_state() do
+    gen = genesis()
+    Store.set_block_transactions(gen)
+    hash = Block.hash(gen)
+
+    %Chain{
+      peak: gen,
+      by_hash: %{hash => gen},
+      states: %{},
+      length: 1
+    }
   end
 
   @spec add_block(any()) :: :added | :stored

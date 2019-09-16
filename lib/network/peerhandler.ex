@@ -1,5 +1,5 @@
 defmodule Network.PeerHandler do
-  alias Chain.BlockCache, as: Block
+  alias Chain.Block
 
   use GenServer
   alias Object.Server, as: Server
@@ -211,6 +211,8 @@ defmodule Network.PeerHandler do
   end
 
   defp handle_msg([@publish, %Chain.Block{} = block], state) do
+    block = %{block | receipts: []}
+
     case Block.parent(block) do
       # Block is based on unknown predecessor
       # keep block in block backup list
@@ -238,22 +240,22 @@ defmodule Network.PeerHandler do
         {[@response, @publish, "missing_parent"], %{state | blocks: blocks}}
 
       %Chain.Block{} ->
-        case Block.valid?(block) do
-          true ->
+        case Block.validate(block) do
+          %Chain.Block{} = block ->
             Chain.add_block(block)
 
             # replay block backup list
             Enum.each(state.blocks, fn oldblock ->
-              if Block.parent(oldblock) != nil and
-                   Block.valid?(oldblock) do
-                Chain.add_block(oldblock, false)
+              with %Chain.Block{} <- Block.parent(oldblock),
+                   %Chain.Block{} = block <- Block.validate(oldblock) do
+                Chain.add_block(block, false)
               end
             end)
 
             # delete backup list on first successfull block
             {[@response, @publish, "ok"], %{state | blocks: []}}
 
-          false ->
+          _ ->
             err = "sync failed: #{inspect(Block.validate(block))}"
             {:stop, {:validation_error, err}}
         end
@@ -271,7 +273,7 @@ defmodule Network.PeerHandler do
     # if there is a missing parent we're batching 65k blocks at once
     parents =
       Enum.reduce_while(Chain.blocks(parent_hash), [], fn block, blocks ->
-        next = [block | blocks]
+        next = [%{block | receipts: []} | blocks]
 
         if byte_size(:erlang.term_to_binary(next)) > 260_000 do
           {:halt, next}

@@ -34,7 +34,7 @@ defmodule Shell do
     blockRef = Keyword.get(opts, :blockRef, "latest")
     block = Network.Rpc.getBlock(blockRef)
     state = Chain.Block.state(block)
-    {:ok, rcpt} = Chain.Transaction.apply(tx, block, state)
+    {:ok, _state, rcpt} = Chain.Transaction.apply(tx, block, state)
 
     ret =
       case rcpt.msg do

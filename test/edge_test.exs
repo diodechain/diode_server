@@ -33,6 +33,19 @@ defmodule EdgeTest do
     assert rpc(:client_1, ["getblockpeak"]) == ["response", "getblockpeak", Chain.peak()]
   end
 
+  test "getaccount" do
+    ["error", "getaccount", "account does not exist"] =
+      rpc(:client_1, ["getaccount", Chain.peak(), "01234567890123456789"])
+
+    {wallet, acc} = hd(Chain.GenesisFactory.genesis_accounts())
+    addr = Wallet.address!(wallet)
+
+    ["response", "getaccount", ret, _proof] = rpc(:client_1, ["getaccount", Chain.peak(), addr])
+
+    assert ret["code"] == Chain.Account.codehash(acc)
+    assert ret["balance"] == acc.balance
+  end
+
   test "getaccountvalue" do
     ["error", "getaccountvalue", "account does not exist"] =
       rpc(:client_1, ["getaccountvalue", Chain.peak(), "01234567890123456789", 0])
@@ -127,8 +140,10 @@ defmodule EdgeTest do
     assert(Object.key(node) == id)
 
     # Testing disconnect
-    ["error", 401, "bad input"] = rpc(:client_1, ["garbage", String.pad_leading("", 1024)])
-    {:ok, ["goodbye", "ticket expected", "you might get blacklisted"]} = crecv(:client_1)
+    ["goodbye", "ticket expected", "you might get blacklisted"] =
+      rpc(:client_1, ["garbage", String.pad_leading("", 1024)])
+
+    # {:ok, ["goodbye", "ticket expected", "you might get blacklisted"]} = crecv(:client_1)
     {:error, :timeout} = crecv(:client_1)
   end
 

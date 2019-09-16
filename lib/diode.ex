@@ -71,7 +71,7 @@ defmodule Diode do
 
   @spec dev_mode? :: boolean
   def dev_mode?() do
-    env() == :dev
+    env() == :dev or env() == :test
   end
 
   @spec trace? :: boolean

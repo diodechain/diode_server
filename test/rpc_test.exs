@@ -2,20 +2,21 @@ defmodule RpcTest do
   use ExUnit.Case, async: true
   alias Network.Rpc
 
+  setup_all do
+    TestHelper.reset()
+  end
+
   test "trace_replayBlockTransactions" do
-    {200, %{"result" => ret}} = rpc("trace_replayBlockTransactions", ["latest", ["trace"]])
-    {200, %{"result" => ret}} = rpc("trace_replayBlockTransactions", ["earliest", ["trace"]])
-    # :io.format("ret: ~p~n", [ret])
-    ret
+    {200, %{"result" => _ret}} = rpc("trace_replayBlockTransactions", ["latest", ["trace"]])
+    {200, %{"result" => _ret}} = rpc("trace_replayBlockTransactions", ["earliest", ["trace"]])
   end
 
   test "eth_getBlockByNumber" do
-    {200, %{"result" => ret}} = rpc("eth_getBlockByNumber", [0, false])
-    {200, %{"result" => ret}} = rpc("eth_getBlockByNumber", [1, false])
-    {404, %{"result" => ret}} = rpc("eth_getBlockByNumber", [150, false])
-    {200, %{"result" => ret}} = rpc("eth_getBlockByNumber", ["earliest", false])
-    {200, %{"result" => ret}} = rpc("eth_getBlockByNumber", ["latest", false])
-    ret
+    {200, %{"result" => _ret}} = rpc("eth_getBlockByNumber", [0, false])
+    {200, %{"result" => _ret}} = rpc("eth_getBlockByNumber", [1, false])
+    {404, %{"result" => _ret}} = rpc("eth_getBlockByNumber", [150, false])
+    {200, %{"result" => _ret}} = rpc("eth_getBlockByNumber", ["earliest", false])
+    {200, %{"result" => _ret}} = rpc("eth_getBlockByNumber", ["latest", false])
   end
 
   # %{id: id, method: "trace_replayBlockTransactions", params: [^block_quantity, ["trace"]]} ->

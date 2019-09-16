@@ -3,6 +3,10 @@ defmodule ChainTest do
   alias Chain.{Account, Block, Transaction, State}
   # alias Chain.BlockHeader, as: Header
 
+  setup_all do
+    TestHelper.reset()
+  end
+
   test "length" do
     peak = Chain.peak()
     peak_block = Chain.peakBlock()

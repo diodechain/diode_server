@@ -74,7 +74,8 @@ defmodule KademliaTest do
             {"RPC_PORT", "#{10002 + num * 3}"},
             {"EDGE_PORT", "#{10000 + num * 3}"},
             {"KADEMLIA_PORT", "#{kademliaPort(num)}"},
-            {"SEED", "diode://localhost:#{kademliaPort(num)}"}
+            {"SEED", "diode://localhost:#{kademliaPort(num)}"},
+            {"MIX_ENV", System.get_env("MIX_ENV")}
           ],
           stderr_to_stdout: true,
           into: file

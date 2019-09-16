@@ -20,7 +20,6 @@ defmodule Chain.GenesisFactory do
 
   @spec genesis_accounts() :: [{Wallet.t(), Account.t()}]
   def genesis_accounts() do
-    registry = 0x5000000000000000000000000000000000000000
     accountant = 0x96CDE043E986040CB13FFAFD80EB8CEAC196FB84
 
     std = [
@@ -51,9 +50,8 @@ defmodule Chain.GenesisFactory do
           balance: 0,
           code: Base16.decode(fleetContract())
         }
-        |> Account.storageSetValue(0, registry)
+        |> Account.storageSetValue(0, Diode.registryAddress() |> :binary.decode_unsigned())
         |> Account.storageSetValue(2, accountant)
-
       )
     ]
 

@@ -126,7 +126,7 @@ defmodule Chain.Transaction do
   end
 
   @spec apply(Chain.Transaction.t(), Chain.Block.t(), Chain.State.t(), false | true) ::
-          {:error, :not_enough_balance} | {:ok, Chain.Receipt.t()}
+          {:error, :not_enough_balance} | {:ok, Chain.State.t(), Chain.Receipt.t()}
   def apply(
         tx = %Chain.Transaction{nonce: nonce},
         env = %Chain.Block{},
@@ -180,61 +180,58 @@ defmodule Chain.Transaction do
 
     evm = Evm.init(tx, new_state, env, acc.storageRoot, code, trace?)
 
-    receipt =
-      case Evm.eval(evm) do
-        {:ok, evm} ->
-          new_state = Evm.state(evm)
+    case Evm.eval(evm) do
+      {:ok, evm} ->
+        new_state = Evm.state(evm)
 
-          from_acc = Chain.State.account(new_state, from)
-          from_acc = %{from_acc | balance: from_acc.balance + Evm.gas(evm) * gasPrice(tx)}
-          new_state = Chain.State.set_account(new_state, from, from_acc)
+        from_acc = Chain.State.account(new_state, from)
+        from_acc = %{from_acc | balance: from_acc.balance + Evm.gas(evm) * gasPrice(tx)}
+        new_state = Chain.State.set_account(new_state, from, from_acc)
 
-          # The destination might be selfdestructed
-          new_state =
-            case Chain.State.account(new_state, to(tx)) do
-              nil ->
-                new_state
+        # The destination might be selfdestructed
+        new_state =
+          case Chain.State.account(new_state, to(tx)) do
+            nil ->
+              new_state
 
-              acc ->
-                acc = if contract_creation?(tx), do: %{acc | code: Evm.out(evm)}, else: acc
-                Chain.State.set_account(new_state, to(tx), acc)
-            end
+            acc ->
+              acc = if contract_creation?(tx), do: %{acc | code: Evm.out(evm)}, else: acc
+              Chain.State.set_account(new_state, to(tx), acc)
+          end
 
-          # :io.format("evm: ~240p~n", [evm])
-          %TransactionReceipt{
-            state: new_state,
-            evmout: Evm.out(evm),
-            return_data: Evm.return_data(evm),
-            data: Evm.data(evm),
-            logs: Evm.logs(evm),
-            trace: Evm.trace(evm),
-            gas_used: gasLimit(tx) - Evm.gas(evm),
-            msg: :ok
-          }
+        # :io.format("evm: ~240p~n", [evm])
+        {:ok, new_state,
+         %TransactionReceipt{
+           evmout: Evm.out(evm),
+           return_data: Evm.return_data(evm),
+           data: Evm.data(evm),
+           logs: Evm.logs(evm),
+           trace: Evm.trace(evm),
+           gas_used: gasLimit(tx) - Evm.gas(evm),
+           msg: :ok
+         }}
 
-        {:error, msg, gasLeft} ->
-          # Only applying the full fee (restoring the tx.value)
-          state =
-            Chain.State.set_account(state, from, %{
-              from_acc
-              | balance: from_acc.balance + tx.value
-            })
+      {:error, msg, gasLeft} ->
+        # Only applying the full fee (restoring the tx.value)
+        state =
+          Chain.State.set_account(state, from, %{
+            from_acc
+            | balance: from_acc.balance + tx.value
+          })
 
-          %TransactionReceipt{state: state, msg: msg, gas_used: gasLimit(tx) - gasLeft}
+        {:ok, state, %TransactionReceipt{msg: msg, gas_used: gasLimit(tx) - gasLeft}}
 
-        {:revert, message, gasLeft} ->
-          # Only applying the delta fee (see new_state vs. state)
-          gasUsed = gasLimit(tx) - gasLeft
+      {:revert, message, gasLeft} ->
+        # Only applying the delta fee (see new_state vs. state)
+        gasUsed = gasLimit(tx) - gasLeft
 
-          state =
-            Chain.State.set_account(state, from, %{
-              from_acc
-              | balance: from_acc.balance + gasLeft * gasPrice(tx) + tx.value
-            })
+        state =
+          Chain.State.set_account(state, from, %{
+            from_acc
+            | balance: from_acc.balance + gasLeft * gasPrice(tx) + tx.value
+          })
 
-          %TransactionReceipt{state: state, msg: :revert, gas_used: gasUsed, evmout: message}
-      end
-
-    {:ok, receipt}
+        {:ok, state, %TransactionReceipt{msg: :revert, gas_used: gasUsed, evmout: message}}
+    end
   end
 end

@@ -1,5 +1,5 @@
 defmodule Chain.Block do
-  alias Chain.{Block, BlockCache, State, Transaction, TransactionReceipt, Header}
+  alias Chain.{Block, BlockCache, State, Transaction, Header}
 
   defstruct transactions: [], header: %Chain.Header{}, receipts: []
 
@@ -32,10 +32,13 @@ defmodule Chain.Block do
 
   @spec valid?(any()) :: boolean()
   def valid?(block) do
-    validate(block) == true
+    case validate(block) do
+      %Chain.Block{} -> true
+      _ -> false
+    end
   end
 
-  @spec validate(any()) :: true | {non_neg_integer(), any()}
+  @spec validate(any()) :: %Chain.Block{} | {non_neg_integer(), any()}
   def validate(block) do
     with {1, %Block{}} <- {1, block},
          {2, %Block{}} <- {2, parent(block)},
@@ -49,7 +52,7 @@ defmodule Chain.Block do
          {6, true} <- {6, Diode.hash(encode_transactions(transactions(block))) == txhash(block)},
          {7, simBlock} <- {7, simulate(block)},
          {8, true} <- {8, state_hash(simBlock) == state_hash(block)} do
-      true
+      simBlock
     else
       {nr, error} -> {nr, error}
     end
@@ -109,8 +112,8 @@ defmodule Chain.Block do
       Enum.reduce(transactions, {state(parent), [], []}, fn %Transaction{} = tx,
                                                             {%State{} = state, txs, rcpts} ->
         case Transaction.apply(tx, block, state, trace?) do
-          {:ok, rcpt} ->
-            {TransactionReceipt.state(rcpt), txs ++ [tx], rcpts ++ [rcpt]}
+          {:ok, state, rcpt} ->
+            {state, txs ++ [tx], rcpts ++ [rcpt]}
 
           {:error, message} ->
             :io.format("Error in transaction: ~p (~p)~n", [message, Transaction.hash(tx)])

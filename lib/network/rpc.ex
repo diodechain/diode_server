@@ -50,7 +50,7 @@ defmodule Network.Rpc do
         # Testing transaction
         peak = Chain.peakBlock()
         state = Block.state(peak)
-        {:ok, rcpt} = Chain.Transaction.apply(tx, peak, state)
+        {:ok, _state, rcpt} = Chain.Transaction.apply(tx, peak, state)
 
         # :io.format("Receipt: ~p~n", [rcpt])
 
@@ -220,7 +220,7 @@ defmodule Network.Rpc do
 
         block = getBlock(ref)
         state = Block.state(block)
-        {:ok, rcpt} = Chain.Transaction.apply(tx, block, state)
+        {:ok, _state, rcpt} = Chain.Transaction.apply(tx, block, state)
 
         res = rcpt.evmout
 
