@@ -1,5 +1,5 @@
 defmodule RpcTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
   alias Network.Rpc
 
   setup_all do

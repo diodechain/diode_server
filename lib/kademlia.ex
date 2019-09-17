@@ -86,6 +86,11 @@ defmodule Kademlia do
     {:ok, kb, {:continue, :seed}}
   end
 
+  @doc "Method used for testing"
+  def reset() do
+    call(fn _from, _state -> {:reply, :ok, %Kademlia{network: KBuckets.new(Store.wallet())}} end)
+  end
+
   def append(key, value, store_self \\ false) do
     GenServer.call(__MODULE__, {:append, key, value, store_self})
   end

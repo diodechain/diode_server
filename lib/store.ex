@@ -20,6 +20,20 @@ defmodule Store do
 
     Application.put_env(:mnesia, :dir, :binary.bin_to_list(dir))
 
+    if Diode.dev_mode?() do
+      case :net_kernel.start([:master, :shortnames]) do
+        {:error, {{:already_started, _pid}, _}} ->
+          :ok
+
+        {:ok, _pid} ->
+          :ok
+
+        _ ->
+          System.cmd("epmd", ["-daemon"], stderr_to_stdout: true)
+          {:ok, _pid} = :net_kernel.start([:master, :shortnames])
+      end
+    end
+
     case :mnesia.create_schema([node()]) do
       :ok -> :ok
       {:error, {_, {:already_exists, _}}} -> :ok
@@ -113,6 +127,7 @@ defmodule Store do
         [] ->
           [
             {:disc_copies, [node()]},
+            {:local_content, true},
             {:attributes, attributes},
             # {:index, [1]},
             {:storage_properties, [{:ets, [:compressed]}, {:dets, [{:auto_save, 5000}]}]}

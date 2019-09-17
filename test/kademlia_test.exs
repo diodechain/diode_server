@@ -1,18 +1,28 @@
 defmodule KademliaTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
   alias Network.Server, as: Server
   alias Network.PeerHandler, as: PeerHandler
+  import TestHelper
 
   # Need bigger number to have a not connected network
   # 30
   @network_size 2
-  # 10_000
-  @delay 10_000
+  setup_all do
+    reset()
+    start_clones(@network_size)
+
+    on_exit(fn ->
+      kill_clones()
+    end)
+  end
 
   test "connect" do
-    conns = Server.get_connections(PeerHandler)
-    # :io.format("~p~n", [conns])
+    wait_for(
+      fn -> Server.get_connections(PeerHandler) == %{} end,
+      "connections to drain"
+    )
 
+    conns = Server.get_connections(PeerHandler)
     assert map_size(conns) == 0
 
     for n <- 1..@network_size do
@@ -40,72 +50,5 @@ defmodule KademliaTest do
     for {key, _value} <- values do
       assert Kademlia.find_value("not_#{key}") == nil
     end
-  end
-
-  setup_all do
-    IO.puts("Starting clones")
-    start_clones(@network_size)
-
-    on_exit(fn ->
-      IO.puts("Killing clones")
-      kill_clones()
-    end)
-  end
-
-  def kademliaPort(num) do
-    10001 + num * 3
-  end
-
-  def start_clones(number) do
-    kill_clones()
-    :ok = wait(0, 60)
-
-    basedir = File.cwd!() <> "/clones"
-    File.mkdir_p!(basedir)
-
-    for num <- 1..number do
-      clonedir = "#{basedir}/#{num}"
-      file = File.stream!("#{basedir}/#{num}.log")
-
-      spawn_link(fn ->
-        System.cmd("iex", ["--cookie", "EXTMP_K66", "-S", "mix", "run"],
-          env: [
-            {"DATA_DIR", clonedir},
-            {"RPC_PORT", "#{10002 + num * 3}"},
-            {"EDGE_PORT", "#{10000 + num * 3}"},
-            {"KADEMLIA_PORT", "#{kademliaPort(num)}"},
-            {"SEED", "diode://localhost:#{kademliaPort(num)}"},
-            {"MIX_ENV", System.get_env("MIX_ENV")}
-          ],
-          stderr_to_stdout: true,
-          into: file
-        )
-      end)
-
-      Process.sleep(1000)
-    end
-
-    :ok = wait(number, 60)
-    Process.sleep(@delay)
-  end
-
-  def wait(_target_count, 0) do
-    :error
-  end
-
-  def wait(target_count, seconds) do
-    {ret, _} = System.cmd("pgrep", ["-fc", "EXTMP_K66"])
-    {count, _} = Integer.parse(ret)
-
-    if count == target_count do
-      :ok
-    else
-      Process.sleep(1000)
-      wait(target_count, seconds - 1)
-    end
-  end
-
-  def kill_clones() do
-    System.cmd("pkill", ["-fc", "-9", "EXTMP_K66"])
   end
 end

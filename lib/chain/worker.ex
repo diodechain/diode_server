@@ -91,7 +91,10 @@ defmodule Chain.Worker do
 
     block =
       Enum.reduce_while(1..100, candidate, fn _, candidate ->
-        candidate = Block.sign(candidate, creds)
+        candidate =
+          Block.increment_nonce(candidate)
+          |> Block.sign(creds)
+
         hash = Block.hash(candidate)
 
         if Block.hash_in_target?(candidate, hash) do

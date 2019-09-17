@@ -52,7 +52,7 @@ defmodule Chain.Block do
          {6, true} <- {6, Diode.hash(encode_transactions(transactions(block))) == txhash(block)},
          {7, simBlock} <- {7, simulate(block)},
          {8, true} <- {8, state_hash(simBlock) == state_hash(block)} do
-      simBlock
+      %{block | receipts: simBlock.receipts}
     else
       {nr, error} -> {nr, error}
     end
@@ -151,11 +151,11 @@ defmodule Chain.Block do
     create(parent, transactions(block), miner(block), timestamp(block), trace?)
   end
 
-  @spec sign(Block.t(), Wallet.t(), nil | binary()) :: Block.t()
-  def sign(%Block{} = block, miner, nonce \\ nil) do
+  @spec sign(Block.t(), Wallet.t()) :: Block.t()
+  def sign(%Block{} = block, miner) do
     header =
       header(block)
-      |> Header.sign(miner, nonce)
+      |> Header.sign(miner)
       |> Header.update_hash()
 
     %Block{block | header: header}
@@ -295,6 +295,11 @@ defmodule Chain.Block do
     |> Enum.map(fn {log, idx} ->
       Map.put(log, "logIndex", idx)
     end)
+  end
+
+  @spec increment_nonce(Chain.Block.t()) :: Chain.Block.t()
+  def increment_nonce(%Block{header: %Header{nonce: nonce} = header} = block) do
+    %{block | header: %{header | nonce: nonce + 1}}
   end
 
   #########################################################

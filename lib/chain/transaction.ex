@@ -111,7 +111,7 @@ defmodule Chain.Transaction do
 
   @spec sign(Chain.Transaction.t(), <<_::256>>) :: Chain.Transaction.t()
   def sign(tx = %Chain.Transaction{}, priv) do
-    %{tx | signature: Secp256k1.sign(priv, to_message(tx), nil, :kec)}
+    %{tx | signature: Secp256k1.sign(priv, to_message(tx), :kec)}
   end
 
   @spec hash(Chain.Transaction.t()) :: binary()

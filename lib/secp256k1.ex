@@ -73,16 +73,10 @@ defmodule Secp256k1 do
     :public_key.pkix_sign(erl_encode_cert(public), erl_encode_private(private, public))
   end
 
-  @spec sign(private_key(), binary(), binary() | nil, :sha | :kec) :: signature()
-  def sign(private, msg, nonce \\ nil, algo \\ :sha) do
-    nonce =
-      case nonce do
-        nil -> :libsecp256k1.rand256()
-        other -> other
-      end
-
+  @spec sign(private_key(), binary(), :sha | :kec) :: signature()
+  def sign(private, msg, algo \\ :sha) do
     {:ok, signature, recid} =
-      :libsecp256k1.ecdsa_sign_compact(hash(algo, msg), private, :nonce_function_rfc6979, nonce)
+      :libsecp256k1.ecdsa_sign_compact(hash(algo, msg), private, :default, nil)
 
     <<recid, signature::binary>>
   end

@@ -8,7 +8,8 @@ defmodule Chain.Header do
             block_hash: nil,
             state_hash: nil,
             transaction_hash: nil,
-            timestamp: 0
+            timestamp: 0,
+            nonce: 0
 
   @type t :: %Chain.Header{
           previous_block: binary() | nil,
@@ -17,7 +18,8 @@ defmodule Chain.Header do
           block_hash: binary() | nil,
           state_hash: binary() | nil,
           transaction_hash: binary() | nil,
-          timestamp: non_neg_integer()
+          timestamp: non_neg_integer(),
+          nonce: non_neg_integer()
         }
 
   # egg is everything but the miner_signature and the block hash, it is required to create the miner_signature
@@ -27,7 +29,8 @@ defmodule Chain.Header do
       header.miner_pubkey,
       header.state_hash,
       header.transaction_hash,
-      header.timestamp
+      header.timestamp,
+      header.nonce
     ])
   end
 
@@ -39,6 +42,7 @@ defmodule Chain.Header do
       header.state_hash,
       header.transaction_hash,
       header.timestamp,
+      header.nonce,
       header.miner_signature
     ])
   end
@@ -48,9 +52,9 @@ defmodule Chain.Header do
     %{header | block_hash: Diode.hash(encode_chicken(header))}
   end
 
-  @spec sign(Chain.Header.t(), Wallet.t(), nil | binary()) :: Chain.Header.t()
-  def sign(%Chain.Header{} = header, wallet() = miner, nonce \\ nil) do
-    %{header | miner_signature: Secp256k1.sign(Wallet.privkey!(miner), encode_egg(header), nonce)}
+  @spec sign(Chain.Header.t(), Wallet.t()) :: Chain.Header.t()
+  def sign(%Chain.Header{} = header, wallet() = miner) do
+    %{header | miner_signature: Secp256k1.sign(Wallet.privkey!(miner), encode_egg(header))}
   end
 
   @spec miner(Chain.Header.t()) :: Wallet.t()

@@ -1,5 +1,5 @@
 defmodule ChainTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
   alias Chain.{Account, Block, Transaction, State}
   # alias Chain.BlockHeader, as: Header
 

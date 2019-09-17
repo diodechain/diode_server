@@ -124,6 +124,11 @@ defmodule Chain do
     Block.state(peakBlock())
   end
 
+  @spec genesis_hash :: binary
+  def genesis_hash() do
+    Block.hash(Chain.block(0))
+  end
+
   @spec block(number()) :: Chain.Block.t() | nil
   def block(n) do
     Enum.at(blocks(), -(n + 1))

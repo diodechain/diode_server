@@ -72,7 +72,7 @@ defmodule Network.PeerHandler do
   def handle_continue(:send_hello, state) do
     hello = Diode.self()
 
-    send!(state.socket, [@hello, Object.encode!(hello), Block.hash(Chain.block(0))])
+    send!(state.socket, [@hello, Object.encode!(hello), Chain.genesis_hash()])
 
     receive do
       {:ssl, _socket, msg} ->
@@ -127,10 +127,14 @@ defmodule Network.PeerHandler do
   end
 
   defp handle_msg([@hello, server, genesis_hash], state) do
-    genesis = Block.hash(Chain.block(0))
+    genesis = Chain.genesis_hash()
 
     if genesis != genesis_hash do
-      :io.format("Hello wrong genesis: ~p ~p~n", [peer(state), genesis_hash])
+      :io.format("Hello wrong genesis: ~p ~p~n", [
+        Base16.encode(genesis),
+        Base16.encode(genesis_hash)
+      ])
+
       {:stop, :normal, state}
     else
       if Map.has_key?(state, :peer_port) do

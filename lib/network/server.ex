@@ -162,7 +162,7 @@ defmodule Network.Server do
 
     remote_id = Wallet.from_pubkey(Certs.extract(socket))
 
-    if Wallet.equal?(node_id, remote_id) do
+    if node_id != nil and not Wallet.equal?(node_id, remote_id) do
       IO.puts(
         "Expected #{Wallet.printable(node_id)} different from found #{Wallet.printable(remote_id)}"
       )
