@@ -7,6 +7,7 @@ defmodule Diode do
     import Supervisor.Spec, warn: false
 
     children = [
+      worker(PubSub, [args]),
       worker(Store, [args]),
       worker(Chain, [args]),
       worker(Chain.BlockCache, [args]),

@@ -5,9 +5,6 @@
 # is restricted to this project.
 use Mix.Config
 
-config :kernel,
-  start_pg2: true
-
 # Configures Elixir's Logger
 config :logger,
   backends: [:console],
