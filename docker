@@ -1,0 +1,5 @@
+#!/bin/sh
+export ERL_CRASH_DUMP_BYTES=5000000000
+export MIX_ENV=prod
+
+docker build . -t diode && exec docker run --name diode --rm --network=host -ti diode
