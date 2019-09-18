@@ -4,8 +4,9 @@ Description=Diode service
 [Service]
 Restart=always
 RestartSec=3
-ExecStart=/usr/bin/screen -L -DmS diode supervise /home/dominicletz/poc-server-ex
-User=dominicletz
+ExecStart=/usr/bin/screen -L -DmS diode supervise /opt/diode
+WorkingDirectory=/opt/diode
+Environment=HOME=/opt/diode
 
 [Install]
 WantedBy=multi-user.target

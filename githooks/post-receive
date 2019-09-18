@@ -1,4 +1,7 @@
 #!/bin/sh
 unset GIT_DIR
-cd /home/dominicletz/poc-server-ex && git checkout -f
-svc -t /home/dominicletz/poc-server-ex 
+DIODE=/opt/diode
+cd $DIODE && git checkout -f
+svc -d $DIODE
+./clean.sh
+svc -u $DIODE
