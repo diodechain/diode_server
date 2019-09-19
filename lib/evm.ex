@@ -65,6 +65,11 @@ defmodule Evm do
       |> Chain.Account.code()
     end
 
+    def blockhash(n, _state) do
+      # Not quite clean but aevm_eevm_state at least checks for future n before calling this.
+      Chain.block(n) |> Chain.Block.hash()
+    end
+
     def call_contract(_target, <<0::256>>, _gas, _value, _callData, _callStack, _origin, state) do
       {call_result(gas_spent: 0, type: :ok, result: <<0::256>>), state}
     end
