@@ -33,6 +33,7 @@ def install():
     run("HOME=`pwd` mix local.hex --force")
     run("HOME=`pwd` mix local.rebar --force")
     run("systemctl daemon-reload")
+    run("systemctl enable diode")
 
     # Cleaning
     run("systemctl stop diode")
@@ -40,4 +41,6 @@ def install():
       run("find ./states -maxdepth 1 -type f -delete")
     if exists("./data"):
       run("find ./data -maxdepth 1 -type f -delete")
+
+    # Starting
     run("systemctl start diode")
