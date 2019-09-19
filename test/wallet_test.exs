@@ -1,5 +1,5 @@
 defmodule WalletTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case
 
   test "simple" do
     {pub, priv} = Secp256k1.generate()

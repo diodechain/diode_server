@@ -1,5 +1,5 @@
 defmodule RlpTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case
 
   test "short list" do
     {public, private} = Secp256k1.generate()

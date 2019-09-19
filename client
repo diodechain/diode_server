@@ -1,0 +1,2 @@
+#!/bin/bash
+exec mix run --no-start client_lib/client.exs

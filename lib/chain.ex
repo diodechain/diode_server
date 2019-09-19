@@ -63,6 +63,7 @@ defmodule Chain do
   @doc "Function for unit tests, resets state to genesis state"
   def reset_state() do
     set_state(genesis_state())
+    Chain.BlockCache.reset()
   end
 
   def state() do
@@ -112,6 +113,18 @@ defmodule Chain do
   @spec peak() :: integer()
   def peak() do
     Block.number(peakBlock())
+  end
+
+  def epoch() do
+    Block.epoch(peakBlock())
+  end
+
+  def epoch_length() do
+    if Diode.dev_mode?() do
+      4
+    else
+      40320
+    end
   end
 
   @spec peakBlock() :: Chain.Block.t()
@@ -232,10 +245,14 @@ defmodule Chain do
       if peak_hash == parent_hash || number - blockchainDelta() > state.length do
         if peak_hash == parent_hash do
           IO.puts("Chain.add_block: Extending main #{info}")
+          Store.set_block_transactions(block)
         else
           IO.puts("Chain.add_block: Replacing main #{info}")
+          Store.clear_transactions()
+          do_blocks(block, state.by_hash, &Store.set_block_transactions/1)
         end
 
+        # Printing some debug output per transaction
         if Diode.dev_mode?() do
           for {tx, rcpt} <- Enum.zip([Block.transactions(block), Block.receipts(block)]) do
             status =
@@ -268,9 +285,16 @@ defmodule Chain do
             length: number
         }
 
-        Store.set_block_transactions(block)
+        # Schedule a job to store the current state
         send(Chain.Saver, :store)
+        # Remove all transactions that have been processed in this block
+        # from the outstanding local transaction pool
         Chain.Pool.remove_transactions(block)
+
+        # Let the ticketstore now the new block
+        spawn(fn ->
+          TicketStore.newblock()
+        end)
 
         if relay do
           Kademlia.publish(block)
@@ -283,6 +307,15 @@ defmodule Chain do
         {:reply, :stored, state}
       end
     end)
+  end
+
+  defp do_blocks(nil, _by_hash, _fun) do
+    :done
+  end
+
+  defp do_blocks(block, by_hash, fun) do
+    fun.(block)
+    do_blocks(Map.get(by_hash, Block.parent_hash(block)), by_hash, fun)
   end
 
   @spec state(number()) :: Chain.State.t()

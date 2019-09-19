@@ -1,9 +1,10 @@
 defmodule EdgeTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
   alias Network.Server, as: Server
   alias Network.EdgeHandler, as: EdgeHandler
   alias Object.Ticket, as: Ticket
   import Ticket
+  import TestHelper
 
   test "connect" do
     # Test that clients are connected
@@ -70,7 +71,7 @@ defmodule EdgeTest do
         total_connections: 1,
         total_bytes: 0,
         local_address: "spam",
-        peak_block: Chain.block(Chain.peak()).header.block_hash,
+        block_number: Chain.peak(),
         fleet_contract: <<0::unsigned-size(160)>>
       )
       |> Ticket.device_sign(clientkey(1))
@@ -78,7 +79,7 @@ defmodule EdgeTest do
     # The first ticket submission should work
     assert rpc(:client_1, [
              "ticket",
-             Ticket.peak_block(tck),
+             Ticket.block_number(tck),
              Ticket.fleet_contract(tck),
              Ticket.total_connections(tck),
              Ticket.total_bytes(tck),
@@ -94,7 +95,7 @@ defmodule EdgeTest do
     # Submitting a second ticket with the same count should fail
     assert rpc(:client_1, [
              "ticket",
-             Ticket.peak_block(tck),
+             Ticket.block_number(tck),
              Ticket.fleet_contract(tck),
              Ticket.total_connections(tck),
              Ticket.total_bytes(tck),
@@ -105,7 +106,7 @@ defmodule EdgeTest do
                "response",
                "ticket",
                "too_low",
-               Ticket.peak_block(tck),
+               Ticket.block_hash(tck),
                Ticket.total_connections(tck),
                Ticket.total_bytes(tck),
                Ticket.local_address(tck),
@@ -369,18 +370,18 @@ defmodule EdgeTest do
 
       pid ->
         Process.exit(pid, :kill)
-        wait(atom)
+        wait_for_process(atom)
     end
   end
 
-  defp wait(atom) do
+  defp wait_for_process(atom) do
     case Process.whereis(atom) do
       nil ->
         :ok
 
       _pid ->
         Process.sleep(100)
-        wait(atom)
+        wait_for_process(atom)
     end
   end
 
@@ -438,14 +439,14 @@ defmodule EdgeTest do
         total_connections: state.conns,
         total_bytes: state.paid_bytes + 1024,
         local_address: "spam",
-        peak_block: Chain.block(Chain.peak()).header.block_hash,
+        block_number: Chain.peak(),
         fleet_contract: <<0::unsigned-size(160)>>
       )
       |> Ticket.device_sign(state.key)
 
     data = [
       "ticket",
-      Ticket.peak_block(tck),
+      Ticket.block_number(tck),
       Ticket.fleet_contract(tck),
       Ticket.total_connections(tck),
       Ticket.total_bytes(tck),
@@ -593,14 +594,6 @@ defmodule EdgeTest do
     ]
   end
 
-  defp clientid(n) do
-    Wallet.from_privkey(clientkey(n))
-  end
-
-  defp clientkey(n) do
-    Certs.private_from_file("./test/pems/device#{n}_certificate.pem")
-  end
-
   defp client(n) do
     cert = "./test/pems/device#{n}_certificate.pem"
     {:ok, socket} = :ssl.connect('localhost', 41043, options(cert), 5000)
@@ -609,7 +602,7 @@ defmodule EdgeTest do
     fleet = <<0::160>>
 
     {conns, bytes} =
-      case TicketStore.find(Wallet.address!(wallet), fleet) do
+      case TicketStore.find(Wallet.address!(wallet), fleet, Chain.epoch()) do
         nil -> {1, 0}
         tck -> {Ticket.total_connections(tck) + 1, Ticket.total_bytes(tck)}
       end

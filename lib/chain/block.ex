@@ -18,6 +18,7 @@ defmodule Chain.Block do
 
   def parent(%Block{} = block), do: Chain.block_by_hash(parent_hash(block))
   def parent_hash(%Block{header: header}), do: header.previous_block
+  def nonce(%Block{header: header}), do: header.nonce
   def miner(%Block{header: header}), do: Header.miner(header)
   @spec state(Chain.Block.t()) :: Chain.State.t()
   def state(%Block{} = block), do: Chain.state_load(state_hash(block))
@@ -81,7 +82,7 @@ defmodule Chain.Block do
     # (( stake / 100 )² * max_diff) / (10² * difficulty_block)
     #
     stake =
-      Chain.Registry.minerValue(0, Block.miner(block), blockRef)
+      Contract.Registry.minerValue(0, Block.miner(block), blockRef)
       |> div(Shell.ether(100))
       |> max(10)
 
@@ -234,11 +235,14 @@ defmodule Chain.Block do
         end
       end)
 
-    if price == nil do
-      0
+    case price do
+      nil -> 0
+      _ -> price
     end
+  end
 
-    price
+  def epoch(%Block{} = block) do
+    Contract.Registry.epoch(block)
   end
 
   @spec gasUsed(Block.t()) :: non_neg_integer()
@@ -298,8 +302,8 @@ defmodule Chain.Block do
   end
 
   @spec increment_nonce(Chain.Block.t()) :: Chain.Block.t()
-  def increment_nonce(%Block{header: %Header{nonce: nonce} = header} = block) do
-    %{block | header: %{header | nonce: nonce + 1}}
+  def increment_nonce(%Block{header: header} = block) do
+    %{block | header: %{header | nonce: nonce(block) + 1}}
   end
 
   #########################################################
@@ -315,11 +319,6 @@ defmodule Chain.Block do
   @spec logsBloom(Block.t()) :: <<_::528>>
   def logsBloom(%Block{} = _block) do
     "0x0000000000000000000000000000000000000000000000000000000000000000"
-  end
-
-  @spec nonce(Block.t()) :: non_neg_integer()
-  def nonce(%Block{} = _block) do
-    0x1000000000000000
   end
 
   def coinbase(%Block{} = block) do

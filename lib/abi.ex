@@ -2,9 +2,8 @@ defmodule ABI do
   import Wallet
 
   def encode_args(types, values) when is_list(types) and is_list(values) do
-    Enum.zip(types, values)
-    |> Enum.map(fn {type, value} -> encode(type, value) end)
-    |> Enum.join()
+    encode_data(types, values)
+    |> :erlang.iolist_to_binary()
   end
 
   def decode_revert(<<"">>) do
@@ -23,6 +22,35 @@ defmodule ABI do
     binary_part(Hash.keccak_256(signature), 0, 4)
   end
 
+  def do_encode_data(type, value) do
+    if String.ends_with?(type, "[]") do
+      subtype = binary_part(type, 0, byte_size(type) - 2)
+      ret = encode_data(List.duplicate(subtype, length(value)), value)
+      {"", [encode("uint", length(value)), ret]}
+    else
+      {encode(type, value), ""}
+    end
+  end
+
+  def encode_data(subtypes, values) do
+    values =
+      Enum.zip([subtypes, values])
+      |> Enum.map(fn {type, entry} ->
+        do_encode_data(type, entry)
+      end)
+
+    {head, body, _} =
+      Enum.reduce(values, {[], [], 32 * length(subtypes)}, fn
+        {"", body}, {h, b, o} ->
+          {h ++ [encode("uint", o)], b ++ [body], o + :erlang.iolist_size(body)}
+
+        {head, _}, {h, b, o} ->
+          {h ++ [head], b, o}
+      end)
+
+    [head, body]
+  end
+
   # uint<M>: unsigned integer type of M bits, 0 < M <= 256, M % 8 == 0. e.g. uint32, uint8, uint256.
   # int<M>: two’s complement signed integer type of M bits, 0 < M <= 256, M % 8 == 0.
   # address: equivalent to uint160, except for the assumed interpretation and language typing. For computing the function selector, address is used.
@@ -39,7 +67,8 @@ defmodule ABI do
       Code.string_to_quoted("""
         def encode("uint#{bit * 8}", value), do: <<value :: unsigned-size(256)>>
         def encode("int#{bit * 8}", value), do: <<value :: signed-size(256)>>
-        def encode("bytes#{bit}", <<value :: unsigned-size(#{bit * 8})>>), do: <<value :: unsigned-size(256)>>
+        def encode("bytes#{bit}", <<value :: binary>>), do: <<:binary.decode_unsigned(value) :: unsigned-size(256)>>
+        def encode("bytes#{bit}", value) when is_integer(value), do: <<value :: unsigned-size(256)>>
       """)
     )
   end

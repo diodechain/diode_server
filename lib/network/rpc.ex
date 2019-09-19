@@ -532,25 +532,15 @@ defmodule Network.Rpc do
 
     nonce =
       Map.get_lazy(opts, "nonce", fn ->
-        nonce =
-          Chain.Block.state(getBlock(blockRef))
-          |> Chain.State.ensure_account(from)
-          |> Chain.Account.nonce()
-
-        # There might be multiple transactions pending submitted with sendTransaction
-        Enum.reduce(Chain.Pool.transactions(), nonce, fn tx, nonce ->
-          if Transaction.from(tx) == from and Transaction.nonce(tx) >= nonce do
-            Transaction.nonce(tx) + 1
-          else
-            nonce
-          end
-        end)
+        Chain.Block.state(getBlock(blockRef))
+        |> Chain.State.ensure_account(from)
+        |> Chain.Account.nonce()
       end)
 
     tx =
       case Map.get(opts, "to") do
         nil ->
-          # Contraction creation
+          # Contract creation
           %Chain.Transaction{
             to: nil,
             nonce: nonce,

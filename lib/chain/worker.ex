@@ -1,5 +1,5 @@
 defmodule Chain.Worker do
-  alias Chain.Block
+  alias Chain.BlockCache, as: Block
   use GenServer
 
   defstruct creds: nil,
@@ -14,7 +14,7 @@ defmodule Chain.Worker do
           creds: Wallet.t(),
           proposal: [Chain.Transaction.t()],
           parent_hash: binary(),
-          candidate: Block.t(),
+          candidate: Chain.Block.t(),
           target: non_neg_integer(),
           mode: non_neg_integer() | :poll | :disabled
         }
@@ -125,10 +125,12 @@ defmodule Chain.Worker do
 
   defp generate_candidate(state = %{candidate: nil, creds: creds}) do
     prev_hash = parent_hash(state)
-    parent = %Block{} = Chain.block_by_hash(prev_hash)
+    parent = %Chain.Block{} = Chain.block_by_hash(prev_hash)
     time = System.os_time(:second)
-    account = Chain.State.ensure_account(Block.state(parent), Wallet.address!(creds))
+    miner = Wallet.address!(creds)
+    account = Chain.State.ensure_account(Block.state(parent), miner)
 
+    # Primary Registry call
     tx =
       %Chain.Transaction{
         nonce: Chain.Account.nonce(account),
@@ -139,7 +141,17 @@ defmodule Chain.Worker do
       }
       |> Chain.Transaction.sign(Wallet.privkey!(creds))
 
-    txs = [tx | transactions(state)]
+    # Updating miner signed transaction nonces
+    {txs, _} =
+      Enum.reduce(transactions(state), {[tx], tx.nonce}, fn tx, {list, nonce} ->
+        if Chain.Transaction.from(tx) == miner do
+          tx = %{tx | nonce: nonce + 1} |> Chain.Transaction.sign(Wallet.privkey!(creds))
+          {list ++ [tx], nonce + 1}
+        else
+          {list ++ [tx], nonce}
+        end
+      end)
+
     block = Block.create(parent, txs, creds, time)
     done = Block.transactions(block)
 

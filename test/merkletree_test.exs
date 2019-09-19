@@ -1,5 +1,5 @@
 defmodule MerkleTreeTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case
 
   test "initialize" do
     tree = MerkleTree.new()

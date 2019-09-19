@@ -76,7 +76,7 @@ defmodule Secp256k1 do
   @spec sign(private_key(), binary(), :sha | :kec) :: signature()
   def sign(private, msg, algo \\ :sha) do
     {:ok, signature, recid} =
-      :libsecp256k1.ecdsa_sign_compact(hash(algo, msg), private, :default, nil)
+      :libsecp256k1.ecdsa_sign_compact(hash(algo, msg), private, :default, "")
 
     <<recid, signature::binary>>
   end

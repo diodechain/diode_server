@@ -75,6 +75,11 @@ defmodule Diode do
     env() == :dev or env() == :test
   end
 
+  @spec test_mode? :: boolean
+  def test_mode?() do
+    env() == :test
+  end
+
   @spec trace? :: boolean
   def trace?() do
     true == :persistent_term.get(:trace, false)

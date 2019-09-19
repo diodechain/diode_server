@@ -176,6 +176,10 @@ defmodule Store do
     write_one({:transactions, Transaction.hash(tx), tx, block_hash})
   end
 
+  def clear_transactions() do
+    :mnesia.clear_table(:transactions)
+  end
+
   @spec set_block_transactions(Chain.Block.t()) :: :ok
   def set_block_transactions(block = %Chain.Block{}) do
     for tx <- block.transactions do
@@ -187,8 +191,13 @@ defmodule Store do
   end
 
   def seed_transactions() do
-    :mnesia.clear_table(:transactions)
-    for block <- Chain.blocks(), do: set_block_transactions(block)
+    Chain.blocks()
+    |> seed_transactions()
+  end
+
+  def seed_transactions(blocks) do
+    clear_transactions()
+    for block <- blocks, do: set_block_transactions(block)
     :ok
   end
 end

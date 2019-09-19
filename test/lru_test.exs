@@ -1,5 +1,5 @@
 defmodule LruTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case
 
   test "base" do
     lru = Lru.new(10)

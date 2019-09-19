@@ -30,8 +30,11 @@ defmodule Shell do
       |> Keyword.put_new(:gasPrice, 0)
 
     tx = transaction(wallet, address, name, types, values, opts)
-
     blockRef = Keyword.get(opts, :blockRef, "latest")
+    call_tx(tx, blockRef)
+  end
+
+  def call_tx(tx, blockRef) do
     block = Network.Rpc.getBlock(blockRef)
     state = Chain.Block.state(block)
     {:ok, _state, rcpt} = Chain.Transaction.apply(tx, block, state)

@@ -37,7 +37,9 @@ defmodule TestHelper do
   def start_clones(number) do
     kill_clones()
     :ok = wait_clones(0, 60)
-    File.rm_rf!(File.cwd!() <> "/clones")
+    basedir = File.cwd!() <> "/clones"
+    File.rm_rf!(basedir)
+    File.mkdir!(basedir)
 
     case :net_kernel.start([:master, :shortnames]) do
       {:ok, _pid} ->
@@ -49,9 +51,6 @@ defmodule TestHelper do
       _ ->
         :erlang.set_cookie(:erlang.node(), String.to_atom(@cookie))
     end
-
-    basedir = File.cwd!() <> "/clones"
-    File.mkdir_p!(basedir)
 
     for num <- 1..number do
       clonedir = "#{basedir}/#{num}"
@@ -120,5 +119,13 @@ defmodule TestHelper do
         Process.sleep(100)
         wait_for(fun, comment, timeout - 1)
     end
+  end
+
+  def clientid(n) do
+    Wallet.from_privkey(clientkey(n))
+  end
+
+  def clientkey(n) do
+    Certs.private_from_file("./test/pems/device#{n}_certificate.pem")
   end
 end

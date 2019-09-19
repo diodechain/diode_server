@@ -1,5 +1,5 @@
 defmodule Network.PeerHandler do
-  alias Chain.Block
+  alias Chain.BlockCache, as: Block
 
   use GenServer
   alias Object.Server, as: Server

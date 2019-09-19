@@ -1,5 +1,5 @@
 defmodule PubSubTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case
 
   test "sub unsub" do
     assert PubSub.subscribers(:test) == []

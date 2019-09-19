@@ -2,14 +2,14 @@ defmodule Chain.BlockCache do
   alias Chain.Block
   use GenServer
 
-  defstruct difficulty: 0, totalDifficulty: 0, number: -1, receipts: []
+  defstruct difficulty: 0, totalDifficulty: 0, number: -1, receipts: [], epoch: 0
 
   def start_link(arg) do
     GenServer.start_link(__MODULE__, arg, name: __MODULE__)
   end
 
   def init(_) do
-    __MODULE__ = :ets.new(__MODULE__, [:named_table, :compressed])
+    __MODULE__ = :ets.new(__MODULE__, [:named_table, :compressed, :public])
     {:ok, __MODULE__}
   end
 
@@ -17,12 +17,17 @@ defmodule Chain.BlockCache do
     {:reply, cache(block), state}
   end
 
+  def reset() do
+    :ets.delete_all_objects(__MODULE__)
+  end
+
   def create_cache(block) do
     %Chain.BlockCache{
       difficulty: Block.difficulty(block),
       totalDifficulty: Block.totalDifficulty(block),
       number: Block.number(block),
-      receipts: Block.receipts(block)
+      receipts: Block.receipts(block),
+      epoch: Block.epoch(block)
     }
   end
 
@@ -65,6 +70,10 @@ defmodule Chain.BlockCache do
     cache(block).receipts
   end
 
+  def epoch(block) do
+    cache(block).epoch
+  end
+
   #########################################################
   ####################### DELEGATES #######################
   #########################################################
@@ -77,17 +86,20 @@ defmodule Chain.BlockCache do
   defdelegate gasPrice(block), to: Block
   defdelegate gasUsed(block), to: Block
   defdelegate hash(block), to: Block
+  defdelegate hash_in_target?(block, hash), to: Block
   defdelegate hash_valid?(block), to: Block
   defdelegate header(block), to: Block
+  defdelegate increment_nonce(block), to: Block
   defdelegate logs(block), to: Block
   defdelegate logsBloom(block), to: Block
   defdelegate miner(block), to: Block
   defdelegate nonce(block), to: Block
   defdelegate parent(block), to: Block
   defdelegate parent_hash(block), to: Block
+  defdelegate receiptsRoot(block), to: Block
   defdelegate sign(block, priv), to: Block
-  defdelegate size(block), to: Block
   defdelegate simulate(block, trace? \\ false), to: Block
+  defdelegate size(block), to: Block
   defdelegate state(block), to: Block
   defdelegate state_hash(block), to: Block
   defdelegate timestamp(block), to: Block
@@ -97,7 +109,6 @@ defmodule Chain.BlockCache do
   defdelegate transactions(block), to: Block
   defdelegate transactionStatus(block, transaction), to: Block
   defdelegate txhash(block), to: Block
-  defdelegate valid?(block), to: Block
   defdelegate validate(block), to: Block
-  defdelegate receiptsRoot(block), to: Block
+  defdelegate valid?(block), to: Block
 end

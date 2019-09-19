@@ -1,8 +1,7 @@
 # Todo
 
+* Remove .receipts from block only keep in cache
 * Normalize method naming, right now both camel case and _underscore_ are used.
-* Check trafic + connection tickets from client
-  * Update TESTs
 * Submit tickets at end of month to registry contract
 * Add Merkle Inclusion Proof
   * Generate optimal (shortest) proof path

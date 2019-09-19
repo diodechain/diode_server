@@ -1,6 +1,6 @@
 defmodule KBucketsTest do
   use Bitwise
-  use ExUnit.Case, async: true
+  use ExUnit.Case
 
   alias KBuckets.Item
 

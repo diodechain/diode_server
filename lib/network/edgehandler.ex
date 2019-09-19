@@ -147,7 +147,7 @@ defmodule Network.EdgeHandler do
             total_connections: total_connections,
             total_bytes: total_bytes,
             local_address: local_address,
-            peak_block: block,
+            block_number: block,
             device_signature: device_signature
           )
 
@@ -160,12 +160,20 @@ defmodule Network.EdgeHandler do
                 state = %{state | unpaid_bytes: state.unpaid_bytes - bytes}
                 send!(state, ["response", "ticket", "thanks!"])
 
+              {:too_old, min} ->
+                send!(state, [
+                  "response",
+                  "ticket",
+                  "too_old",
+                  min
+                ])
+
               {:too_low, last} ->
                 send!(state, [
                   "response",
                   "ticket",
                   "too_low",
-                  Ticket.peak_block(last),
+                  Ticket.block_hash(last),
                   Ticket.total_connections(last),
                   Ticket.total_bytes(last),
                   Ticket.local_address(last),

@@ -1,13 +1,11 @@
 defmodule Object.Ticket do
-  @moduledoc """
-  ConnectionTicket, should rename?
-  """
+  alias Chain.BlockCache, as: Block
   require Record
   @behaviour Object
 
   Record.defrecord(:ticket,
     server_id: nil,
-    peak_block: nil,
+    block_number: nil,
     fleet_contract: nil,
     total_connections: nil,
     total_bytes: nil,
@@ -19,7 +17,7 @@ defmodule Object.Ticket do
   @type ticket ::
           record(:ticket,
             server_id: binary(),
-            peak_block: binary(),
+            block_number: binary(),
             fleet_contract: binary(),
             total_connections: integer(),
             total_bytes: integer(),
@@ -58,10 +56,29 @@ defmodule Object.Ticket do
     ticket(tck, server_signature: Secp256k1.sign(private, server_blob(tck)))
   end
 
+  @doc """
+    Format for putting into a transaction with "SubmitTicketRaw"
+  """
+  def raw(tck = ticket()) do
+    [rec, r, s] = Secp256k1.bitcoin_to_rlp(device_signature(tck))
+
+    [
+      block_number(tck),
+      fleet_contract(tck),
+      server_id(tck),
+      total_connections(tck),
+      total_bytes(tck),
+      local_address(tck),
+      r,
+      s,
+      rec
+    ]
+  end
+
   def device_blob(tck = ticket()) do
     BertExt.encode!([
       server_id(tck),
-      peak_block(tck),
+      block_hash(tck),
       fleet_contract(tck),
       total_connections(tck),
       total_bytes(tck),
@@ -72,7 +89,7 @@ defmodule Object.Ticket do
   def server_blob(tck = ticket()) do
     BertExt.encode!([
       server_id(tck),
-      peak_block(tck),
+      block_hash(tck),
       fleet_contract(tck),
       total_connections(tck),
       total_bytes(tck),
@@ -81,8 +98,12 @@ defmodule Object.Ticket do
     ])
   end
 
+  def epoch(ticket), do: block(ticket) |> Block.epoch()
+
   def server_id(ticket(server_id: id)), do: id
-  def peak_block(ticket(peak_block: block)), do: block
+  def block_number(ticket(block_number: block)), do: block
+  def block(ticket(block_number: block)), do: Chain.block(block)
+  def block_hash(ticket), do: block(ticket) |> Block.hash()
   def device_signature(ticket(device_signature: signature)), do: signature
   def server_signature(ticket(server_signature: signature)), do: signature
   def fleet_contract(ticket(fleet_contract: fc)), do: fc

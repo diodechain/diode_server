@@ -1,5 +1,5 @@
 defmodule EvmTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case
   alias Chain.Transaction
   alias Chain.TransactionReceipt
 

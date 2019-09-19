@@ -1,5 +1,5 @@
 defmodule Secp256k1Test do
-  use ExUnit.Case, async: true
+  use ExUnit.Case
 
   test "generate" do
     {public, private} = Secp256k1.generate()
