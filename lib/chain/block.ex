@@ -73,6 +73,11 @@ defmodule Chain.Block do
 
   @spec hash_in_target?(Chain.Block.t(), binary) :: boolean
   def hash_in_target?(block, hash) do
+    Hash.integer(hash) < BlockCache.hash_target(block)
+  end
+
+  @spec hash_target(Chain.Block.t()) :: integer
+  def hash_target(block) do
     blockRef = Block.parent(block)
 
     # Calculating stake weight as
@@ -82,11 +87,15 @@ defmodule Chain.Block do
     # (( stake / 100 )² * max_diff) / (10² * difficulty_block)
     #
     stake =
-      Contract.Registry.minerValue(0, Block.miner(block), blockRef)
-      |> div(Shell.ether(100))
-      |> max(10)
+      if blockRef == nil do
+        1
+      else
+        Contract.Registry.minerValue(0, Block.miner(block), blockRef)
+        |> div(Shell.ether(100))
+        |> max(10)
+      end
 
-    Hash.integer(hash) < div(stake * stake * @max_difficulty, 100 * difficulty(block))
+    div(stake * stake * @max_difficulty, 100 * Block.difficulty(block))
   end
 
   @doc "Creates a new block and stores the generated state in cache file"

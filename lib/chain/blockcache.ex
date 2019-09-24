@@ -49,7 +49,7 @@ defmodule Chain.BlockCache do
           :ets.insert(__MODULE__, {hash, cache})
           cache
         else
-          GenServer.call(__MODULE__, {:do_cache, block}, :infinity)
+          GenServer.call(__MODULE__, {:do_cache, block}, 20_000)
         end
     end
   end
@@ -87,6 +87,7 @@ defmodule Chain.BlockCache do
   defdelegate gasUsed(block), to: Block
   defdelegate hash(block), to: Block
   defdelegate hash_in_target?(block, hash), to: Block
+  defdelegate hash_target(block), to: Block
   defdelegate hash_valid?(block), to: Block
   defdelegate header(block), to: Block
   defdelegate increment_nonce(block), to: Block

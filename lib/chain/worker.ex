@@ -87,7 +87,7 @@ defmodule Chain.Worker do
 
   defp do_work(state) do
     state = generate_candidate(state)
-    %{creds: creds, candidate: candidate} = state
+    %{creds: creds, candidate: candidate, target: target} = state
 
     block =
       Enum.reduce_while(1..100, candidate, fn _, candidate ->
@@ -95,18 +95,18 @@ defmodule Chain.Worker do
           Block.increment_nonce(candidate)
           |> Block.sign(creds)
 
-        hash = Block.hash(candidate)
+        hash = Block.hash(candidate) |> Hash.integer()
 
-        if Block.hash_in_target?(candidate, hash) do
+        if hash < target do
           {:halt, candidate}
         else
           {:cont, candidate}
         end
       end)
 
-    hash = Block.hash(block)
+    hash = Block.hash(block) |> Hash.integer()
 
-    if Block.hash_in_target?(block, hash) and Chain.add_block(block) == :added do
+    if hash < target and Chain.add_block(block) == :added do
       do_update(state)
     else
       %{state | candidate: block}
@@ -161,8 +161,8 @@ defmodule Chain.Worker do
       Chain.Pool.remove_transactions(keys)
     end
 
-    diff = Block.difficulty(block)
-    generate_candidate(%{state | candidate: block, target: diff, time: time})
+    target = Block.hash_target(block)
+    generate_candidate(%{state | candidate: block, target: target, time: time})
   end
 
   defp generate_candidate(state) do
