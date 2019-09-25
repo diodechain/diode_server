@@ -68,13 +68,7 @@ defmodule Network.Server do
   def handle_call({:ensure_node_connection, node_id, address, port}, _from, state) do
     case Map.get(state.clients, node_id) do
       nil ->
-        worker =
-          :proc_lib.spawn_link(__MODULE__, :worker_connect, [
-            state.protocol,
-            node_id,
-            address,
-            port
-          ])
+        {:ok, worker} = GenServer.start_link(state.protocol, [:connect, node_id, address, port])
 
         state =
           if node_id != nil do
@@ -120,8 +114,7 @@ defmodule Network.Server do
                   Process.exit(pid, :disconnect)
               end
 
-              worker =
-                :proc_lib.spawn_link(__MODULE__, :worker_init, [state.protocol, newSocket2])
+              {:ok, worker} = GenServer.start_link(state.protocol, [:init, newSocket2])
 
               set_keepalive(newSocket2)
               :ok = :ssl.controlling_process(newSocket2, worker)
@@ -135,79 +128,6 @@ defmodule Network.Server do
 
     send(self(), :accept)
     {:noreply, state2}
-  end
-
-  def worker_init(module, socket) do
-    enter_loop(module, socket)
-  end
-
-  @spec worker_connect(
-          atom() | {atom(), any()} | {:via, atom(), any()},
-          any(),
-          binary()
-          | {byte(), byte(), byte(), byte()}
-          | {char(), char(), char(), char(), char(), char(), char(), char()},
-          char()
-        ) :: any()
-  def worker_connect(module, node_id, address, port) do
-    :io.format("Creating connect worker: #{Wallet.printable(node_id)},~p~n", [[address, port]])
-
-    address =
-      case address do
-        bin when is_binary(bin) -> :erlang.binary_to_list(address)
-        tup when is_tuple(tup) -> tup
-      end
-
-    {:ok, socket} = :ssl.connect(address, port, module.ssl_options(), 5000)
-
-    remote_id = Wallet.from_pubkey(Certs.extract(socket))
-
-    if node_id != nil and not Wallet.equal?(node_id, remote_id) do
-      IO.puts(
-        "Expected #{Wallet.printable(node_id)} different from found #{Wallet.printable(remote_id)}"
-      )
-    end
-
-    enter_loop(module, socket)
-  end
-
-  defp enter_loop(module, socket) do
-    remote_id = Wallet.from_pubkey(Certs.extract(socket))
-
-    if Wallet.equal?(remote_id, Store.wallet()) do
-      :io.format("Server: Rejecting self-connection~p")
-      nil
-    else
-      # register ensure this process is stored under the correct remote_id
-      # and also ensure setops(active:true) is not sent before server.ex
-      # finished the handshake
-      {:ok, server_port} = GenServer.call(module, {:register, remote_id})
-
-      :ssl.setopts(socket, active: true)
-
-      state = %{
-        socket: socket,
-        node_id: remote_id,
-        server_port: server_port
-      }
-
-      try do
-        case apply(module, :init, [state]) do
-          {:ok, state} ->
-            state
-
-          {:ok, state, {:continue, term}} ->
-            {:noreply, state} = apply(module, :handle_continue, [term, state])
-            state
-        end
-      rescue
-        error ->
-          :io.format("Server init ~p failed with:~n", [module])
-          :io.format(Exception.format(:error, error, __STACKTRACE__))
-      else
-        state -> :gen_server.enter_loop(module, [], state)
-      end
-    end
   end
 
   # 4.2. The setsockopt function call

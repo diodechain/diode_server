@@ -1,5 +1,5 @@
 defmodule Network.EdgeHandler do
-  use GenServer
+  use Network.Handler
   alias Object.Ticket, as: Ticket
   import Ticket
 
@@ -98,8 +98,8 @@ defmodule Network.EdgeHandler do
           ports: PortCollection.t(),
           unpaid_bytes: integer()
         }
-  @spec init(state()) :: {:ok, state()}
-  def init(state) do
+
+  def do_init(state) do
     {:ok, peer} = :ssl.peername(state.socket)
     PubSub.subscribe({:edge, Wallet.address!(state.node_id)})
     :io.format("Edgehandler:init #{Wallet.printable(state.node_id)} from ~200p~n", [peer])
@@ -111,7 +111,7 @@ defmodule Network.EdgeHandler do
         unpaid_bytes: 0
       })
 
-    {:ok, state}
+    {:noreply, state}
   end
 
   def ssl_options() do

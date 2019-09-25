@@ -1,7 +1,6 @@
 defmodule Network.PeerHandler do
+  use Network.Handler
   alias Chain.BlockCache, as: Block
-
-  use GenServer
   alias Object.Server, as: Server
 
   # @hello 0
@@ -23,7 +22,7 @@ defmodule Network.PeerHandler do
   def store, do: @store
   def publish, do: @publish
 
-  def init(state) do
+  def do_init(state) do
     {:ok, {address, _port}} = :ssl.peername(state.socket)
 
     state =
@@ -35,7 +34,7 @@ defmodule Network.PeerHandler do
         oldest_parent: nil
       })
 
-    {:ok, state, {:continue, :send_hello}}
+    {:noreply, state, {:continue, :send_hello}}
   end
 
   def ssl_options() do
