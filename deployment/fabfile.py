@@ -18,7 +18,7 @@ def install():
     run("dpkg -i erlang-solutions_1.0_all.deb")
     run("apt update")
     run("apt upgrade -y")
-    run("apt install -y screen git snap g++ make autoconf esl-erlang elixir libtool libgmp-dev daemontools cpulimit")
+    run("apt install -y screen git snap g++ make autoconf esl-erlang elixir libtool libgmp-dev daemontools")
     run("apt autoremove")
 
   # Application

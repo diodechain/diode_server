@@ -169,7 +169,7 @@ defmodule Diode do
     case get_env("WORKER_MODE", "run") do
       "poll" -> :poll
       "disabled" -> :disabled
-      _number -> get_env_int("WORKER_MODE", 1)
+      _number -> get_env_int("WORKER_MODE", 75)
     end
   end
 

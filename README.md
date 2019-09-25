@@ -7,7 +7,6 @@ This executable should be started on any (AWS/GCP/Azure Node) and will talk the 
 
 * Elixir 1.7.4
 * make & autoconf & libtool-bin & gcc & g++
-* cpulimit (if you run production server node)
 
 # Server
 * daemontools

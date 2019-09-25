@@ -7,7 +7,7 @@ defmodule Chain.Worker do
             parent_hash: nil,
             candidate: nil,
             target: 0,
-            mode: 1,
+            mode: 75,
             time: nil
 
   @type t :: %Chain.Worker{
@@ -37,6 +37,8 @@ defmodule Chain.Worker do
 
   def init(mode) do
     state = %Chain.Worker{creds: Store.wallet(), mode: mode}
+    :erlang.process_flag(:priority, :low)
+    {:ok, _ref} = :timer.send_interval(100, :sleep)
     activate_timer(state)
     {:ok, state}
   end
@@ -79,6 +81,15 @@ defmodule Chain.Worker do
 
   def handle_call(:work, _from, state) do
     {:reply, :ok, do_work(state)}
+  end
+
+  def handle_info(:sleep, state = %{mode: mode}) do
+    if is_integer(mode) do
+      percentage = 100 - min(mode, 100)
+      Process.sleep(percentage)
+    end
+
+    {:noreply, state}
   end
 
   def handle_info(:work, state) do
@@ -171,17 +182,16 @@ defmodule Chain.Worker do
 
   defp activate_timer(state) do
     case state.mode do
-      timeout when is_integer(timeout) ->
-        # IO.puts("timer plus #{timeout}")
-        Process.send_after(self(), :work, timeout)
-
       :poll ->
         if state.proposal != [] do
           send(self(), :work)
         end
 
-      _default ->
+      :disabled ->
         :ok
+
+      _ ->
+        send(self(), :work)
     end
 
     state
