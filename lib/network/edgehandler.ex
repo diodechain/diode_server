@@ -572,7 +572,7 @@ defmodule Network.EdgeHandler do
   defp account_incoming(state, msg), do: account(state, msg)
 
   defp account(state = %{unpaid_bytes: b}, msg) do
-    if b > 1024 * 2 do
+    if b > 1024 * 10 do
       send(self(), :stop_unpaid)
     end
 
