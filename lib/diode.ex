@@ -158,10 +158,17 @@ defmodule Diode do
 
   @spec seed() :: binary()
   def seed() do
+    hd(seeds())
+  end
+
+  def seeds() do
     get_env(
       "SEED",
-      "diode://0x0ffc572a936a1e0ebf9c43aacb145d08847f0a1d@seed-alpha.diodechain.io:51053"
+      "diode://0x0ffc572a936a1e0ebf9c43aacb145d08847f0a1d@seed-alpha.diodechain.io:51053 " <>
+        "diode://0x0ffc572a936a1e0ebf9c43aacb145d08847f0a1d@seed-beta.diodechain.io:51053 " <>
+        "diode://0x0ffc572a936a1e0ebf9c43aacb145d08847f0a1d@seed-gamma.diodechain.io:51053"
     )
+    |> String.split(" ", trim: true)
   end
 
   @spec workerMode() :: :disabled | :poll | integer()

@@ -578,4 +578,8 @@ defmodule Network.EdgeHandler do
 
     %{state | unpaid_bytes: b + byte_size(msg)}
   end
+
+  def on_exit(_edge) do
+    :ok
+  end
 end

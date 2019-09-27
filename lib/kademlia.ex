@@ -276,23 +276,45 @@ defmodule Kademlia do
     {:noreply, %Kademlia{network: kb}}
   end
 
-  # Private call used by PeerHandler when connections fail
-  def handle_cast({:failed_node, item}, state) do
-    retries = item.retries
-
-    kb =
-      if retries > 3 do
-        KBuckets.delete_item(state.network, item)
-      else
-        KBuckets.update_item(state.network, %{item | retries: retries + 1})
-      end
-
-    {:noreply, %Kademlia{network: kb}}
-  end
-
   def handle_cast({:publish, object}, state) do
     broadcast(state, 3, [Client.publish(), object])
     {:noreply, state}
+  end
+
+  # Private call used by PeerHandler when connections fail
+  def handle_cast({:failed_node, node}, state) do
+    case KBuckets.item(state.network, node) do
+      nil ->
+        {:noreply, state}
+
+      item ->
+        {:noreply, %{state | network: do_failed_node(item, state.network)}}
+    end
+  end
+
+  defp do_failed_node(item, network) do
+    now = :os.system_time()
+
+    case item.retries do
+      0 ->
+        KBuckets.update_item(network, %{item | retries: 1, last_seen: now + 5})
+
+      failures when failures > 10 ->
+        # With
+        # 5 + 5×5 + 5×5×5 + 5×5×5×5 + 5×5×5×5×5 +
+        # 5x (5×5×5×5×5×5)
+        # This will delete an item after 24h of failures
+        KBuckets.delete_item(network, item)
+
+      failures ->
+        if item.last_seen < now do
+          factor = min(failures, 5)
+          next = now + round(:math.pow(5, factor))
+          KBuckets.update_item(network, %{item | retries: failures + 1, last_seen: next})
+        else
+          network
+        end
+    end
   end
 
   defp broadcast(state, n, msg) do
@@ -322,19 +344,21 @@ defmodule Kademlia do
   end
 
   def handle_continue(:seed, state) do
-    seed = Diode.seed()
-    %URI{userinfo: node_id, host: address, port: port} = URI.parse(seed)
-
     Process.send_after(self(), :save, 60_000)
 
-    id =
-      case node_id do
-        nil -> nil
-        str -> Wallet.from_address(Base16.decode(str))
-      end
-
     ensure_connections(state, 3)
-    Network.Server.ensure_node_connection(Network.PeerHandler, id, address, port)
+
+    for seed <- Diode.seeds() do
+      %URI{userinfo: node_id, host: address, port: port} = URI.parse(seed)
+
+      id =
+        case node_id do
+          nil -> nil
+          str -> Wallet.from_address(Base16.decode(str))
+        end
+
+      Network.Server.ensure_node_connection(Network.PeerHandler, id, address, port)
+    end
 
     {:noreply, state}
   end
@@ -384,7 +408,6 @@ defmodule Kademlia do
 
       nil ->
         IO.puts("Failed to get a result from #{Wallet.printable(node_id)}")
-        GenServer.cast(Kademlia, {:failed_node, node})
         []
     end
   end

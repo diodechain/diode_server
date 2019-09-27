@@ -326,4 +326,8 @@ defmodule Network.PeerHandler do
   defp send!(socket, data) do
     :ok = :ssl.send(socket, encode(data))
   end
+
+  def on_exit(node) do
+    GenServer.cast(Kademlia, {:failed_node, node})
+  end
 end

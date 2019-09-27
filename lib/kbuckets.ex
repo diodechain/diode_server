@@ -15,7 +15,12 @@ defmodule KBuckets do
     end
   end
 
-  @type item :: %Item{node_id: Wallet.t(), last_seen: integer, object: Server.server() | :self}
+  @type item :: %Item{
+          node_id: Wallet.t(),
+          last_seen: integer,
+          object: Server.server() | :self,
+          retries: any()
+        }
 
   @type item_id :: <<_::256>>
   @type node_id :: Wallet.t()
@@ -155,7 +160,13 @@ defmodule KBuckets do
   end
 
   defp do_nearest_n({:leaf, _prefix, bucket}, _key, _n) do
+    now = :os.timestamp()
+
+    # Filtering items that had a connection failure through
+    # Kademlia.cast. 'last_seen' in the future means "should
+    # not be used again before"
     Map.values(bucket)
+    |> Enum.reject(fn item -> item.last_seen > now end)
   end
 
   defp do_nearest_n({:node, prefix, zero, one}, key, n) do
@@ -213,6 +224,16 @@ defmodule KBuckets do
 
   def member?(kb, item) do
     kb != delete_item(kb, item)
+  end
+
+  # Return an item for the given wallet address
+  def item(kb, wallet) do
+    item_id = hash(wallet)
+
+    case nearest_n(kb, item_id, 1) do
+      [ret] -> ret
+      [] -> nil
+    end
   end
 
   @spec insert_item(kbuckets(), item() | item_id()) :: kbuckets()

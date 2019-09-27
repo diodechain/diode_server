@@ -1,6 +1,7 @@
 defmodule Network.Handler do
   @callback ssl_options() :: []
   @callback do_init() :: any()
+  @callback on_exit(any()) :: :ok
 
   @doc false
   defmacro __using__(_opts) do

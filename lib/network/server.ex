@@ -51,8 +51,11 @@ defmodule Network.Server do
 
   def handle_info({:EXIT, pid, _reason}, state) do
     # :io.format("~p EXIT: ~180p~n", [__MODULE__, [pid, _reason]])
-    clients = Enum.filter(state.clients, fn {_node_id, node_pid} -> node_pid != pid end)
+    {[{failed_node, _pid}], clients} =
+      Enum.split_with(state.clients, fn {_node_id, node_pid} -> node_pid == pid end)
+
     state = %Network.Server{state | clients: Map.new(clients)}
+    state.protocol.on_exit(failed_node)
     {:noreply, state}
   end
 
