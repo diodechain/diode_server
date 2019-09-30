@@ -144,7 +144,7 @@ defmodule Chain do
 
   @spec block(number()) :: Chain.Block.t() | nil
   def block(n) do
-    Enum.at(blocks(), -(n + 1))
+    Enum.find(blocks(), fn block -> Block.number(block) == n end)
   end
 
   @spec block_by_hash(any()) :: Chain.Block.t() | nil
