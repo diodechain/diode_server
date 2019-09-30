@@ -75,14 +75,6 @@ defmodule Network.Server do
     case Map.get(state.clients, node_id) do
       nil ->
         {:ok, worker} = GenServer.start_link(state.protocol, [:connect, node_id, address, port])
-
-        state =
-          if node_id != nil do
-            %Network.Server{state | clients: Map.put(state.clients, node_id, worker)}
-          else
-            state
-          end
-
         {:reply, worker, state}
 
       client ->
