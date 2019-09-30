@@ -7,6 +7,7 @@ RestartSec=3
 ExecStart=/usr/bin/screen -L -DmS diode supervise /opt/diode
 WorkingDirectory=/opt/diode
 Environment=HOME=/opt/diode
+Environment=PRIVATE=0
 
 [Install]
 WantedBy=multi-user.target

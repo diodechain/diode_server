@@ -199,6 +199,9 @@ defmodule Diode do
 
   defp decode_int(int) do
     case int do
+      "" ->
+        0
+
       <<"0x", _::binary>> = bin ->
         Base16.decode_int(bin)
 

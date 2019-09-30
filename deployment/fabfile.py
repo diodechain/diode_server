@@ -1,3 +1,4 @@
+import binascii
 import os
 import time
 from collections import defaultdict
@@ -43,4 +44,21 @@ def install():
       run("find ./data -maxdepth 1 -type f -delete")
 
     # Starting
+    run("systemctl start diode")
+
+def setkey(key):
+  if key.startswith('0x'):
+    key = key[2:]
+  key = bytearray.fromhex(key)
+  if len(key) != 32:
+    print("Key too short")
+    return 1
+
+  key = '0x' + binascii.hexlify(key)
+
+  with cd(env.diode):
+    run("cp deployment/diode.service /etc/systemd/system/diode.service")
+    run("sed -ie 's/PRIVATE=0/PRIVATE={}/g' /etc/systemd/system/diode.service".format(key))
+    run("systemctl daemon-reload")
+    run("systemctl stop diode")
     run("systemctl start diode")
