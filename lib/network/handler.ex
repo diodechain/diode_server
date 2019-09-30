@@ -29,18 +29,23 @@ defmodule Network.Handler do
             tup when is_tuple(tup) -> tup
           end
 
-        {:ok, socket} = :ssl.connect(address, port, ssl_options(), 5000)
-        remote_id = Wallet.from_pubkey(Certs.extract(socket))
+        case :ssl.connect(address, port, ssl_options(), 5000) do
+          {:ok, socket} ->
+            remote_id = Wallet.from_pubkey(Certs.extract(socket))
 
-        if node_id != nil and not Wallet.equal?(node_id, remote_id) do
-          IO.puts(
-            "Expected #{Wallet.printable(node_id)} different from found #{
-              Wallet.printable(remote_id)
-            }"
-          )
+            if node_id != nil and not Wallet.equal?(node_id, remote_id) do
+              IO.puts(
+                "Expected #{Wallet.printable(node_id)} different from found #{
+                  Wallet.printable(remote_id)
+                }"
+              )
+            end
+
+            enter_loop(socket)
+
+          _ ->
+            {:stop, :normal, %{}}
         end
-
-        enter_loop(socket)
       end
 
       defp enter_loop(socket) do

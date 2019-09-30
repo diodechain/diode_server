@@ -49,14 +49,17 @@ defmodule Network.Server do
     do_accept(state)
   end
 
-  def handle_info({:EXIT, pid, _reason}, state) do
-    # :io.format("~p EXIT: ~180p~n", [__MODULE__, [pid, _reason]])
-    {[{failed_node, _pid}], clients} =
-      Enum.split_with(state.clients, fn {_node_id, node_pid} -> node_pid == pid end)
+  def handle_info({:EXIT, pid, reason}, state) do
+    case Enum.split_with(state.clients, fn {_node_id, node_pid} -> node_pid == pid end) do
+      {[{failed_node, _pid}], clients} ->
+        state = %Network.Server{state | clients: Map.new(clients)}
+        state.protocol.on_exit(failed_node)
+        {:noreply, state}
 
-    state = %Network.Server{state | clients: Map.new(clients)}
-    state.protocol.on_exit(failed_node)
-    {:noreply, state}
+      {[], _clients} ->
+        :io.format("~p Connection to failed (~p)~n", [state.protocol, {pid, reason}])
+        {:noreply, state}
+    end
   end
 
   def handle_info(msg, state) do

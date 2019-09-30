@@ -242,6 +242,10 @@ defmodule Kademlia do
     GenServer.call(__MODULE__, {:call, fun})
   end
 
+  def network() do
+    call(fn _from, state -> {:reply, state.network, state} end)
+  end
+
   def handle_call({:call, fun}, from, state) do
     fun.(from, state)
   end
@@ -283,6 +287,8 @@ defmodule Kademlia do
 
   # Private call used by PeerHandler when connections fail
   def handle_cast({:failed_node, node}, state) do
+    :io.format("Connection failed to ~p~n", [Wallet.printable(node)])
+
     case KBuckets.item(state.network, node) do
       nil ->
         {:noreply, state}
