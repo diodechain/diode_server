@@ -332,7 +332,9 @@ defmodule Chain do
         content = BertInt.encode!(term)
 
         with :ok <- File.mkdir_p(Path.dirname(filename)) do
-          File.write!(filename, content)
+          tmp = "#{filename}.#{:erlang.phash2(self())}"
+          File.write!(tmp, content)
+          File.rename!(tmp, filename)
           term
         end
     end
