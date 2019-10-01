@@ -6,6 +6,25 @@ defmodule EdgeTest do
   import Ticket
   import TestHelper
 
+  setup do
+    TicketStore.clear()
+    :persistent_term.put(:no_tickets, false)
+    ensure_clients()
+  end
+
+  setup_all do
+    IO.puts("Starting clients")
+    :persistent_term.put(:no_tickets, false)
+    ensure_clients()
+
+    on_exit(fn ->
+      IO.puts("Killing clients")
+      ensure_clients()
+      {:ok, _} = call(:client_1, :quit)
+      {:ok, _} = call(:client_2, :quit)
+    end)
+  end
+
   test "connect" do
     # Test that clients are connected
     assert call(:client_1, :ping) == {:ok, :pong}
@@ -62,8 +81,11 @@ defmodule EdgeTest do
   end
 
   test "ticket" do
-    TicketStore.clear()
     :persistent_term.put(:no_tickets, true)
+    {:ok, _} = call(:client_1, :quit)
+    {:ok, _} = call(:client_2, :quit)
+    TicketStore.clear()
+    ensure_clients()
 
     tck =
       ticket(
@@ -141,6 +163,8 @@ defmodule EdgeTest do
     assert(Object.key(node) == id)
 
     # Testing disconnect
+    ["error", 401, "bad input"] = rpc(:client_1, ["garbage", String.pad_leading("", 1024 * 9)])
+
     ["goodbye", "ticket expected", "you might get blacklisted"] =
       rpc(:client_1, ["garbage", String.pad_leading("", 1024)])
 
@@ -345,24 +369,6 @@ defmodule EdgeTest do
     assert false == Process.alive?(old_pid)
   end
 
-  setup do
-    :persistent_term.put(:no_tickets, false)
-    ensure_clients()
-  end
-
-  setup_all do
-    IO.puts("Starting clients")
-    :persistent_term.put(:no_tickets, false)
-    ensure_clients()
-
-    on_exit(fn ->
-      IO.puts("Killing clients")
-      ensure_clients()
-      {:ok, _} = call(:client_1, :quit)
-      {:ok, _} = call(:client_2, :quit)
-    end)
-  end
-
   defp kill(atom) do
     case Process.whereis(atom) do
       nil ->
@@ -386,29 +392,22 @@ defmodule EdgeTest do
   end
 
   defp ensure_clients() do
-    if dead?(:client_1) do
-      true = Process.register(client(1), :client_1)
-      assert rpc(:client_1, ["ping"]) == ["response", "ping", "pong"]
-    end
-
-    if dead?(:client_2) do
-      true = Process.register(client(2), :client_2)
-      assert rpc(:client_2, ["ping"]) == ["response", "ping", "pong"]
-    end
-
+    ensure_client(:client_1, 1)
+    ensure_client(:client_2, 2)
     :ok
   end
 
-  defp dead?(atom) do
-    case Process.whereis(atom) do
-      nil ->
-        true
-
-      pid ->
-        ret = not Process.alive?(pid)
-        ret && Process.unregister(atom)
-        ret
+  defp ensure_client(atom, n) do
+    try do
+      case rpc(atom, ["ping"]) do
+        ["response", "ping", "pong"] -> :ok
+        _ -> true = Process.register(client(n), atom)
+      end
+    rescue
+      ArgumentError -> true = Process.register(client(n), atom)
     end
+
+    assert rpc(atom, ["ping"]) == ["response", "ping", "pong"]
   end
 
   def check(_cert, event, state) do
@@ -565,14 +564,14 @@ defmodule EdgeTest do
     end
   end
 
-  defp call(pid, cmd) do
+  defp call(pid, cmd, timeout \\ 5000) do
     send(pid, {self(), cmd})
 
     receive do
       {:ret, crecv} ->
         {:ok, crecv}
     after
-      5000 ->
+      timeout ->
         {:error, :timeout}
     end
   end

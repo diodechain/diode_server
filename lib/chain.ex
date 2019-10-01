@@ -2,12 +2,11 @@ defmodule Chain do
   alias Chain.BlockCache, as: Block
   alias Chain.Transaction
   use GenServer
-  defstruct peak: nil, by_hash: %{}, states: %{}, length: 0
+  defstruct peak: nil, by_hash: %{}, states: %{}
 
   @type t :: %Chain{
           peak: Chain.Block.t(),
-          by_hash: %{binary() => Chain.Block.t()},
-          length: non_neg_integer(),
+          by_hash: %{binary() => Chain.Block.t()} | nil,
           states: Map.t()
         }
 
@@ -20,6 +19,7 @@ defmodule Chain do
 
   @spec init(any()) :: {:ok, Chain.t()}
   def init(_) do
+    __MODULE__ = :ets.new(__MODULE__, [:named_table, :compressed, :public])
     state = load_blocks()
     spawn_link(&saver_loop/0) |> Process.register(Chain.Saver)
 
@@ -35,7 +35,7 @@ defmodule Chain do
     if store do
       tmp = "#{Diode.dataDir(@cache)}.tmp"
       File.rm(tmp)
-      store_file(tmp, get(fn state -> state end))
+      store_file(tmp, state())
       File.rename(tmp, Diode.dataDir(@cache))
     end
 
@@ -54,8 +54,12 @@ defmodule Chain do
 
   @doc "Function for unit tests, replaces the current state"
   def set_state(state) do
-    call(fn _state, _from -> {:reply, :ok, state} end)
-    Store.seed_transactions()
+    call(fn _state, _from ->
+      seed_ets(state.by_hash)
+      {:reply, :ok, %{state | by_hash: nil}}
+    end)
+
+    Store.seed_transactions(state.by_hash |> Map.values())
     Chain.Worker.update()
     :ok
   end
@@ -67,19 +71,17 @@ defmodule Chain do
   end
 
   def state() do
-    call(fn state, _from -> {:reply, state, state} end)
-  end
+    state = call(fn state, _from -> {:reply, state, state} end)
 
-  defp get(fun, timeout \\ 5000) do
-    GenServer.call(__MODULE__, {:get, fun}, timeout)
+    by_hash =
+      Enum.map(blocks(Block.hash(state.peak)), fn block -> {Block.hash(block), block} end)
+      |> Map.new()
+
+    %{state | by_hash: by_hash}
   end
 
   defp call(fun, timeout \\ 5000) do
     GenServer.call(__MODULE__, {:call, fun}, timeout)
-  end
-
-  def handle_call({:get, fun}, _from, state) when is_function(fun) do
-    {:reply, fun.(state), state}
   end
 
   def handle_call({:call, fun}, from, state) when is_function(fun) do
@@ -129,7 +131,7 @@ defmodule Chain do
 
   @spec peakBlock() :: Chain.Block.t()
   def peakBlock() do
-    get(fn state -> state.peak end)
+    call(fn state, _from -> {:reply, state.peak, state} end)
   end
 
   @spec peakState() :: Chain.State.t()
@@ -153,10 +155,10 @@ defmodule Chain do
   end
 
   def block_by_hash(hash) do
-    # :io.format("block_by_hash: ~p~n", [Process.info(self(), :current_stacktrace)])
-    get(fn state ->
-      Map.get(state.by_hash, hash)
-    end)
+    case :ets.lookup(__MODULE__, hash) do
+      [] -> nil
+      [{^hash, block}] -> block
+    end
   end
 
   # returns all blocks from the current peak
@@ -169,7 +171,7 @@ defmodule Chain do
   @spec blocks(any()) :: Enumerable.t()
   def blocks(hash) do
     Stream.unfold(hash, fn hash ->
-      case Chain.block_by_hash(hash) do
+      case block_by_hash(hash) do
         nil -> nil
         block -> {block, Block.parent_hash(block)}
       end
@@ -177,25 +179,19 @@ defmodule Chain do
   end
 
   @spec load_blocks() :: Chain.t()
-  def load_blocks() do
-    chain = load_file(Diode.dataDir(@cache), &genesis_state/0)
+  defp load_blocks() do
+    chain = %Chain{} = load_file(Diode.dataDir(@cache), &genesis_state/0)
+    seed_ets(chain.by_hash)
+    %{chain | by_hash: nil}
+  end
 
-    case chain do
-      %Chain{} ->
-        chain
+  # Seeds the ets table from a map
+  defp seed_ets(by_hash) do
+    :ets.delete_all_objects(__MODULE__)
 
-      # Compatibility import for old states
-      blocks when is_list(blocks) ->
-        %Chain{
-          peak: hd(blocks),
-          by_hash:
-            Enum.reduce(blocks, %{}, fn block, map ->
-              Map.put(map, Block.hash(block), block)
-            end),
-          length: length(blocks),
-          states: %{}
-        }
-    end
+    Enum.each(by_hash, fn {hash, block} ->
+      :ets.insert(__MODULE__, {hash, block})
+    end)
   end
 
   defp genesis_state() do
@@ -206,8 +202,7 @@ defmodule Chain do
     %Chain{
       peak: gen,
       by_hash: %{hash => gen},
-      states: %{},
-      length: 1
+      states: %{}
     }
   end
 
@@ -215,7 +210,7 @@ defmodule Chain do
   def add_block(block, relay \\ true) do
     block_hash = Block.hash(block)
 
-    if Chain.block_by_hash(block_hash) != nil do
+    if block_by_hash(block_hash) != nil do
       IO.puts("Chain.add_block: Rejected existing block")
     else
       number = Block.number(block)
@@ -238,18 +233,22 @@ defmodule Chain do
 
     call(fn state, _from ->
       peak = state.peak
+      totalDiff = Block.totalDifficulty(peak) + Block.difficulty(peak) * blockchainDelta()
       peak_hash = Block.hash(peak)
       author = Wallet.words(Block.miner(block))
       info = "chain ##{number}[#{prefix}] @#{author}"
 
-      if peak_hash == parent_hash || number - blockchainDelta() > state.length do
+      if peak_hash == parent_hash or Block.totalDifficulty(block) > totalDiff do
         if peak_hash == parent_hash do
           IO.puts("Chain.add_block: Extending main #{info}")
           Store.set_block_transactions(block)
         else
           IO.puts("Chain.add_block: Replacing main #{info}")
           Store.clear_transactions()
-          do_blocks(block, state.by_hash, &Store.set_block_transactions/1)
+
+          :mnesia.transaction(fn ->
+            Enum.each(blocks(block_hash), &Store.set_block_transactions/1)
+          end)
         end
 
         # Printing some debug output per transaction
@@ -278,12 +277,8 @@ defmodule Chain do
           IO.puts("")
         end
 
-        state = %{
-          state
-          | peak: block,
-            by_hash: Map.put(state.by_hash, block_hash, block),
-            length: number
-        }
+        state = %{state | peak: block}
+        :ets.insert(__MODULE__, {block_hash, block})
 
         # Schedule a job to store the current state
         send(Chain.Saver, :store)
@@ -303,19 +298,10 @@ defmodule Chain do
         {:reply, :added, state}
       else
         IO.puts("Chain.add_block: Extending  alt #{info}")
-        state = %{state | by_hash: Map.put(state.by_hash, block_hash, block)}
+        :ets.insert(__MODULE__, {block_hash, block})
         {:reply, :stored, state}
       end
     end)
-  end
-
-  defp do_blocks(nil, _by_hash, _fun) do
-    :done
-  end
-
-  defp do_blocks(block, by_hash, fun) do
-    fun.(block)
-    do_blocks(Map.get(by_hash, Block.parent_hash(block)), by_hash, fun)
   end
 
   @spec state(number()) :: Chain.State.t()

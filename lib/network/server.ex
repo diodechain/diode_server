@@ -57,7 +57,7 @@ defmodule Network.Server do
         {:noreply, state}
 
       {[], _clients} ->
-        :io.format("~p Connection to failed (~p)~n", [state.protocol, {pid, reason}])
+        :io.format("~0p Connection failed (~0p)~n", [state.protocol, {pid, reason}])
         {:noreply, state}
     end
   end

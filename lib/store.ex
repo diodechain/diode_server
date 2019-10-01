@@ -197,7 +197,11 @@ defmodule Store do
 
   def seed_transactions(blocks) do
     clear_transactions()
-    for block <- blocks, do: set_block_transactions(block)
+
+    :mnesia.transaction(fn ->
+      for block <- blocks, do: set_block_transactions(block)
+    end)
+
     :ok
   end
 end

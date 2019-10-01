@@ -131,8 +131,7 @@ defmodule ChainTest do
     Chain.set_state(%Chain{
       peak: genesis,
       by_hash: %{hash => genesis},
-      states: %{},
-      length: 1
+      states: %{}
     })
 
     chain =

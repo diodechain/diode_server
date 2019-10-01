@@ -9,9 +9,7 @@ defmodule TicketStore do
   end
 
   def clear() do
-    :mnesia.transaction(fn ->
-      :mnesia.delete_table(:tickets)
-    end)
+    {:atomic, :ok} = :mnesia.clear_table(:tickets)
   end
 
   def tickets(epoch) do
