@@ -29,7 +29,7 @@ defmodule Store do
           :ok
 
         _ ->
-          System.cmd("epmd", ["-daemon"], stderr_to_stdout: true)
+          {"", 0} = System.cmd("epmd", ["-daemon"], stderr_to_stdout: true)
           {:ok, _pid} = :net_kernel.start([:master, :shortnames])
       end
     end
