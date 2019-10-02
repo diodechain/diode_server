@@ -338,14 +338,28 @@ defmodule Network.EdgeHandler do
 
       nil ->
         state = send!(state, ["error", 400, "that is not json"])
-        :io.format("~p:Unhandled message: ~p~n", [__MODULE__, msg])
+        :io.format("~p:Unhandled message: ~p~n", [__MODULE__, truncate(msg)])
         {:noreply, state}
 
       _ ->
         state = send!(state, ["error", 401, "bad input"])
-        :io.format("~p:Unhandled message: ~p~n", [__MODULE__, msg])
+        :io.format("~p:Unhandled message: ~40s~n", [__MODULE__, truncate(msg)])
         {:noreply, state}
     end
+  end
+
+  defp truncate(msg) when is_binary(msg) and byte_size(msg) > 40 do
+    binary_part(msg, 0, 37) <> "..."
+  end
+
+  defp truncate(msg) when is_binary(msg) do
+    msg
+  end
+
+  defp truncate(other) do
+    :io_lib.format("~0p", [other])
+    |> :erlang.iolist_to_binary()
+    |> truncate()
   end
 
   def handle_info({:topic, topic, message}, state) do

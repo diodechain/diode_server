@@ -163,7 +163,11 @@ defmodule EdgeTest do
     assert(Object.key(node) == id)
 
     # Testing disconnect
-    ["error", 401, "bad input"] = rpc(:client_1, ["garbage", String.pad_leading("", 1024 * 9)])
+    for _ <- 1..7 do
+      ["error", 401, "bad input"] = rpc(:client_1, ["garbage", String.pad_leading("", 1024 * 50)])
+    end
+
+    ["error", 401, "bad input"] = rpc(:client_1, ["garbage", String.pad_leading("", 1024 * 51)])
 
     ["goodbye", "ticket expected", "you might get blacklisted"] =
       rpc(:client_1, ["garbage", String.pad_leading("", 1024)])
@@ -520,6 +524,10 @@ defmodule EdgeTest do
 
       {pid, :quit} ->
         send(pid, {:ret, :ok})
+
+      {pid, :bytes} ->
+        send(pid, {:ret, state.unpaid_bytes})
+        clientloop(socket, state)
 
       {pid, :ping} ->
         send(pid, {:ret, :pong})
