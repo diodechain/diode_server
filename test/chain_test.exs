@@ -11,7 +11,14 @@ defmodule ChainTest do
     peak = Chain.peak()
     peak_block = Chain.peakBlock()
     other = Chain.block(peak)
+    assert peak_block == other
 
+    Chain.Worker.work()
+
+    assert peak + 1 == Chain.peak()
+    peak = Chain.peak()
+    peak_block = Chain.peakBlock()
+    other = Chain.block(peak)
     assert peak_block == other
   end
 

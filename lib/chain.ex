@@ -33,10 +33,7 @@ defmodule Chain do
     store = saver_loop_wait(false)
 
     if store do
-      tmp = "#{Diode.dataDir(@cache)}.tmp"
-      File.rm(tmp)
-      store_file(tmp, state())
-      File.rename(tmp, Diode.dataDir(@cache))
+      store_file(Diode.dataDir(@cache), state())
     end
 
     saver_loop()
@@ -55,7 +52,7 @@ defmodule Chain do
   @doc "Function for unit tests, replaces the current state"
   def set_state(state) do
     call(fn _state, _from ->
-      seed_ets(state.by_hash)
+      seed_ets(state)
       {:reply, :ok, %{state | by_hash: nil}}
     end)
 
@@ -146,7 +143,10 @@ defmodule Chain do
 
   @spec block(number()) :: Chain.Block.t() | nil
   def block(n) do
-    Enum.find(blocks(), fn block -> Block.number(block) == n end)
+    case :ets.lookup(__MODULE__, n) do
+      [] -> nil
+      [{^n, block}] -> block
+    end
   end
 
   @spec block_by_hash(any()) :: Chain.Block.t() | nil
@@ -181,17 +181,25 @@ defmodule Chain do
   @spec load_blocks() :: Chain.t()
   defp load_blocks() do
     chain = %Chain{} = load_file(Diode.dataDir(@cache), &genesis_state/0)
-    seed_ets(chain.by_hash)
+    seed_ets(chain)
     %{chain | by_hash: nil}
   end
 
   # Seeds the ets table from a map
-  defp seed_ets(by_hash) do
+  defp seed_ets(state) do
     :ets.delete_all_objects(__MODULE__)
+    seed_ets(state.by_hash, Block.hash(state.peak), map_size(state.by_hash) - 1)
+  end
 
-    Enum.each(by_hash, fn {hash, block} ->
-      :ets.insert(__MODULE__, {hash, block})
-    end)
+  defp seed_ets(_by_hash, nil, _n) do
+    :ok
+  end
+
+  defp seed_ets(by_hash, hash, n) do
+    block = by_hash[hash]
+    :ets.insert(__MODULE__, {hash, block})
+    :ets.insert(__MODULE__, {n, block})
+    seed_ets(by_hash, Block.parent_hash(block), n - 1)
   end
 
   defp genesis_state() do
@@ -279,6 +287,7 @@ defmodule Chain do
 
         state = %{state | peak: block}
         :ets.insert(__MODULE__, {block_hash, block})
+        :ets.insert(__MODULE__, {number, block})
 
         # Schedule a job to store the current state
         send(Chain.Saver, :store)
@@ -299,6 +308,7 @@ defmodule Chain do
       else
         IO.puts("Chain.add_block: Extending  alt #{info}")
         :ets.insert(__MODULE__, {block_hash, block})
+        :ets.insert(__MODULE__, {number, block})
         {:reply, :stored, state}
       end
     end)
