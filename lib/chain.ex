@@ -261,30 +261,10 @@ defmodule Chain do
 
         # Printing some debug output per transaction
         if Diode.dev_mode?() do
-          for {tx, rcpt} <- Enum.zip([Block.transactions(block), Block.receipts(block)]) do
-            status =
-              case rcpt.msg do
-                :revert -> ABI.decode_revert(rcpt.evmout)
-                _ -> {rcpt.msg, rcpt.evmout}
-              end
-
-            hash = Base16.encode(Transaction.hash(tx))
-            from = Base16.encode(Transaction.from(tx))
-            to = Base16.encode(Transaction.to(tx))
-            type = Atom.to_string(Transaction.type(tx))
-            value = Transaction.value(tx)
-            code = Base16.encode(Transaction.payload(tx))
-
-            IO.puts("")
-            IO.puts("\tTransaction: #{hash} Type: #{type}")
-            IO.puts("\tFrom:        #{from} To: #{to}")
-            IO.puts("\tValue:       #{value} Code: #{code}")
-            IO.puts("\tStatus:      #{inspect(status)}")
-          end
-
-          IO.puts("")
+          print_transactions(block)
         end
 
+        # Update the state
         state = %{state | peak: block}
         :ets.insert(__MODULE__, {block_hash, block})
         :ets.insert(__MODULE__, {number, block})
@@ -295,7 +275,7 @@ defmodule Chain do
         # from the outstanding local transaction pool
         Chain.Pool.remove_transactions(block)
 
-        # Let the ticketstore now the new block
+        # Let the ticketstore know the new block
         spawn(fn ->
           TicketStore.newblock()
         end)
@@ -312,6 +292,31 @@ defmodule Chain do
         {:reply, :stored, state}
       end
     end)
+  end
+
+  def print_transactions(block) do
+    for {tx, rcpt} <- Enum.zip([Block.transactions(block), Block.receipts(block)]) do
+      status =
+        case rcpt.msg do
+          :revert -> ABI.decode_revert(rcpt.evmout)
+          _ -> {rcpt.msg, rcpt.evmout}
+        end
+
+      hash = Base16.encode(Transaction.hash(tx))
+      from = Base16.encode(Transaction.from(tx))
+      to = Base16.encode(Transaction.to(tx))
+      type = Atom.to_string(Transaction.type(tx))
+      value = Transaction.value(tx)
+      code = Base16.encode(Transaction.payload(tx))
+
+      IO.puts("")
+      IO.puts("\tTransaction: #{hash} Type: #{type}")
+      IO.puts("\tFrom:        #{from} To: #{to}")
+      IO.puts("\tValue:       #{value} Code: #{code}")
+      IO.puts("\tStatus:      #{inspect(status)}")
+    end
+
+    IO.puts("")
   end
 
   @spec state(number()) :: Chain.State.t()
