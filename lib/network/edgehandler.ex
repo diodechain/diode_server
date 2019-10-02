@@ -348,20 +348,6 @@ defmodule Network.EdgeHandler do
     end
   end
 
-  defp truncate(msg) when is_binary(msg) and byte_size(msg) > 40 do
-    binary_part(msg, 0, 37) <> "..."
-  end
-
-  defp truncate(msg) when is_binary(msg) do
-    msg
-  end
-
-  defp truncate(other) do
-    :io_lib.format("~0p", [other])
-    |> :erlang.iolist_to_binary()
-    |> truncate()
-  end
-
   def handle_info({:topic, topic, message}, state) do
     state = send!(state, [topic, message])
     {:noreply, state}
@@ -388,6 +374,20 @@ defmodule Network.EdgeHandler do
   def handle_info(msg, state) do
     :io.format("~p handle_info: ~p ~p~n", [__MODULE__, msg, state])
     {:noreply, state}
+  end
+
+  defp truncate(msg) when is_binary(msg) and byte_size(msg) > 40 do
+    binary_part(msg, 0, 37) <> "..."
+  end
+
+  defp truncate(msg) when is_binary(msg) do
+    msg
+  end
+
+  defp truncate(other) do
+    :io_lib.format("~0p", [other])
+    |> :erlang.iolist_to_binary()
+    |> truncate()
   end
 
   defp portopen(state, device_id, portname, flags \\ "rw") do

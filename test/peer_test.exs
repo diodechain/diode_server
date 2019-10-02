@@ -1,5 +1,6 @@
 defmodule PeerTest do
   use ExUnit.Case, async: false
+  alias Chain.Block, as: Block
   alias Network.Server, as: Server
   alias Network.PeerHandler, as: PeerHandler
 
@@ -21,10 +22,10 @@ defmodule PeerTest do
     )
 
     # The Genesis Block should be the same
-    assert Chain.block(0) == :rpc.call(name_clone(1), Chain, :block, [0])
+    assert Block.hash(Chain.block(0)) == rpc(1, "eth_getBlockByNumber", "0,false")["hash"]
 
     # There should be only one block on the new clone
-    assert 1 == :rpc.call(name_clone(1), Chain, :peak, [])
+    assert 1 == :binary.decode_unsigned(rpc(1, "eth_blockNumber"))
 
     # Building test blocks for syncing
     assert Chain.peak() == 1
@@ -44,16 +45,27 @@ defmodule PeerTest do
 
     [_clone] = Map.values(Network.Server.get_connections(PeerHandler))
 
-    # Testing clone connection via Erlang comms (dev connection)
-    assert :net_adm.ping(name_clone(1)) == :pong
-
     # This shall force trigger a publish of all blocks to the clone
     Chain.Worker.work()
 
     wait_for(
-      fn -> Chain.peak() == :rpc.call(name_clone(1), Chain, :peak, []) end,
+      fn -> Chain.peak() == :binary.decode_unsigned(rpc(1, "eth_blockNumber")) end,
       "block sync",
       30
     )
+  end
+
+  defp rpc(num, method, params \\ "") do
+    {:ok, {_head, _opt, body}} =
+      :httpc.request(
+        :post,
+        {'http://localhost:#{rpcPort(num)}', [], 'application/json',
+         '{"id":1, "method":"#{method}", "params":[#{params}]}'},
+        [timeout: 5000],
+        []
+      )
+
+    Json.decode!(body)
+    |> Map.get("result")
   end
 end
