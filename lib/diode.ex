@@ -6,6 +6,14 @@ defmodule Diode do
   def start(_type, args) do
     import Supervisor.Spec, warn: false
 
+    if travis_mode?() do
+      IO.puts("====== TRAVIS DETECTED ======")
+      :io.format("~0p~n", [:inet.getifaddrs()])
+      :io.format("~0p~n", [:inet.get_rc()])
+      :io.format("~0p~n", [:inet.getaddr('localhost', :inet)])
+      :io.format("~0p~n", [:inet.gethostname()])
+    end
+
     children = [
       worker(PubSub, [args]),
       worker(Store, [args]),
@@ -20,17 +28,18 @@ defmodule Diode do
         id: KademliaServer
       ),
       worker(Kademlia, [args]),
-      Plug.Adapters.Cowboy.child_spec(:http, Network.RpcHttp, [],
-        ip: {127, 0, 0, 1},
-        port: rpcPort(),
-        dispatch: [
-          {:_,
-           [
-             {"/ws", Network.RpcWs, []},
-             {:_, Plug.Adapters.Cowboy.Handler, {Network.RpcHttp, []}}
-           ]}
-        ]
-      )
+      Plug.Adapters.Cowboy.child_spec(:http, Network.RpcHttp, [], [
+        {:port, rpcPort()},
+        :inet,
+        {:dispatch,
+         [
+           {:_,
+            [
+              {"/ws", Network.RpcWs, []},
+              {:_, Plug.Adapters.Cowboy.Handler, {Network.RpcHttp, []}}
+            ]}
+         ]}
+      ])
     ]
 
     IO.puts("====== ENV #{Mix.env()} ======")
@@ -73,6 +82,13 @@ defmodule Diode do
   @spec dev_mode? :: boolean
   def dev_mode?() do
     env() == :dev or env() == :test
+  end
+
+  def travis_mode?() do
+    case System.get_env("TRAVIS", nil) do
+      nil -> false
+      _ -> true
+    end
   end
 
   @spec test_mode? :: boolean
