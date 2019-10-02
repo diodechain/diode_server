@@ -33,7 +33,7 @@ defmodule Chain do
     store = saver_loop_wait(false)
 
     if store do
-      store_file(Diode.dataDir(@cache), state())
+      store_file(Diode.dataDir(@cache), state(), true)
     end
 
     saver_loop()
@@ -324,21 +324,18 @@ defmodule Chain do
     Block.state(block(n))
   end
 
-  def store_file(filename, term) do
-    case File.exists?(filename) do
-      true ->
-        term
+  def store_file(filename, term, overwrite \\ false) do
+    if overwrite or not File.exists?(filename) do
+      content = BertInt.encode!(term)
 
-      false ->
-        content = BertInt.encode!(term)
-
-        with :ok <- File.mkdir_p(Path.dirname(filename)) do
-          tmp = "#{filename}.#{:erlang.phash2(self())}"
-          File.write!(tmp, content)
-          File.rename!(tmp, filename)
-          term
-        end
+      with :ok <- File.mkdir_p(Path.dirname(filename)) do
+        tmp = "#{filename}.#{:erlang.phash2(self())}"
+        File.write!(tmp, content)
+        File.rename!(tmp, filename)
+      end
     end
+
+    term
   end
 
   def load_file(filename, default \\ nil) do
