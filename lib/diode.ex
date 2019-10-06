@@ -30,7 +30,6 @@ defmodule Diode do
       worker(Kademlia, [args]),
       Plug.Adapters.Cowboy.child_spec(:http, Network.RpcHttp, [], [
         {:port, rpcPort()},
-        :inet,
         {:dispatch,
          [
            {:_,

@@ -126,7 +126,7 @@ defmodule Chain.Transaction do
   end
 
   @spec apply(Chain.Transaction.t(), Chain.Block.t(), Chain.State.t(), false | true) ::
-          {:error, :not_enough_balance} | {:ok, Chain.State.t(), Chain.Receipt.t()}
+          {:error, atom()} | {:ok, Chain.State.t(), Chain.Receipt.t()}
   def apply(
         tx = %Chain.Transaction{nonce: nonce},
         env = %Chain.Block{},
@@ -153,6 +153,9 @@ defmodule Chain.Transaction do
         else
           do_apply(tx, env, state, from, from_acc, trace?)
         end
+
+      %Chain.Account{nonce: low} when low < nonce ->
+        {:error, :nonce_too_high}
 
       _acc ->
         {:error, :wrong_nonce}

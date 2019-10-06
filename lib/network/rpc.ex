@@ -50,29 +50,39 @@ defmodule Network.Rpc do
         # Testing transaction
         peak = Chain.peakBlock()
         state = Block.state(peak)
-        {:ok, _state, rcpt} = Chain.Transaction.apply(tx, peak, state)
-
-        # :io.format("Receipt: ~p~n", [rcpt])
-
-        Chain.Pool.add_transaction(tx)
-
-        res = Base16.encode(Chain.Transaction.hash(tx))
 
         err =
-          if rcpt.msg == :ok do
-            nil
-          else
-            %{
-              "messsage" => "VM Exception while processing transaction: #{rcpt.msg}",
-              "code" => if(rcpt.msg == :revert, do: -32000, else: -31000),
-              "data" => rcpt.evmout
-            }
+          case Chain.Transaction.apply(tx, peak, state) do
+            {:ok, _state, %{msg: :ok}} ->
+              nil
+
+            {:ok, _state, rcpt} ->
+              %{
+                "messsage" => "VM Exception while processing transaction: #{rcpt.msg}",
+                "code" => if(rcpt.msg == :revert, do: -32000, else: -31000),
+                "data" => rcpt.evmout
+              }
+
+            # Adding a too high nonce still to the pool
+            {:error, :nonce_too_high} ->
+              nil
+
+            {:error, reason} ->
+              %{
+                "messsage" => "Transaction error #{reason}"
+              }
           end
+
+        # Adding transaciton
+        if err == nil do
+          Chain.Pool.add_transaction(tx)
+        end
 
         if Diode.dev_mode?() do
           Chain.Worker.work()
         end
 
+        res = Base16.encode(Chain.Transaction.hash(tx))
         result(id, res, 200, err)
 
       "parity_pendingTransactions" ->

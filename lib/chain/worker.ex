@@ -1,5 +1,6 @@
 defmodule Chain.Worker do
   alias Chain.BlockCache, as: Block
+  alias Chain.Transaction
   use GenServer
 
   defstruct creds: nil,
@@ -12,7 +13,7 @@ defmodule Chain.Worker do
 
   @type t :: %Chain.Worker{
           creds: Wallet.t(),
-          proposal: [Chain.Transaction.t()],
+          proposal: [Transaction.t()],
           parent_hash: binary(),
           candidate: Chain.Block.t(),
           target: non_neg_integer(),
@@ -96,6 +97,10 @@ defmodule Chain.Worker do
     {:noreply, do_work(state)}
   end
 
+  defp do_work(state = %{mode: :disabled}) do
+    state
+  end
+
   defp do_work(state) do
     state = generate_candidate(state)
     %{creds: creds, candidate: candidate, target: target} = state
@@ -143,23 +148,26 @@ defmodule Chain.Worker do
 
     # Primary Registry call
     tx =
-      %Chain.Transaction{
+      %Transaction{
         nonce: Chain.Account.nonce(account),
         gasPrice: 0,
         gasLimit: 1_000_000_000,
         to: Diode.registryAddress(),
         data: ABI.encode_spec("blockReward")
       }
-      |> Chain.Transaction.sign(Wallet.privkey!(creds))
+      |> Transaction.sign(Wallet.privkey!(creds))
 
     # Updating miner signed transaction nonces
-    {txs, _} =
-      Enum.reduce(transactions(state), {[tx], tx.nonce}, fn tx, {list, nonce} ->
-        if Chain.Transaction.from(tx) == miner do
-          tx = %{tx | nonce: nonce + 1} |> Chain.Transaction.sign(Wallet.privkey!(creds))
-          {list ++ [tx], nonce + 1}
+    # 'map' keeps a mapping to the unchanged tx hashes to reference the tx-pool
+    {txs, _, map} =
+      Enum.reduce(transactions(state), {[tx], tx.nonce, %{}}, fn tx, {list, nonce, map} ->
+        hash = Transaction.hash(tx)
+
+        if Transaction.from(tx) == miner do
+          tx = %{tx | nonce: nonce + 1} |> Transaction.sign(Wallet.privkey!(creds))
+          {list ++ [tx], nonce + 1, Map.put(map, Transaction.hash(tx), hash)}
         else
-          {list ++ [tx], nonce}
+          {list ++ [tx], nonce, map}
         end
       end)
 
@@ -167,8 +175,13 @@ defmodule Chain.Worker do
     done = Block.transactions(block)
 
     if done != txs do
-      failed = MapSet.difference(MapSet.new(txs), MapSet.new(done))
-      keys = Enum.map(failed, &Chain.Transaction.hash/1)
+      keys =
+        MapSet.difference(MapSet.new(txs), MapSet.new(done))
+        |> Enum.map(fn tx ->
+          hash = Transaction.hash(tx)
+          Map.get(map, hash, hash)
+        end)
+
       Chain.Pool.remove_transactions(keys)
     end
 

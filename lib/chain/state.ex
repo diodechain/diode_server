@@ -1,4 +1,5 @@
 defmodule Chain.State do
+  import Wallet
   defstruct store: MerkleTree.new(), map: %{}
 
   def new() do
@@ -21,6 +22,10 @@ defmodule Chain.State do
   end
 
   @spec ensure_account(Chain.State.t(), <<_::160>>) :: Chain.Account.t()
+  def ensure_account(state = %Chain.State{}, id = wallet()) do
+    ensure_account(state, Wallet.address!(id))
+  end
+
   def ensure_account(state = %Chain.State{}, id = <<_::160>>) do
     case account(state, id) do
       nil -> %Chain.Account{nonce: 0}

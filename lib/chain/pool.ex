@@ -60,6 +60,7 @@ defmodule Chain.Pool do
       Transaction.gasPrice(a) < Transaction.gasPrice(b)
     end)
     |> Enum.take(floor(limit / avg * 1.2))
+    |> Enum.sort(fn a, b -> Transaction.nonce(a) < Transaction.nonce(b) end)
   end
 
   @spec transactions() :: [Transaction.t()]
