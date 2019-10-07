@@ -7,15 +7,23 @@ defmodule PeerTest do
   import TestHelper
 
   setup_all do
+    reset()
+    start_clones(1)
+
     on_exit(fn ->
       TestHelper.kill_clones()
     end)
   end
 
   test "sync" do
-    reset()
-    start_clones(1)
+    if Diode.travis_mode?() do
+      :ok
+    else
+      testSync()
+    end
+  end
 
+  def testSync() do
     wait_for(
       fn -> Network.Server.get_connections(PeerHandler) == %{} end,
       "connections to drain"
