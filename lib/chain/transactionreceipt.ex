@@ -1,4 +1,4 @@
-defmodule Chain.TransactionReceipt do
+defmodule Chain.transaction_receipt do
   defstruct msg: nil,
             # state: nil,
             evmout: nil,
@@ -8,7 +8,7 @@ defmodule Chain.TransactionReceipt do
             logs: [],
             trace: nil
 
-  @type t :: %Chain.TransactionReceipt{
+  @type t :: %Chain.transaction_receipt{
           msg: binary() | :ok | :revert,
           # state: Chain.State.t() | nil,
           evmout: any(),

@@ -55,17 +55,17 @@ eval(State) ->
                 {ok, State2}  -> {ok, State2};
                 {error, What} -> {error, What, 0}
             end;
-        {revert, Msg, GasLeft} ->
-            {revert, Msg, GasLeft};
-        {error, What, GasLeft} ->
-            {error, What, GasLeft}
+        {revert, Msg, gas_left} ->
+            {revert, Msg, gas_left};
+        {error, What, gas_left} ->
+            {error, What, gas_left}
     end.
 
 eval_code(State) ->
     try {ok, loop(aevm_eeevm_state:cp(State), valid_jumpdests(State))}
     catch
-        throw:?aevm_eval_error(What, GasLeft) ->
-            {error, What, GasLeft};
+        throw:?aevm_eval_error(What, gas_left) ->
+            {error, What, gas_left};
         throw:?aevm_eval_stack_error(What, _State) ->
             {error, What, 0};
         throw:?AEVM_SIGNAL(Signal, StateOut) ->
@@ -521,13 +521,13 @@ loop(CP, StateIn) ->
                     CodeArea = code_get_area(Us1, Us2, Code),
                     State4 = aevm_eeevm_memory:write_area(Us0, CodeArea, State3),
                     next_instruction(CP, State, State4);
-                ?GASPRICE ->
-                    %% 0x3a GASPRICE δ=0 α=1
+                ?gas_price ->
+                    %% 0x3a gas_price δ=0 α=1
                     %% Get price of gas in current environment.
                     %% µ's[0] ≡ Ip
                     %%  This is gas price specified by the
                     %% originating transaction.
-                    Arg = aevm_eeevm_state:gasprice(State0),
+                    Arg = aevm_eeevm_state:gas_price(State0),
                     State1 = push(Arg, State0),
                     next_instruction(CP, State, State1);
                 ?EXTCODESIZE ->
@@ -625,11 +625,11 @@ loop(CP, StateIn) ->
                     Arg = aevm_eeevm_state:difficulty(State0),
                     State1 = push(Arg, State0),
                     next_instruction(CP, State, State1);
-                ?GASLIMIT ->
-                    %% 0x45 GASLIMIT  δ=0 α=1
+                ?gas_limit ->
+                    %% 0x45 gas_limit  δ=0 α=1
                     %% Get the block’s number.
                     %% µ's[0] ≡ IHl
-                    Arg = aevm_eeevm_state:gaslimit(State0),
+                    Arg = aevm_eeevm_state:gas_limit(State0),
                     State1 = push(Arg, State0),
                     next_instruction(CP, State, State1);
                 %% 50s: Stack, Memory, Storage and Flow Operations
@@ -1091,8 +1091,8 @@ loop(CP, StateIn) ->
                     %% µ'i ≡ M(µi, µs[0], µs[1]) TODO: This
                     {Us0, State1} = pop(State0),
                     {Us1, State2} = pop(State1),
-                    {State3, GasUsed} = aevm_eeevm_state:do_return(Us0, Us1, State2),
-                    spend_gas_common({mem}, GasUsed, State3);
+                    {State3, gas_used} = aevm_eeevm_state:do_return(Us0, Us1, State2),
+                    spend_gas_common({mem}, gas_used, State3);
                 ?DELEGATECALL ->
                     %% 0xf4 DELEGATECALL  δ=6 α=1
                     %% Message-call into this account with an
@@ -1213,7 +1213,7 @@ is_valid_instruction(?CALLDATASIZE  , VM) -> not ?IS_AEVM_SOPHIA(VM);
 is_valid_instruction(?CALLDATACOPY  , VM) -> not ?IS_AEVM_SOPHIA(VM);
 is_valid_instruction(?CODESIZE      ,_VM) -> true;
 is_valid_instruction(?CODECOPY      ,_VM) -> true;
-is_valid_instruction(?GASPRICE      ,_VM) -> true;
+is_valid_instruction(?gas_price      ,_VM) -> true;
 is_valid_instruction(?EXTCODESIZE   ,_VM) -> true;
 is_valid_instruction(?EXTCODECOPY   ,_VM) -> true;
 is_valid_instruction(?RETURNDATASIZE, VM) -> not ?IS_AEVM_SOPHIA(VM);
@@ -1224,7 +1224,7 @@ is_valid_instruction(?COINBASE      ,_VM) -> true;
 is_valid_instruction(?TIMESTAMP     ,_VM) -> true;
 is_valid_instruction(?NUMBER        ,_VM) -> true;
 is_valid_instruction(?DIFFICULTY    ,_VM) -> true;
-is_valid_instruction(?GASLIMIT      ,_VM) -> true;
+is_valid_instruction(?gas_limit      ,_VM) -> true;
 is_valid_instruction(16#46          ,_VM) -> false;
 is_valid_instruction(16#47          ,_VM) -> false;
 is_valid_instruction(16#48          ,_VM) -> false;
@@ -1551,9 +1551,9 @@ spend_mem_gas(StateWithOpGas, StateOut) ->
     spend_gas_common({mem}, aevm_gas:mem_expansion_gas(StateWithOpGas, StateOut), StateOut).
 
 spend_gas_common(_Resource, Gas, State) ->
-    GasLimit  = aevm_eeevm_state:gas(State),
-    case GasLimit >= Gas of
-        true ->  aevm_eeevm_state:set_gas(GasLimit - Gas, State);
+    gas_limit  = aevm_eeevm_state:gas(State),
+    case gas_limit >= Gas of
+        true ->  aevm_eeevm_state:set_gas(gas_limit - Gas, State);
         false ->
             ?TEST_LOG("Out of gas spending ~p gas for ~p", [Gas, _Resource]),
             eval_error(out_of_gas)
@@ -1688,7 +1688,7 @@ recursive_call2(Op, Gascap, To, Value, OSize, OOffset, I, State8, GasAfterSpend,
             State9 = aevm_eeevm_state:set_gas(GasOut, State8),
             State10 = aevm_eeevm_state:add_callcreates(#{ data => I
                                                         , destination => Dest
-                                                        , gasLimit => CallGas
+                                                        , gas_limit => CallGas
                                                         , value => Value
                                                         }, State9),
             {1, State10};
@@ -1740,6 +1740,6 @@ recursive_call2(Op, Gascap, To, Value, OSize, OOffset, I, State8, GasAfterSpend,
 eval_error(What) ->
     throw(?aevm_eval_error(What, 0)).
 
--spec eval_call_error(ErrorReason :: any(), GasLeft :: non_neg_integer()) -> no_return().
-eval_call_error(What, GasLeft) ->
-    throw(?aevm_eval_error(What, GasLeft)).
+-spec eval_call_error(ErrorReason :: any(), gas_left :: non_neg_integer()) -> no_return().
+eval_call_error(What, gas_left) ->
+    throw(?aevm_eval_error(What, gas_left)).

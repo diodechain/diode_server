@@ -1,7 +1,7 @@
 defmodule EvmTest do
   use ExUnit.Case
   alias Chain.Transaction
-  alias Chain.TransactionReceipt
+  alias Chain.transaction_receipt
 
   test "init" do
     evm = Evm.init()
@@ -35,12 +35,12 @@ defmodule EvmTest do
       )
 
     ## Prepare: Create Origin Account and give it some balance:
-    ctx = %{Transaction.from_rlp(bin) | gasLimit: 100_000_000}
+    ctx = %{Transaction.from_rlp(bin) | gas_limit: 100_000_000}
     ctx = Transaction.sign(ctx, priv)
 
     user_acc = %Chain.Account{
       nonce: ctx.nonce,
-      balance: ctx.value + 2 * Transaction.gasLimit(ctx) * Transaction.gasPrice(ctx)
+      balance: ctx.value + 2 * Transaction.gas_limit(ctx) * Transaction.gas_price(ctx)
     }
 
     assert Wallet.pubkey!(Transaction.origin(ctx)) == Wallet.pubkey!(wallet)
@@ -48,20 +48,20 @@ defmodule EvmTest do
     state = Chain.State.set_account(state, Wallet.address!(wallet), user_acc)
 
     # Fail test 1: Too little balance
-    ctx_fail = %{ctx | gasLimit: ctx.gasLimit * 1_000_000} |> Transaction.sign(priv)
+    ctx_fail = %{ctx | gas_limit: ctx.gas_limit * 1_000_000} |> Transaction.sign(priv)
     assert {:error, :not_enough_balance} == Transaction.apply(ctx_fail, block, state)
 
     # Fail test 2: Too little gas
-    ctx_fail = %{ctx | gasLimit: 1} |> Transaction.sign(priv)
+    ctx_fail = %{ctx | gas_limit: 1} |> Transaction.sign(priv)
 
-    {:ok, _state, %TransactionReceipt{msg: :out_of_gas}} =
+    {:ok, _state, %transaction_receipt{msg: :out_of_gas}} =
       Transaction.apply(ctx_fail, block, state)
 
-    {:ok, state, %TransactionReceipt{msg: :ok}} = Transaction.apply(ctx, block, state)
+    {:ok, state, %transaction_receipt{msg: :ok}} = Transaction.apply(ctx, block, state)
 
     # Checking value of i at position 0
     acc = Chain.State.account(state, Transaction.new_contract_address(ctx))
-    value = Chain.Account.storageInteger(acc, 0)
+    value = Chain.Account.storage_integer(acc, 0)
     assert value == 0
 
     # Method call increment
@@ -70,7 +70,7 @@ defmodule EvmTest do
         0xF86708843B9ACA0082A2A0949E0A6D367859C47E7895557D5F763B954952FCB08084D09DE08A2CA0F40915BA7822D7CDA5C42B530E21616249E700082A4E7401E8C62775E7C5E219A01BE95441D88652AE5ED7E57ECF837EB1DDF844024E55E5EFB6CD2AA555C913DD
       )
 
-    tx = %{Transaction.from_rlp(bin) | gasLimit: 100_000_000}
+    tx = %{Transaction.from_rlp(bin) | gas_limit: 100_000_000}
     tx = %{tx | nonce: ctx.nonce + 1, to: Transaction.new_contract_address(ctx)}
     tx = Transaction.sign(tx, priv)
 
@@ -78,16 +78,16 @@ defmodule EvmTest do
 
     # Fail test 3: value on non_payable method
     tx_fail = %{tx | value: 1} |> Transaction.sign(priv)
-    {:ok, _state, %TransactionReceipt{msg: :revert}} = Transaction.apply(tx_fail, block, state)
+    {:ok, _state, %transaction_receipt{msg: :revert}} = Transaction.apply(tx_fail, block, state)
 
-    {:ok, state, %TransactionReceipt{msg: :ok, evmout: evmout}} =
+    {:ok, state, %transaction_receipt{msg: :ok, evmout: evmout}} =
       Transaction.apply(tx, block, state)
 
     assert evmout == ""
 
     # Checking value of i at position 0
     acc = Chain.State.account(state, Transaction.new_contract_address(ctx))
-    value = Chain.Account.storageInteger(acc, 0)
+    value = Chain.Account.storage_integer(acc, 0)
     assert value == 1
   end
 end

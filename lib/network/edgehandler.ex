@@ -210,16 +210,16 @@ defmodule Network.EdgeHandler do
         state = send!(state, ["response", "getnode", ret])
         {:noreply, state}
 
-      ["getblockpeak"] ->
-        state = send!(state, ["response", "getblockpeak", Chain.peak()])
+      ["get_blockpeak"] ->
+        state = send!(state, ["response", "get_blockpeak", Chain.peak()])
         {:noreply, state}
 
-      ["getblock", index] when is_integer(index) ->
-        state = send!(state, ["response", "getblock", Chain.block(index)])
+      ["get_block", index] when is_integer(index) ->
+        state = send!(state, ["response", "get_block", Chain.block(index)])
         {:noreply, state}
 
-      ["getblockheader", index] when is_integer(index) ->
-        state = send!(state, ["response", "getblockheader", Chain.block(index).header])
+      ["get_blockheader", index] when is_integer(index) ->
+        state = send!(state, ["response", "get_blockheader", Chain.block(index).header])
         {:noreply, state}
 
       ["getstateroots", index] ->
@@ -244,7 +244,7 @@ defmodule Network.EdgeHandler do
                 %{
                   nonce: account.nonce,
                   balance: account.balance,
-                  storageRoot: MerkleTree.root_hash(account.storageRoot),
+                  storage_root: MerkleTree.root_hash(account.storage_root),
                   code: Chain.Account.codehash(account)
                 },
                 proof
@@ -261,11 +261,11 @@ defmodule Network.EdgeHandler do
             nil ->
               send!(state, ["error", "getaccountroots", "account does not exist"])
 
-            %Chain.Account{storageRoot: storageRoot} ->
+            %Chain.Account{storage_root: storage_root} ->
               send!(state, [
                 "response",
                 "getaccountroots",
-                MerkleTree.root_hashes(storageRoot)
+                MerkleTree.root_hashes(storage_root)
               ])
           end
 
@@ -279,11 +279,11 @@ defmodule Network.EdgeHandler do
             nil ->
               send!(state, ["error", "getaccountvalue", "account does not exist"])
 
-            %Chain.Account{storageRoot: storageRoot} ->
+            %Chain.Account{storage_root: storage_root} ->
               send!(state, [
                 "response",
                 "getaccountvalue",
-                MerkleTree.get_proofs(storageRoot, key)
+                MerkleTree.get_proofs(storage_root, key)
               ])
           end
 

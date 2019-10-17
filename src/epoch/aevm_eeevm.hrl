@@ -1,5 +1,5 @@
--define(aevm_eval_error(___What___, ___GasLeft___),
-        {aevm_eval_error, ___What___, ___GasLeft___}).
+-define(aevm_eval_error(___What___, ___gas_left___),
+        {aevm_eval_error, ___What___, ___gas_left___}).
 -define(aevm_eval_stack_error(___What___, ___State___),
         {aevm_eval_stack_error, ___What___, ___State___}).
 

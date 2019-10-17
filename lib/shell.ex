@@ -8,14 +8,14 @@ defmodule Shell do
     me = Diode.miner() |> Wallet.address!()
     Shell.get_balance(me)
 
-    fleetContract = Base16.decode("0x6728c7bea74db60c2fb117c15de28b0b0686c389")
-    Shell.call(fleetContract, "accountant")
+    fleet_contract = Base16.decode("0x6728c7bea74db60c2fb117c15de28b0b0686c389")
+    Shell.call(fleet_contract, "accountant")
 
-    registryContract = Diode.registryAddress()
-    Shell.call(registryContract, "ContractStake", ["address"], [fleetContract])
+    registryContract = Diode.registry_address()
+    Shell.call(registryContract, "ContractStake", ["address"], [fleet_contract])
 
     wallet = Chain.GenesisFactory.genesis_accounts |> hd |> elem(0)
-    Shell.call_from(wallet, registryContract, "ContractStake", ["address"], [fleetContract])
+    Shell.call_from(wallet, registryContract, "ContractStake", ["address"], [fleet_contract])
   """
   def call(address, name, types \\ [], values \\ [], opts \\ [])
       when is_list(types) and is_list(values) do
@@ -26,16 +26,16 @@ defmodule Shell do
       when is_list(types) and is_list(values) do
     opts =
       opts
-      |> Keyword.put_new(:gas, Chain.gasLimit() * 100)
-      |> Keyword.put_new(:gasPrice, 0)
+      |> Keyword.put_new(:gas, Chain.gas_limit() * 100)
+      |> Keyword.put_new(:gas_price, 0)
 
     tx = transaction(wallet, address, name, types, values, opts)
-    blockRef = Keyword.get(opts, :blockRef, "latest")
-    call_tx(tx, blockRef)
+    block_ref = Keyword.get(opts, :block_ref, "latest")
+    call_tx(tx, block_ref)
   end
 
-  def call_tx(tx, blockRef) do
-    block = Network.Rpc.getBlock(blockRef)
+  def call_tx(tx, block_ref) do
+    block = Network.Rpc.get_block(block_ref)
     state = Chain.Block.state(block)
     {:ok, _state, rcpt} = Chain.Transaction.apply(tx, block, state)
 
@@ -63,8 +63,8 @@ defmodule Shell do
 
     opts =
       opts
-      |> Keyword.put_new(:gas, Chain.gasLimit())
-      |> Keyword.put_new(:gasPrice, 0)
+      |> Keyword.put_new(:gas, Chain.gas_limit())
+      |> Keyword.put_new(:gas_price, 0)
       |> Keyword.put(:to, address)
       |> Enum.map(fn {key, value} -> {Atom.to_string(key), value} end)
       |> Map.new()
@@ -81,7 +81,7 @@ defmodule Shell do
   @spec get_miner_stake(binary()) :: non_neg_integer()
   def get_miner_stake(address) do
     {value, _gas} =
-      call(Diode.registryAddress(), "MinerValue", ["uint8", "address"], [0, address])
+      call(Diode.registry_address(), "miner_value", ["uint8", "address"], [0, address])
 
     :binary.decode_unsigned(value)
   end
@@ -89,7 +89,7 @@ defmodule Shell do
   def get_slot(address, slot) do
     Chain.peakState()
     |> Chain.State.ensure_account(address)
-    |> Chain.Account.storageValue(slot)
+    |> Chain.Account.storage_value(slot)
   end
 
   def get_code(address) do

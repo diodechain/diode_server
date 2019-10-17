@@ -4,26 +4,26 @@ defmodule Contract.Registry do
     as needed by the inner workings of the chain
   """
 
-  @spec minerValue(0 | 1 | 2 | 3, <<_::160>> | Wallet.t(), any()) :: non_neg_integer
-  def minerValue(type, address, blockRef) when type >= 0 and type <= 3 do
-    call("MinerValue", ["uint8", "address"], [type, address], blockRef)
+  @spec miner_value(0 | 1 | 2 | 3, <<_::160>> | Wallet.t(), any()) :: non_neg_integer
+  def miner_value(type, address, block_ref) when type >= 0 and type <= 3 do
+    call("miner_value", ["uint8", "address"], [type, address], block_ref)
     |> :binary.decode_unsigned()
   end
 
   @spec epoch(any()) :: non_neg_integer
-  def epoch(blockRef) do
-    call("Epoch", [], [], blockRef)
+  def epoch(block_ref) do
+    call("Epoch", [], [], block_ref)
     |> :binary.decode_unsigned()
   end
 
-  def submitTicketRawTx(ticket) do
-    Shell.transaction(Diode.miner(), Diode.registryAddress(), "SubmitTicketRaw", ["bytes32[]"], [
+  def submit_ticket_raw_tx(ticket) do
+    Shell.transaction(Diode.miner(), Diode.registry_address(), "SubmitTicketRaw", ["bytes32[]"], [
       ticket
     ])
   end
 
-  defp call(name, types, values, blockRef) do
-    {ret, _gas} = Shell.call(Diode.registryAddress(), name, types, values, blockRef: blockRef)
+  defp call(name, types, values, block_ref) do
+    {ret, _gas} = Shell.call(Diode.registry_address(), name, types, values, block_ref: block_ref)
     ret
   end
 end

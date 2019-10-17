@@ -1,5 +1,5 @@
 defmodule Chain.Account do
-  defstruct nonce: 0, balance: 0, storageRoot: MerkleTree.new(), code: nil
+  defstruct nonce: 0, balance: 0, storage_root: MerkleTree.new(), code: nil
 
   @type t :: %Chain.Account{
           nonce: non_neg_integer(),
@@ -11,35 +11,35 @@ defmodule Chain.Account do
   def nonce(%Chain.Account{nonce: nonce}), do: nonce
   def balance(%Chain.Account{balance: balance}), do: balance
 
-  def storageSetValue(
-        %Chain.Account{storageRoot: store} = acc,
+  def storage_set_value(
+        %Chain.Account{storage_root: store} = acc,
         key = <<_k::256>>,
         value = <<_v::256>>
       ) do
     store = MerkleTree.insert(store, key, value)
-    %Chain.Account{acc | storageRoot: store}
+    %Chain.Account{acc | storage_root: store}
   end
 
-  def storageSetValue(acc, key, value) when is_integer(key) do
-    storageSetValue(acc, <<key::unsigned-size(256)>>, value)
+  def storage_set_value(acc, key, value) when is_integer(key) do
+    storage_set_value(acc, <<key::unsigned-size(256)>>, value)
   end
 
-  def storageSetValue(acc, key, value) when is_integer(value) do
-    storageSetValue(acc, key, <<value::unsigned-size(256)>>)
+  def storage_set_value(acc, key, value) when is_integer(value) do
+    storage_set_value(acc, key, <<value::unsigned-size(256)>>)
   end
 
-  @spec storageValue(Chain.Account.t(), binary() | integer()) :: binary() | nil
-  def storageValue(acc, key) when is_integer(key) do
-    storageValue(acc, <<key::unsigned-size(256)>>)
+  @spec storage_value(Chain.Account.t(), binary() | integer()) :: binary() | nil
+  def storage_value(acc, key) when is_integer(key) do
+    storage_value(acc, <<key::unsigned-size(256)>>)
   end
 
-  def storageValue(%Chain.Account{storageRoot: store}, key) when is_binary(key) do
+  def storage_value(%Chain.Account{storage_root: store}, key) when is_binary(key) do
     MerkleTree.get(store, key)
   end
 
-  @spec storageInteger(Chain.Account.t(), binary() | integer()) :: non_neg_integer()
-  def storageInteger(acc, key) do
-    case storageValue(acc, key) do
+  @spec storage_integer(Chain.Account.t(), binary() | integer()) :: non_neg_integer()
+  def storage_integer(acc, key) do
+    case storage_value(acc, key) do
       nil -> 0
       other -> :binary.decode_unsigned(other)
     end
@@ -50,7 +50,7 @@ defmodule Chain.Account do
     [
       account.nonce,
       account.balance,
-      MerkleTree.root_hash(account.storageRoot),
+      MerkleTree.root_hash(account.storage_root),
       codehash(account)
     ]
   end

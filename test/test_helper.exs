@@ -25,11 +25,11 @@ defmodule TestHelper do
     end
   end
 
-  def kademliaPort(num) do
+  def kademlia_port(num) do
     10001 + num * 3
   end
 
-  def rpcPort(num) do
+  def rpc_port(num) do
     10002 + num * 3
   end
 
@@ -55,10 +55,10 @@ defmodule TestHelper do
           ["--cookie", @cookie, "-S", "mix", "run"],
           env: [
             {"DATA_DIR", clonedir},
-            {"RPC_PORT", "#{rpcPort(num)}"},
+            {"RPC_PORT", "#{rpc_port(num)}"},
             {"EDGE_PORT", "#{10000 + num * 3}"},
-            {"KADEMLIA_PORT", "#{kademliaPort(num)}"},
-            {"SEED", "diode://localhost:#{kademliaPort(num)}"}
+            {"KADEMLIA_PORT", "#{kademlia_port(num)}"},
+            {"SEED", "diode://localhost:#{kademlia_port(num)}"}
           ],
           stderr_to_stdout: true,
           into: file

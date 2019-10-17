@@ -30,7 +30,7 @@ defmodule PeerTest do
     )
 
     # The Genesis Block should be the same
-    assert Block.hash(Chain.block(0)) == rpc(1, "eth_getBlockByNumber", "0,false")["hash"]
+    assert Block.hash(Chain.block(0)) == rpc(1, "eth_get_blockByNumber", "0,false")["hash"]
 
     # There should be only one block on the new clone
     assert 1 == :binary.decode_unsigned(rpc(1, "eth_blockNumber"))
@@ -41,7 +41,7 @@ defmodule PeerTest do
     assert Chain.peak() == 11
 
     # Creating peer connection
-    pid = Server.ensure_node_connection(PeerHandler, nil, "localhost", kademliaPort(1))
+    pid = Server.ensure_node_connection(PeerHandler, nil, "localhost", kademlia_port(1))
     assert GenServer.call(pid, :ping) == :pong
 
     # Waiting for the connection to settle
@@ -67,7 +67,7 @@ defmodule PeerTest do
     {:ok, {_head, _opt, body}} =
       :httpc.request(
         :post,
-        {'http://localhost:#{rpcPort(num)}', [], 'application/json',
+        {'http://localhost:#{rpc_port(num)}', [], 'application/json',
          '{"id":1, "method":"#{method}", "params":[#{params}]}'},
         [timeout: 5000],
         []

@@ -49,8 +49,8 @@ defmodule EdgeTest do
     end
   end
 
-  test "getblock" do
-    assert rpc(:client_1, ["getblockpeak"]) == ["response", "getblockpeak", Chain.peak()]
+  test "get_block" do
+    assert rpc(:client_1, ["get_blockpeak"]) == ["response", "get_blockpeak", Chain.peak()]
   end
 
   test "getaccount" do

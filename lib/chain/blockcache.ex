@@ -2,7 +2,7 @@ defmodule Chain.BlockCache do
   alias Chain.Block
   use GenServer
 
-  defstruct difficulty: 0, totalDifficulty: 0, number: -1, receipts: [], epoch: 0
+  defstruct difficulty: 0, total_difficulty: 0, number: -1, receipts: [], epoch: 0
 
   def start_link(arg) do
     GenServer.start_link(__MODULE__, arg, name: __MODULE__)
@@ -24,7 +24,7 @@ defmodule Chain.BlockCache do
   def create_cache(block) do
     %Chain.BlockCache{
       difficulty: Block.difficulty(block),
-      totalDifficulty: Block.totalDifficulty(block),
+      total_difficulty: Block.total_difficulty(block),
       number: Block.number(block),
       receipts: Block.receipts(block),
       epoch: Block.epoch(block)
@@ -58,8 +58,8 @@ defmodule Chain.BlockCache do
     cache(block).difficulty
   end
 
-  def totalDifficulty(block) do
-    cache(block).totalDifficulty
+  def total_difficulty(block) do
+    cache(block).total_difficulty
   end
 
   def number(block) do
@@ -81,10 +81,10 @@ defmodule Chain.BlockCache do
   defdelegate coinbase(block), to: Block
   defdelegate create(parent, transactions, miner, time, trace? \\ false), to: Block
   defdelegate encode_transactions(transactions), to: Block
-  defdelegate extraData(block), to: Block
-  defdelegate gasLimit(block), to: Block
-  defdelegate gasPrice(block), to: Block
-  defdelegate gasUsed(block), to: Block
+  defdelegate extra_data(block), to: Block
+  defdelegate gas_limit(block), to: Block
+  defdelegate gas_price(block), to: Block
+  defdelegate gas_used(block), to: Block
   defdelegate hash(block), to: Block
   defdelegate hash_in_target?(block, hash), to: Block
   defdelegate hash_target(block), to: Block
@@ -92,23 +92,23 @@ defmodule Chain.BlockCache do
   defdelegate header(block), to: Block
   defdelegate increment_nonce(block), to: Block
   defdelegate logs(block), to: Block
-  defdelegate logsBloom(block), to: Block
+  defdelegate logs_bloom(block), to: Block
   defdelegate miner(block), to: Block
   defdelegate nonce(block), to: Block
   defdelegate parent(block), to: Block
   defdelegate parent_hash(block), to: Block
-  defdelegate receiptsRoot(block), to: Block
+  defdelegate receipts_root(block), to: Block
   defdelegate sign(block, priv), to: Block
   defdelegate simulate(block, trace? \\ false), to: Block
   defdelegate size(block), to: Block
   defdelegate state(block), to: Block
   defdelegate state_hash(block), to: Block
   defdelegate timestamp(block), to: Block
-  defdelegate transactionGas(block, transaction), to: Block
-  defdelegate transactionIndex(block, transaction), to: Block
-  defdelegate transactionOut(block, transaction), to: Block
+  defdelegate transaction_gas(block, transaction), to: Block
+  defdelegate transaction_index(block, transaction), to: Block
+  defdelegate transaction_out(block, transaction), to: Block
   defdelegate transactions(block), to: Block
-  defdelegate transactionStatus(block, transaction), to: Block
+  defdelegate transaction_status(block, transaction), to: Block
   defdelegate txhash(block), to: Block
   defdelegate validate(block), to: Block
   defdelegate valid?(block), to: Block

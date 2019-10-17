@@ -15,12 +15,12 @@ defmodule RpcTest do
     {200, %{"result" => _ret}} = rpc("trace_replayBlockTransactions", ["earliest", ["trace"]])
   end
 
-  test "eth_getBlockByNumber" do
-    {200, %{"result" => _ret}} = rpc("eth_getBlockByNumber", [0, false])
-    {200, %{"result" => _ret}} = rpc("eth_getBlockByNumber", [1, false])
-    {404, %{"result" => _ret}} = rpc("eth_getBlockByNumber", [150, false])
-    {200, %{"result" => _ret}} = rpc("eth_getBlockByNumber", ["earliest", false])
-    {200, %{"result" => _ret}} = rpc("eth_getBlockByNumber", ["latest", false])
+  test "eth_get_blockByNumber" do
+    {200, %{"result" => _ret}} = rpc("eth_get_blockByNumber", [0, false])
+    {200, %{"result" => _ret}} = rpc("eth_get_blockByNumber", [1, false])
+    {404, %{"result" => _ret}} = rpc("eth_get_blockByNumber", [150, false])
+    {200, %{"result" => _ret}} = rpc("eth_get_blockByNumber", ["earliest", false])
+    {200, %{"result" => _ret}} = rpc("eth_get_blockByNumber", ["latest", false])
   end
 
   test "transaction ordering" do
@@ -42,7 +42,7 @@ defmodule RpcTest do
           "value" => 1000,
           "nonce" => nonce + i,
           "to" => to,
-          "gasPrice" => 0
+          "gas_price" => 0
         })
       end)
 
@@ -91,7 +91,7 @@ defmodule RpcTest do
   #                  "to" => to_address_hash,
   #                  "value" => "0x0"
   #                },
-  #                "result" => %{"gasUsed" => "0x6c7a", "output" => "0x"},
+  #                "result" => %{"gas_used" => "0x6c7a", "output" => "0x"},
   #                "subtraces" => 0,
   #                "traceAddress" => [],
   #                "type" => "call"

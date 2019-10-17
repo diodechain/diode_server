@@ -98,10 +98,10 @@ defmodule Network.Server do
           # This timeout is to yield to standard gen_server behaviour
           state
 
-        {:ok, newSocket} ->
-          case :ssl.handshake(newSocket) do
-            {:ok, newSocket2} ->
-              node_id = Wallet.from_pubkey(Certs.extract(newSocket2))
+        {:ok, new_socket} ->
+          case :ssl.handshake(new_socket) do
+            {:ok, new_socket2} ->
+              node_id = Wallet.from_pubkey(Certs.extract(new_socket2))
 
               case Map.get(state.clients, node_id) do
                 nil ->
@@ -112,10 +112,10 @@ defmodule Network.Server do
                   Process.exit(pid, :disconnect)
               end
 
-              {:ok, worker} = GenServer.start_link(state.protocol, [:init, newSocket2])
+              {:ok, worker} = GenServer.start_link(state.protocol, [:init, new_socket2])
 
-              set_keepalive(newSocket2)
-              :ok = :ssl.controlling_process(newSocket2, worker)
+              set_keepalive(new_socket2)
+              :ok = :ssl.controlling_process(new_socket2, worker)
               %Network.Server{state | clients: Map.put(state.clients, node_id, worker)}
 
             {:error, error} ->

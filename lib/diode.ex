@@ -20,16 +20,16 @@ defmodule Diode do
       worker(Chain, [args]),
       worker(Chain.BlockCache, [args]),
       worker(Chain.Pool, [args]),
-      worker(Chain.Worker, [workerMode()]),
+      worker(Chain.Worker, [worker_mode()]),
 
       # Starting External Interfaces
-      Supervisor.child_spec({Network.Server, {edgePort(), Network.EdgeHandler}}, id: EdgeServer),
-      Supervisor.child_spec({Network.Server, {kademliaPort(), Network.PeerHandler}},
+      Supervisor.child_spec({Network.Server, {edge_port(), Network.EdgeHandler}}, id: EdgeServer),
+      Supervisor.child_spec({Network.Server, {kademlia_port(), Network.PeerHandler}},
         id: KademliaServer
       ),
       worker(Kademlia, [args]),
       Plug.Adapters.Cowboy.child_spec(:http, Network.RpcHttp, [], [
-        {:port, rpcPort()},
+        {:port, rpc_port()},
         {:dispatch,
          [
            {:_,
@@ -43,9 +43,9 @@ defmodule Diode do
 
     IO.puts("====== ENV #{Mix.env()} ======")
     :persistent_term.put(:env, Mix.env())
-    IO.puts("Edge Port: #{edgePort()}")
-    IO.puts("Peer Port: #{kademliaPort()}")
-    IO.puts("RPC  Port: #{rpcPort()}")
+    IO.puts("Edge Port: #{edge_port()}")
+    IO.puts("Peer Port: #{kademlia_port()}")
+    IO.puts("RPC  Port: #{rpc_port()}")
     IO.puts("")
 
     if dev_mode?() and [] == wallets() do
@@ -136,16 +136,16 @@ defmodule Diode do
     # |> List.insert_at(0, miner())
   end
 
-  def registryAddress() do
+  def registry_address() do
     Base16.decode("0x5000000000000000000000000000000000000000")
   end
 
-  def fleetAddress() do
+  def fleet_address() do
     Base16.decode("0x6000000000000000000000000000000000000000")
   end
 
-  @spec dataDir(binary()) :: binary()
-  def dataDir(file \\ "") do
+  @spec data_dir(binary()) :: binary()
+  def data_dir(file \\ "") do
     get_env("DATA_DIR", File.cwd!() <> "/data/") <> file
   end
 
@@ -156,18 +156,18 @@ defmodule Diode do
     end)
   end
 
-  @spec rpcPort() :: integer()
-  def rpcPort() do
+  @spec rpc_port() :: integer()
+  def rpc_port() do
     get_env_int("RPC_PORT", 8545)
   end
 
-  @spec edgePort() :: integer()
-  def edgePort() do
+  @spec edge_port() :: integer()
+  def edge_port() do
     get_env_int("EDGE_PORT", 41043)
   end
 
-  @spec kademliaPort() :: integer()
-  def kademliaPort() do
+  @spec kademlia_port() :: integer()
+  def kademlia_port() do
     get_env_int("KADEMLIA_PORT", 51053)
   end
 
@@ -186,8 +186,8 @@ defmodule Diode do
     |> String.split(" ", trim: true)
   end
 
-  @spec workerMode() :: :disabled | :poll | integer()
-  def workerMode() do
+  @spec worker_mode() :: :disabled | :poll | integer()
+  def worker_mode() do
     case get_env("WORKER_MODE", "run") do
       "poll" -> :poll
       "disabled" -> :disabled
@@ -196,7 +196,7 @@ defmodule Diode do
   end
 
   def self() do
-    Object.Server.new(host(), kademliaPort(), edgePort())
+    Object.Server.new(host(), kademlia_port(), edge_port())
     |> Object.Server.sign(Wallet.privkey!(Store.wallet()))
   end
 

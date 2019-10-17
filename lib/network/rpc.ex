@@ -30,7 +30,7 @@ defmodule Network.Rpc do
       end
 
     if Diode.dev_mode?() do
-      if method == "__eth_getTransactionReceipt" do
+      if method == "__eth_gettransaction_receipt" do
         :io.format("~s ~0p =>~n~0p~n", [method, params, ret])
       else
         :io.format("~s~n", [method])
@@ -100,7 +100,7 @@ defmodule Network.Rpc do
       "eth_getTransactionCount" ->
         [address, ref] = params
         address = Base16.decode(address)
-        block = getBlock(ref)
+        block = get_block(ref)
         state = Block.state(block)
 
         nonce =
@@ -111,10 +111,10 @@ defmodule Network.Rpc do
 
         result(id, nonce)
 
-      # Network.Rpc.handle_jsonrpc(%{"id" => 0, "method" => "eth_getBlockByNumber", "params" => ["0x0", false]})
-      "eth_getBlockByNumber" ->
+      # Network.Rpc.handle_jsonrpc(%{"id" => 0, "method" => "eth_get_blockByNumber", "params" => ["0x0", false]})
+      "eth_get_blockByNumber" ->
         [ref, full] = params
-        block = getBlock(ref)
+        block = get_block(ref)
 
         miner = Block.miner(block)
         txs = Block.transactions(block)
@@ -126,22 +126,22 @@ defmodule Network.Rpc do
             Enum.map(txs, &Chain.Transaction.hash/1)
           end
 
-        parentHash =
+        parent_hash =
           case Block.parent_hash(block) do
             nil -> <<0::256>>
             bin -> bin
           end
 
         uncles = []
-        uncleSha = Hash.keccak_256(Rlp.encode!(uncles))
+        uncle_sha = Hash.keccak_256(Rlp.encode!(uncles))
 
         ret = %{
           "number" => Block.number(block),
           "hash" => Block.hash(block),
-          "parentHash" => parentHash,
+          "parent_hash" => parent_hash,
           "nonce" => Block.nonce(block),
-          "sha3Uncles" => uncleSha,
-          "logsBloom" => Block.logsBloom(block),
+          "sha3Uncles" => uncle_sha,
+          "logs_bloom" => Block.logs_bloom(block),
           "transactionsRoot" => Block.txhash(block),
           "stateRoot" => Block.state_hash(block),
           "miner" => Wallet.address!(miner),
@@ -149,13 +149,13 @@ defmodule Network.Rpc do
           # Blockscout does not handle extra keys
           # "minerSignature" => block.header.miner_signature,
 
-          "receiptsRoot" => Block.receiptsRoot(block),
+          "receipts_root" => Block.receipts_root(block),
           "difficulty" => Block.difficulty(block),
-          "totalDifficulty" => Block.totalDifficulty(block),
-          "extraData" => Block.extraData(block),
+          "total_difficulty" => Block.total_difficulty(block),
+          "extra_data" => Block.extra_data(block),
           "size" => Block.size(block),
-          "gasLimit" => Block.gasLimit(block),
-          "gasUsed" => Block.gasUsed(block),
+          "gas_limit" => Block.gas_limit(block),
+          "gas_used" => Block.gas_used(block),
           "timestamp" => Block.timestamp(block),
           "transactions" => txs,
           "uncles" => uncles
@@ -174,7 +174,7 @@ defmodule Network.Rpc do
         [address, ref] = params
         address = Base16.decode(address)
 
-        %Chain.Block{} = block = getBlock(ref)
+        %Chain.Block{} = block = get_block(ref)
         state = Block.state(block)
 
         balance =
@@ -189,7 +189,7 @@ defmodule Network.Rpc do
         [address, ref] = params
         address = Base16.decode(address)
 
-        %Chain.Block{} = block = getBlock(ref)
+        %Chain.Block{} = block = get_block(ref)
         state = Block.state(block)
 
         code =
@@ -202,7 +202,7 @@ defmodule Network.Rpc do
 
       "eth_estimateGas" ->
         # TODO real estimate
-        result(id, Chain.gasLimit())
+        result(id, Chain.gas_limit())
 
       "eth_sendTransaction" ->
         [%{} = opts] = params
@@ -228,7 +228,7 @@ defmodule Network.Rpc do
         wallet = Enum.find(Diode.wallets(), fn w -> Wallet.address!(w) == from end)
         tx = create_transaction(wallet, data, opts)
 
-        block = getBlock(ref)
+        block = get_block(ref)
         state = Block.state(block)
         {:ok, _state, rcpt} = Chain.Transaction.apply(tx, block, state)
 
@@ -247,7 +247,7 @@ defmodule Network.Rpc do
 
         result(id, res, 200, err)
 
-      "eth_getTransactionReceipt" ->
+      "eth_gettransaction_receipt" ->
         # TODO
         [txh] = params
         txbin = Base16.decode(txh)
@@ -268,33 +268,33 @@ defmodule Network.Rpc do
 
             ret = %{
               "transactionHash" => txh,
-              "transactionIndex" => Block.transactionIndex(block, tx),
+              "transaction_index" => Block.transaction_index(block, tx),
               "blockHash" => Block.hash(block),
               "blockNumber" => Block.number(block),
               "from" => Transaction.from(tx),
               "to" => Transaction.to(tx),
-              "gasUsed" => Block.transactionGas(block, tx),
-              "cumulativeGasUsed" => Block.gasUsed(block),
+              "gas_used" => Block.transaction_gas(block, tx),
+              "cumulativegas_used" => Block.gas_used(block),
               "contractAddress" => Transaction.new_contract_address(tx),
               "logs" => logs,
-              "status" => Block.transactionStatus(block, tx),
-              "logsBloom" => Block.logsBloom(block),
+              "status" => Block.transaction_status(block, tx),
+              "logs_bloom" => Block.logs_bloom(block),
               "v" => v,
               "r" => r,
               "s" => s
 
               # Blockscout does not handle extra keys
-              # "out" => Block.transactionOut(block, tx)
+              # "out" => Block.transaction_out(block, tx)
             }
 
             result(id, ret)
         end
 
       "eth_getLogs" ->
-        [%{"fromBlock" => blockRef}] = params
+        [%{"fromBlock" => block_ref}] = params
 
         try do
-          block = getBlock(blockRef)
+          block = get_block(block_ref)
           result(id, Block.logs(block))
         catch
           :notfound -> result(id, [])
@@ -310,7 +310,7 @@ defmodule Network.Rpc do
       #     "blockNumber":"0x1b4", // 436
       #     "blockHash": "0x8216c5785ac562ff41e2dcfdf5785ac562ff41e2dcfdf829c5a142f1fccd7d",
       #     "transactionHash":  "0xdf829c5a142f1fccd7d8216c5785ac562ff41e2dcfdf5785ac562ff41e2dcf",
-      #     "transactionIndex": "0x0", // 0
+      #     "transaction_index": "0x0", // 0
       #     "address": "0x16c5785ac562ff41e2dcfdf829c5a142f1fccd7d",
       #     "data":"0x0000000000000000000000000000000000000000000000000000000000000000",
       #     "topics": ["0x59ebeb90bc63057b6515673c3ecf9438e5058bca0f92585014eced636878c9a5"]
@@ -322,8 +322,8 @@ defmodule Network.Rpc do
       "eth_blockNumber" ->
         result(id, Chain.peak())
 
-      "eth_gasPrice" ->
-        result(id, Chain.gasPrice())
+      "eth_gas_price" ->
+        result(id, Chain.gas_price())
 
       "net_listening" ->
         result(id, true)
@@ -342,7 +342,7 @@ defmodule Network.Rpc do
       # curl --data '{"method":"trace_replayBlockTransactions","params":["0x2ed119",["trace"]],"id":1,"jsonrpc":"2.0"}' -H "Content-Type: application/json" -X POST localhost:8545
       "trace_replayBlockTransactions" ->
         [ref, ["trace"]] = params
-        block = getBlock(ref)
+        block = get_block(ref)
         txs = Block.transactions(block)
 
         # reward =
@@ -362,19 +362,19 @@ defmodule Network.Rpc do
                   "action" => %{
                     "callType" => Atom.to_string(Transaction.type(tx)),
                     "from" => Transaction.from(tx),
-                    "gas" => Transaction.gasLimit(tx),
+                    "gas" => Transaction.gas_limit(tx),
                     "init" => Transaction.payload(tx),
                     "to" => Transaction.to(tx),
                     "value" => Transaction.value(tx)
                   },
                   "result" => %{
-                    "gasUsed" => rcpt.gas_used,
+                    "gas_used" => rcpt.gas_used,
                     "output" => rcpt.evmout
                   },
                   "subtraces" => {:raw, 0},
                   "traceAddress" => [],
                   "transactionHash" => Transaction.hash(tx),
-                  "transactionPosition" => {:raw, Block.transactionIndex(block, tx)},
+                  "transactionPosition" => {:raw, Block.transaction_index(block, tx)},
                   "blockNumber" => {:raw, Block.number(block)},
                   "type" =>
                     if Transaction.contract_creation?(tx) do
@@ -398,7 +398,7 @@ defmodule Network.Rpc do
         #       "trace": [{
         #         "action": { ... },
         #         "result": {
-        #           "gasUsed": "0x0",
+        #           "gas_used": "0x0",
         #           "output": "0x"
         #         },
         #         "subtraces": 0,
@@ -414,7 +414,7 @@ defmodule Network.Rpc do
 
       "trace_block" ->
         [ref] = params
-        block = getBlock(ref)
+        block = get_block(ref)
 
         ret = [
           %{
@@ -450,13 +450,13 @@ defmodule Network.Rpc do
           [] ->
             snapshot = Chain.state()
             file = :erlang.phash2(snapshot) |> Base16.encode(false)
-            path = Diode.dataDir(file)
+            path = Diode.data_dir(file)
             Chain.store_file(path, snapshot)
             result(id, file)
 
           [file] ->
-            if Enum.member?(File.ls!(Diode.dataDir()), file) do
-              Chain.load_file(Diode.dataDir(file))
+            if Enum.member?(File.ls!(Diode.data_dir()), file) do
+              Chain.load_file(Diode.data_dir(file))
               |> Chain.set_state()
 
               result(id, "")
@@ -468,8 +468,8 @@ defmodule Network.Rpc do
       "evm_revert" ->
         case params do
           [file] ->
-            if Enum.member?(File.ls!(Diode.dataDir()), file) do
-              Chain.load_file(Diode.dataDir(file))
+            if Enum.member?(File.ls!(Diode.data_dir()), file) do
+              Chain.load_file(Diode.data_dir(file))
               |> Chain.set_state()
 
               result(id, "")
@@ -488,7 +488,7 @@ defmodule Network.Rpc do
     end
   end
 
-  def getBlock(ref) do
+  def get_block(ref) do
     case ref do
       %Chain.Block{} ->
         ref
@@ -506,7 +506,7 @@ defmodule Network.Rpc do
         Chain.block(0)
 
       <<"0x", _rest::binary()>> ->
-        getBlock(Base16.decode_int(ref))
+        get_block(Base16.decode_int(ref))
 
       num when is_integer(num) ->
         case Chain.block(num) do
@@ -536,13 +536,13 @@ defmodule Network.Rpc do
     from = Wallet.address!(wallet)
 
     gas = Map.get(opts, "gas", 0x15F90)
-    gasPrice = Map.get(opts, "gasPrice", 0x3B9ACA00)
+    gas_price = Map.get(opts, "gas_price", 0x3B9ACA00)
     value = Map.get(opts, "value", 0x0)
-    blockRef = Map.get(opts, "blockRef", "latest")
+    block_ref = Map.get(opts, "block_ref", "latest")
 
     nonce =
       Map.get_lazy(opts, "nonce", fn ->
-        Chain.Block.state(getBlock(blockRef))
+        Chain.Block.state(get_block(block_ref))
         |> Chain.State.ensure_account(from)
         |> Chain.Account.nonce()
       end)
@@ -554,8 +554,8 @@ defmodule Network.Rpc do
           %Chain.Transaction{
             to: nil,
             nonce: nonce,
-            gasPrice: gasPrice,
-            gasLimit: gas,
+            gas_price: gas_price,
+            gas_limit: gas,
             init: data,
             value: value
           }
@@ -565,8 +565,8 @@ defmodule Network.Rpc do
           %Chain.Transaction{
             to: to,
             nonce: nonce,
-            gasPrice: gasPrice,
-            gasLimit: gas,
+            gas_price: gas_price,
+            gas_limit: gas,
             data: data,
             value: value
           }
@@ -602,13 +602,13 @@ defmodule Network.Rpc do
       "blockHash" => Block.hash(block),
       "blockNumber" => Block.number(block),
       "from" => Transaction.from(tx),
-      "gas" => Block.transactionGas(block, tx),
-      "gasPrice" => Transaction.gasPrice(tx),
+      "gas" => Block.transaction_gas(block, tx),
+      "gas_price" => Transaction.gas_price(tx),
       "hash" => Transaction.hash(tx),
       "input" => Transaction.payload(tx),
       "nonce" => Transaction.nonce(tx),
       "to" => Transaction.to(tx),
-      "transactionIndex" => Block.transactionIndex(block, tx),
+      "transaction_index" => Block.transaction_index(block, tx),
       "value" => Transaction.value(tx),
       "v" => v,
       "r" => r,

@@ -13,7 +13,7 @@ defmodule Evm do
               trace: false,
               coinbase: nil,
               difficulty: 0,
-              gasLimit: 0,
+              gas_limit: 0,
               timestamp: 0,
               number: 0,
               internal: false,
@@ -21,13 +21,13 @@ defmodule Evm do
 
     @spec store(Evm.State.t()) :: MerkleTree.merkle()
     def store(%State{chain_state: st} = state) do
-      Chain.State.ensure_account(st, address(state)).storageRoot
+      Chain.State.ensure_account(st, address(state)).storage_root
     end
 
     def code(%State{code: code}), do: code
     def coinbase(%State{coinbase: coinbase}), do: coinbase
     def difficulty(%State{difficulty: difficulty}), do: difficulty
-    def gasLimit(%State{gasLimit: gasLimit}), do: gasLimit
+    def gas_limit(%State{gas_limit: gas_limit}), do: gas_limit
     def timestamp(%State{timestamp: timestamp}), do: timestamp
     def number(%State{number: number}), do: number
 
@@ -51,7 +51,7 @@ defmodule Evm do
 
     def set_store(store, %State{chain_state: st} = state) do
       # :io.format("set_store(~p) : ~p~n", [address(state), MerkleTree.to_list(store)])
-      account = %{account(state) | storageRoot: store}
+      account = %{account(state) | storage_root: store}
       %State{state | chain_state: Chain.State.set_account(st, address(state), account)}
     end
 
@@ -88,7 +88,7 @@ defmodule Evm do
 
       tx = %{
         state.tx
-        | gasLimit: gas,
+        | gas_limit: gas,
           value: value,
           data: callData,
           to: target |> Hash.to_address()
@@ -121,7 +121,7 @@ defmodule Evm do
 
       case ret do
         {:ok, evm} ->
-          # :io.format("AFTER target = ~p gasLimit = ~p gas = ~p~n", [target, gas, Evm.gas(evm)])
+          # :io.format("AFTER target = ~p gas_limit = ~p gas = ~p~n", [target, gas, Evm.gas(evm)])
           {call_result(result: Evm.out(evm), gas_spent: gas - Evm.gas(evm), type: :ok),
            %{
              state
@@ -129,13 +129,13 @@ defmodule Evm do
                selfdestructs: Evm.raw(evm).chain_state.selfdestructs
            }}
 
-        {:error, reason, gasLeft} ->
-          # :io.format("AFTER target = ~p gasLimit = ~p gas = ~p~n", [target, gas, gasLeft])
-          {call_result(gas_spent: gas - gasLeft, type: :exception, result: reason), state}
+        {:error, reason, gas_left} ->
+          # :io.format("AFTER target = ~p gas_limit = ~p gas = ~p~n", [target, gas, gas_left])
+          {call_result(gas_spent: gas - gas_left, type: :exception, result: reason), state}
 
-        {:revert, reason, gasLeft} ->
-          # :io.format("AFTER target = ~p gasLimit = ~p gas = ~p~n", [target, gas, gasLeft])
-          {call_result(gas_spent: gas - gasLeft, type: :revert, result: reason), state}
+        {:revert, reason, gas_left} ->
+          # :io.format("AFTER target = ~p gas_limit = ~p gas = ~p~n", [target, gas, gas_left])
+          {call_result(gas_spent: gas - gas_left, type: :revert, result: reason), state}
       end
     end
 
@@ -162,7 +162,7 @@ defmodule Evm do
 
       state = %{state | chain_state: st}
 
-      tx = %{tx | value: value, data: nil, to: to_address, gasLimit: gas}
+      tx = %{tx | value: value, data: nil, to: to_address, gas_limit: gas}
 
       if code != nil do
         case Evm.eval_internal(
@@ -189,11 +189,11 @@ defmodule Evm do
             evm = Evm.set_state(evm, st)
             {:binary.decode_unsigned(to_address), evm}
 
-          {:error, _reason, gasLeft} ->
-            {0, %{evm | gas: gasLeft}}
+          {:error, _reason, gas_left} ->
+            {0, %{evm | gas: gas_left}}
 
-          {:revert, _reason, gasLeft} ->
-            {0, %{evm | gas: gasLeft}}
+          {:revert, _reason, gas_left} ->
+            {0, %{evm | gas: gas_left}}
         end
       else
         {0, evm}
@@ -207,12 +207,12 @@ defmodule Evm do
     ##### EVM Init functions #####
     ##############################
     def gas(%State{tx: tx, internal: true}) do
-      tx.gasLimit
+      tx.gas_limit
     end
 
     def gas(%State{tx: tx}) do
       # Calculcation initial gas according to yellow paper 6.2
-      gas = tx.gasLimit
+      gas = tx.gas_limit
 
       bytes = for <<byte::8 <- Transaction.payload(tx)>>, do: byte
       zeros = Enum.count(bytes, fn x -> x == 0 end)
@@ -237,7 +237,7 @@ defmodule Evm do
         caller: from,
         creator: from,
         data: Transaction.data(tx),
-        gasPrice: Transaction.gasPrice(tx),
+        gas_price: Transaction.gas_price(tx),
         value: Transaction.value(tx),
         gas: gas(state),
         code: code(state),
@@ -255,7 +255,7 @@ defmodule Evm do
         chainAPI: __MODULE__,
         currentCoinbase: coinbase(state),
         currentDifficulty: difficulty(state),
-        currentGasLimit: gasLimit(state),
+        currentgas_limit: gas_limit(state),
         currentTimestamp: timestamp(state),
         currentNumber: number(state),
         vm_version: 2
@@ -278,7 +278,7 @@ defmodule Evm do
     w = Store.wallet()
 
     tx =
-      Transaction.sign(%Transaction{gasLimit: 100_000, gasPrice: 0, value: 0}, Wallet.privkey!(w))
+      Transaction.sign(%Transaction{gas_limit: 100_000, gas_price: 0, value: 0}, Wallet.privkey!(w))
 
     from = :binary.decode_unsigned(Transaction.from(tx))
 
@@ -289,7 +289,7 @@ defmodule Evm do
       origin: from,
       coinbase: Wallet.address!(w),
       difficulty: 5,
-      gasLimit: 2_000_000,
+      gas_limit: 2_000_000,
       timestamp: DateTime.to_unix(DateTime.utc_now())
     }
 
@@ -315,7 +315,7 @@ defmodule Evm do
       origin: from,
       coinbase: Chain.Block.coinbase(block),
       difficulty: Chain.Block.difficulty(block),
-      gasLimit: Chain.Block.gasLimit(block),
+      gas_limit: Chain.Block.gas_limit(block),
       timestamp: Chain.Block.timestamp(block),
       number: Chain.Block.number(block)
     }
@@ -402,8 +402,8 @@ defmodule Evm do
       state = evm2.chain_state
 
       # Refunding
-      maxRefund = div(State.gas(state) - evm2.gas, 2)
-      refund = min(maxRefund, evm2.refund)
+      max_refund = div(State.gas(state) - evm2.gas, 2)
+      refund = min(max_refund, evm2.refund)
       evm2 = %{evm2 | gas: evm2.gas + refund}
 
       # Collecting selfdestruct

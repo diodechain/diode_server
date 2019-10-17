@@ -52,12 +52,12 @@ defmodule Chain.Pool do
 
   @doc "Returns the optimal mining proposal"
   def proposal() do
-    limit = Chain.gasLimit()
-    avg = Chain.averageTransactionGas()
+    limit = Chain.gas_limit()
+    avg = Chain.averagetransaction_gas()
 
     transactions()
     |> Enum.sort(fn a, b ->
-      Transaction.gasPrice(a) < Transaction.gasPrice(b)
+      Transaction.gas_price(a) < Transaction.gas_price(b)
     end)
     |> Enum.take(floor(limit / avg * 1.2))
     |> Enum.sort(fn a, b -> Transaction.nonce(a) < Transaction.nonce(b) end)

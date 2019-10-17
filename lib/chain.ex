@@ -33,7 +33,7 @@ defmodule Chain do
     store = saver_loop_wait(false)
 
     if store do
-      store_file(Diode.dataDir(@cache), state(), true)
+      store_file(Diode.data_dir(@cache), state(), true)
     end
 
     saver_loop()
@@ -85,18 +85,18 @@ defmodule Chain do
     fun.(state, from)
   end
 
-  @doc "Gaslimit for block validation and estimation"
-  def gasLimit() do
+  @doc "gas_limit for block validation and estimation"
+  def gas_limit() do
     8_000_000
   end
 
-  @doc "GasPrice for block validation and estimation"
-  def gasPrice() do
+  @doc "gas_price for block validation and estimation"
+  def gas_price() do
     0
   end
 
-  @spec averageTransactionGas() :: 200_000
-  def averageTransactionGas() do
+  @spec averagetransaction_gas() :: 200_000
+  def averagetransaction_gas() do
     200_000
   end
 
@@ -180,7 +180,7 @@ defmodule Chain do
 
   @spec load_blocks() :: Chain.t()
   defp load_blocks() do
-    chain = %Chain{} = load_file(Diode.dataDir(@cache), &genesis_state/0)
+    chain = %Chain{} = load_file(Diode.data_dir(@cache), &genesis_state/0)
     seed_ets(chain)
     %{chain | by_hash: nil}
   end
@@ -241,12 +241,12 @@ defmodule Chain do
 
     call(fn state, _from ->
       peak = state.peak
-      totalDiff = Block.totalDifficulty(peak) + Block.difficulty(peak) * blockchainDelta()
+      total_diff = Block.total_difficulty(peak) + Block.difficulty(peak) * blockchainDelta()
       peak_hash = Block.hash(peak)
       author = Wallet.words(Block.miner(block))
       info = "chain ##{number}[#{prefix}] @#{author}"
 
-      if peak_hash == parent_hash or Block.totalDifficulty(block) > totalDiff do
+      if peak_hash == parent_hash or Block.total_difficulty(block) > total_diff do
         if peak_hash == parent_hash do
           IO.puts("Chain.add_block: Extending main #{info}")
           Store.set_block_transactions(block)
@@ -438,7 +438,7 @@ func ApplyTransaction(config *params.ChainConfig, bc *BlockChain, author *common
 	// based on the eip phase, we're passing wether the root touch-delete accounts.
 	receipt := types.NewReceipt(root, failed, *usedGas)
 	receipt.TxHash = tx.Hash()
-	receipt.GasUsed = gas
+	receipt.gas_used = gas
 	// if the transaction created a contract, store the creation address in the receipt.
 	if msg.To() == nil {
 		receipt.ContractAddress = crypto.CreateAddress(vmenv.Context.Origin, tx.Nonce())

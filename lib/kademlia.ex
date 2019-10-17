@@ -79,7 +79,7 @@ defmodule Kademlia do
 
   def init(:ok) do
     kb =
-      Chain.load_file(Diode.dataDir("kademlia.etf"), fn ->
+      Chain.load_file(Diode.data_dir("kademlia.etf"), fn ->
         %Kademlia{network: KBuckets.new(Store.wallet())}
       end)
 
@@ -260,7 +260,7 @@ defmodule Kademlia do
   end
 
   def handle_info(:save, state) do
-    spawn(fn -> Chain.store_file(Diode.dataDir("kademlia.etf"), state) end)
+    spawn(fn -> Chain.store_file(Diode.data_dir("kademlia.etf"), state) end)
     Process.send_after(self(), :save, 60_000)
     {:noreply, state}
   end

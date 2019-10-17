@@ -48,7 +48,7 @@ defmodule PreCompiles do
     bytes
   end
 
-  def modExp(
+  def mod_exp(
         :gas,
         <<baselen::unsigned-size(256), explen::unsigned-size(256), modlen::unsigned-size(256),
           _rest::binary>>
@@ -72,7 +72,7 @@ defmodule PreCompiles do
     min(gas, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
   end
 
-  def modExp(
+  def mod_exp(
         :run,
         <<baselen::unsigned-size(256), explen::unsigned-size(256), modlen::unsigned-size(256),
           rest::binary>>

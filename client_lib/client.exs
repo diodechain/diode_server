@@ -40,8 +40,8 @@ defmodule Client do
   end
 
   def init(state) do
-    {state, ["response", "getblockpeak", peak]} = call(state, ~s(["getblockpeak"]))
-    {state, ["response", "getblock", block]} = call(state, ~s(["getblock", #{peak}]))
+    {state, ["response", "get_blockpeak", peak]} = call(state, ~s(["get_blockpeak"]))
+    {state, ["response", "get_block", block]} = call(state, ~s(["get_block", #{peak}]))
     %{state | hash: block["header"]["block_hash"], peak: peak}
     # state
   end
@@ -172,7 +172,7 @@ Process.spawn(Client, :readloop, [self()], [])
   hash: 0,
   conns: 0,
   key: Certs.private_from_file(cert),
-  fleet: Diode.fleetAddress()
+  fleet: Diode.fleet_address()
 }
 |> Client.init()
 |> Client.loop()

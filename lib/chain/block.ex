@@ -6,7 +6,7 @@ defmodule Chain.Block do
   @type t :: %Chain.Block{
           transactions: [Chain.Transaction.t()],
           header: Chain.Header.t(),
-          receipts: [Chain.TransactionReceipt.t()]
+          receipts: [Chain.transaction_receipt.t()]
         }
 
   # @min_difficulty 131072
@@ -51,9 +51,9 @@ defmodule Chain.Block do
             Enum.map(transactions(block), &Transaction.validate/1)
             |> Enum.reject(fn tx -> tx == true end)},
          {6, true} <- {6, Diode.hash(encode_transactions(transactions(block))) == txhash(block)},
-         {7, simBlock} <- {7, simulate(block)},
-         {8, true} <- {8, state_hash(simBlock) == state_hash(block)} do
-      %{block | receipts: simBlock.receipts}
+         {7, sim_block} <- {7, simulate(block)},
+         {8, true} <- {8, state_hash(sim_block) == state_hash(block)} do
+      %{block | receipts: sim_block.receipts}
     else
       {nr, error} -> {nr, error}
     end
@@ -78,7 +78,7 @@ defmodule Chain.Block do
 
   @spec hash_target(Chain.Block.t()) :: integer
   def hash_target(block) do
-    blockRef = Block.parent(block)
+    block_ref = Block.parent(block)
 
     # Calculating stake weight as
     # ( stake / 1000 )²  but no less than 1
@@ -87,10 +87,10 @@ defmodule Chain.Block do
     # (( stake / 100 )² * max_diff) / (10² * difficulty_block)
     #
     stake =
-      if blockRef == nil do
+      if block_ref == nil do
         1
       else
-        Contract.Registry.minerValue(0, Block.miner(block), blockRef)
+        Contract.Registry.miner_value(0, Block.miner(block), block_ref)
         |> div(Shell.ether(100))
         |> max(10)
       end
@@ -171,9 +171,9 @@ defmodule Chain.Block do
     %Block{block | header: header}
   end
 
-  @spec transactionIndex(Chain.Block.t(), Chain.Transaction.t()) ::
+  @spec transaction_index(Chain.Block.t(), Chain.Transaction.t()) ::
           nil | non_neg_integer()
-  def transactionIndex(%Block{} = block, %Transaction{} = tx) do
+  def transaction_index(%Block{} = block, %Transaction{} = tx) do
     Enum.find_index(transactions(block), fn elem ->
       elem == tx
     end)
@@ -213,14 +213,14 @@ defmodule Chain.Block do
     end
   end
 
-  @spec totalDifficulty(Block.t()) :: non_neg_integer()
-  def totalDifficulty(%Block{} = block) do
+  @spec total_difficulty(Block.t()) :: non_neg_integer()
+  def total_difficulty(%Block{} = block) do
     parent = Block.parent(block)
 
     if parent == nil do
       Block.difficulty(block)
     else
-      BlockCache.totalDifficulty(parent) + Block.difficulty(block)
+      BlockCache.total_difficulty(parent) + Block.difficulty(block)
     end
   end
 
@@ -233,12 +233,12 @@ defmodule Chain.Block do
     BlockCache.number(BlockCache.parent(block)) + 1
   end
 
-  @spec gasPrice(Chain.Block.t()) :: non_neg_integer()
-  def gasPrice(%Block{} = block) do
+  @spec gas_price(Chain.Block.t()) :: non_neg_integer()
+  def gas_price(%Block{} = block) do
     price =
       Enum.reduce(transactions(block), nil, fn tx, price ->
-        if price == nil or price > Transaction.gasPrice(tx) do
-          Transaction.gasPrice(tx)
+        if price == nil or price > Transaction.gas_price(tx) do
+          Transaction.gas_price(tx)
         else
           price
         end
@@ -254,34 +254,34 @@ defmodule Chain.Block do
     Contract.Registry.epoch(block)
   end
 
-  @spec gasUsed(Block.t()) :: non_neg_integer()
-  def gasUsed(%Block{} = block) do
+  @spec gas_used(Block.t()) :: non_neg_integer()
+  def gas_used(%Block{} = block) do
     Enum.reduce(receipts(block), 0, fn receipt, acc -> acc + receipt.gas_used end)
   end
 
-  @spec transactionReceipt(Chain.Block.t(), Chain.Transaction.t()) ::
-          Chain.TransactionReceipt.t()
-  def transactionReceipt(%Block{} = block, %Transaction{} = tx) do
-    Enum.at(receipts(block), transactionIndex(block, tx))
+  @spec transaction_receipt(Chain.Block.t(), Chain.Transaction.t()) ::
+          Chain.transaction_receipt.t()
+  def transaction_receipt(%Block{} = block, %Transaction{} = tx) do
+    Enum.at(receipts(block), transaction_index(block, tx))
   end
 
-  @spec transactionGas(Chain.Block.t(), Chain.Transaction.t()) :: non_neg_integer()
-  def transactionGas(%Block{} = block, %Transaction{} = tx) do
-    transactionReceipt(block, tx).gas_used
+  @spec transaction_gas(Chain.Block.t(), Chain.Transaction.t()) :: non_neg_integer()
+  def transaction_gas(%Block{} = block, %Transaction{} = tx) do
+    transaction_receipt(block, tx).gas_used
   end
 
-  @spec transactionStatus(Chain.Block.t(), Chain.Transaction.t()) :: 0 | 1
-  def transactionStatus(%Block{} = block, %Transaction{} = tx) do
-    case transactionReceipt(block, tx).msg do
+  @spec transaction_status(Chain.Block.t(), Chain.Transaction.t()) :: 0 | 1
+  def transaction_status(%Block{} = block, %Transaction{} = tx) do
+    case transaction_receipt(block, tx).msg do
       :revert -> 0
       :ok -> 1
       _other -> 0
     end
   end
 
-  @spec transactionOut(Chain.Block.t(), Chain.Transaction.t()) :: binary() | nil
-  def transactionOut(%Block{} = block, %Transaction{} = tx) do
-    transactionReceipt(block, tx).evmout
+  @spec transaction_out(Chain.Block.t(), Chain.Transaction.t()) :: binary() | nil
+  def transaction_out(%Block{} = block, %Transaction{} = tx) do
+    transaction_receipt(block, tx).evmout
   end
 
   def logs(%Block{} = block) do
@@ -292,7 +292,7 @@ defmodule Chain.Block do
 
         # Note: truffle is picky on the size of the address, failed before 'Hash.to_address()' call.
         %{
-          "transactionIndex" => Block.transactionIndex(block, tx),
+          "transaction_index" => Block.transaction_index(block, tx),
           "transactionHash" => Transaction.hash(tx),
           "blockHash" => Block.hash(block),
           "blockNumber" => Block.number(block),
@@ -325,8 +325,8 @@ defmodule Chain.Block do
     byte_size(BertInt.encode!(block))
   end
 
-  @spec logsBloom(Block.t()) :: <<_::528>>
-  def logsBloom(%Block{} = _block) do
+  @spec logs_bloom(Block.t()) :: <<_::528>>
+  def logs_bloom(%Block{} = _block) do
     "0x0000000000000000000000000000000000000000000000000000000000000000"
   end
 
@@ -334,18 +334,18 @@ defmodule Chain.Block do
     miner(block) |> Wallet.address!() |> :binary.decode_unsigned()
   end
 
-  @spec gasLimit(Block.t()) :: non_neg_integer()
-  def gasLimit(%Block{} = _block) do
-    Chain.gasLimit()
+  @spec gas_limit(Block.t()) :: non_neg_integer()
+  def gas_limit(%Block{} = _block) do
+    Chain.gas_limit()
   end
 
-  @spec extraData(Block.t()) :: <<_::528>>
-  def extraData(%Block{} = _block) do
+  @spec extra_data(Block.t()) :: <<_::528>>
+  def extra_data(%Block{} = _block) do
     "0x0000000000000000000000000000000000000000000000000000000000000000"
   end
 
-  @spec receiptsRoot(Block.t()) :: <<_::528>>
-  def receiptsRoot(%Block{} = _block) do
+  @spec receipts_root(Block.t()) :: <<_::528>>
+  def receipts_root(%Block{} = _block) do
     "0x0000000000000000000000000000000000000000000000000000000000000000"
   end
 end

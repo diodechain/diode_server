@@ -17,7 +17,7 @@ case Mix.env() do
     System.put_env("KADEMLIA_PORT", "51053")
     System.put_env("SEED", "diode://localhost:51052")
     System.put_env("WORKER_MODE", "poll")
-    System.put_env("DATADIR", "testdata")
+    System.put_env("data_dir", "testdata")
 
   :dev ->
     System.put_env("WORKER_MODE", "poll")

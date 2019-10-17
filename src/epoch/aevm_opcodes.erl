@@ -62,7 +62,7 @@ opcode(GasTable, ?CALLDATASIZE)   -> { 0,  1, maps:get('GBASE', GasTable)};
 opcode(GasTable, ?CALLDATACOPY)   -> { 3,  0, maps:get('GVERYLOW', GasTable)};
 opcode(GasTable, ?CODESIZE)       -> { 0,  1, maps:get('GBASE', GasTable)};
 opcode(GasTable, ?CODECOPY)       -> { 3,  0, maps:get('GVERYLOW', GasTable)};
-opcode(GasTable, ?GASPRICE)       -> { 0,  1, maps:get('GBASE', GasTable)};
+opcode(GasTable, ?gas_price)       -> { 0,  1, maps:get('GBASE', GasTable)};
 opcode(GasTable, ?EXTCODESIZE)    -> { 1,  1, maps:get('GEXTCODESIZE', GasTable)};
 opcode(GasTable, ?EXTCODECOPY)    -> { 4,  0, maps:get('GEXTCODECOPY', GasTable)};
 opcode(_GasTable, ?RETURNDATASIZE) -> { 0,  1, 2}; %% TODO
@@ -72,7 +72,7 @@ opcode(GasTable, ?COINBASE)       -> { 0,  1, maps:get('GBASE', GasTable)};
 opcode(GasTable, ?TIMESTAMP)      -> { 0,  1, maps:get('GBASE', GasTable)};
 opcode(GasTable, ?NUMBER)         -> { 0,  1, maps:get('GBASE', GasTable)};
 opcode(GasTable, ?DIFFICULTY)     -> { 0,  1, maps:get('GBASE', GasTable)};
-opcode(GasTable, ?GASLIMIT)       -> { 0,  1, maps:get('GBASE', GasTable)};
+opcode(GasTable, ?gas_limit)       -> { 0,  1, maps:get('GBASE', GasTable)};
 opcode(GasTable, ?POP)            -> { 1,  0, maps:get('GBASE', GasTable)};
 opcode(GasTable, ?MLOAD)          -> { 1,  1, maps:get('GVERYLOW', GasTable)};
 opcode(GasTable, ?MSTORE)         -> { 2,  0, maps:get('GVERYLOW', GasTable)};

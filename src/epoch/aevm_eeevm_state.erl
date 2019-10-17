@@ -37,8 +37,8 @@
         , extcodesize/2
         , refund/1
         , gas/1
-        , gaslimit/1
-        , gasprice/1
+        , gas_limit/1
+        , gas_price/1
         , gastable/1
         , get_contract_call_input/4
         , heap_to_binary/3
@@ -118,7 +118,7 @@ init(#{ env  := Env
          , data        => maps:get(data, Exec)
          , refund      => maps:get(refund, Exec, 0)
          , gas         => maps:get(gas, Exec)
-         , gas_price   => maps:get(gasPrice, Exec)
+         , gas_price   => maps:get(gas_price, Exec)
          , origin      => maps:get(origin, Exec)
          , creator     => maps:get(creator, Exec)
          , value       => maps:get(value, Exec)
@@ -126,7 +126,7 @@ init(#{ env  := Env
 
          , coinbase   => maps:get(currentCoinbase, Env)
          , difficulty => maps:get(currentDifficulty, Env)
-         , gas_limit  => maps:get(currentGasLimit, Env)
+         , gas_limit  => maps:get(currentgas_limit, Env)
          , number     => maps:get(currentNumber, Env)
          , timestamp  => maps:get(currentTimestamp, Env)
          , auth_tx_hash => maps:get(authTxHash, Env, undefined)
@@ -238,8 +238,8 @@ do_return(Us0, Us1, State) ->
             %% The type of the value is in the state (from meta data)
             Type = out_type(State),
             case heap_to_binary(Type, Us1, State) of
-                {ok, Out, GasUsed} ->
-                    {set_out(Out, State), GasUsed};
+                {ok, Out, gas_used} ->
+                    {set_out(Out, State), gas_used};
                 {error, _} ->
                     {State, gas(State) + 1}
             end;
@@ -256,8 +256,8 @@ do_revert(Us0, Us1, State0) ->
             %% In Sophia Us1 is a pointer to the actual value.
             %% The type of the value is always string.
             case heap_to_binary(string, Us1, State0) of
-                {ok, Out, GasUsed} ->
-                    set_out(Out, spend_gas(GasUsed, State0));
+                {ok, Out, gas_used} ->
+                    set_out(Out, spend_gas(gas_used, State0));
                 {error, _} = Err ->
                     lager:error("Error reading revert value: ~p\n~s",
                                  [Err, format_mem(mem(State0))]),
@@ -277,8 +277,8 @@ heap_to_binary(Type, Ptr, State) ->
     MaxWords = aevm_gas:mem_limit_for_gas(gas(State), State),
     case aevm_data:heap_to_binary(Type, Store, Value, MaxWords * 32) of
         {ok, Bin} ->
-            GasUsed = aevm_gas:mem_gas(byte_size(Bin) div 32, State),
-            {ok, Bin, GasUsed};
+            gas_used = aevm_gas:mem_gas(byte_size(Bin) div 32, State),
+            {ok, Bin, gas_used};
         {error, _} = Err ->
             Err
     end.
@@ -286,8 +286,8 @@ heap_to_binary(Type, Ptr, State) ->
 spend_gas(Gas, State) ->
     TotalGas = gas(State),
     case TotalGas - Gas of
-        GasLeft when GasLeft >=  0 -> set_gas(GasLeft, State);
-        GasLeft when GasLeft < 0 -> aevm_eeevm:eval_error(out_of_gas)
+        gas_left when gas_left >=  0 -> set_gas(gas_left, State);
+        gas_left when gas_left < 0 -> aevm_eeevm:eval_error(out_of_gas)
     end.
 
 heap_to_heap(Type, Ptr, State) ->
@@ -316,8 +316,8 @@ heap_to_heap_sized(Type, Value, Offset, State, WordSize) ->
     case aevm_data:heap_to_heap(Type, Value, Offset, MaxWords * WordSize) of
         {ok, NewValue} ->
             HeapSizeBytes = byte_size(aeb_heap:heap_value_heap(NewValue)),
-            GasUsed = aevm_gas:mem_gas(HeapSizeBytes div ?WORD_SIZE_BYTES, State),
-            {ok, NewValue, GasUsed};
+            gas_used = aevm_gas:mem_gas(HeapSizeBytes div ?WORD_SIZE_BYTES, State),
+            {ok, NewValue, gas_used};
         {error, _} = Err ->
             Err
     end.
@@ -379,13 +379,13 @@ save_store(#{ chain_state := ChainState
                     {Ptr, _} = aevm_eeevm_memory:load(Addr, State),
                     %% Note: this size check was not affected by the word size bug
                     case heap_to_heap(Type, Ptr, State, ?WORD_SIZE_BYTES) of
-                        {ok, StateValue1, GasUsed} ->
+                        {ok, StateValue1, gas_used} ->
                             Store = aevm_eeevm_store:set_sophia_state(ct_version(State), StateValue1, storage(State)),
                             if VmVersion =< ?VM_AEVM_SOPHIA_2 ->
-                            {ok, spend_gas(GasUsed, State#{ chain_state => ChainAPI:set_store(Store, ChainState) })};
+                            {ok, spend_gas(gas_used, State#{ chain_state => ChainAPI:set_store(Store, ChainState) })};
                                true ->
-                                    try {ok, spend_gas(GasUsed, State#{ chain_state => ChainAPI:set_store(Store, ChainState)})}
-                                    catch throw:?aevm_eval_error(out_of_gas, _GasLeft) ->
+                                    try {ok, spend_gas(gas_used, State#{ chain_state => ChainAPI:set_store(Store, ChainState)})}
+                                    catch throw:?aevm_eval_error(out_of_gas, _gas_left) ->
                                             {error, out_of_gas}
                                     end
                             end;
@@ -435,8 +435,8 @@ get_contract_call_input(Target, IOffset, ISize, State) ->
                         ok ->
                             DataType = {tuple, [word|ArgTypes]},
                             case heap_to_binary(DataType, ArgPtr, State) of
-                                {ok, Arg, GasUsed} ->
-                                    {Arg, OutType, spend_gas(GasUsed, State)};
+                                {ok, Arg, gas_used} ->
+                                    {Arg, OutType, spend_gas(gas_used, State)};
                                 {error, _Err}      ->
                                     aevm_eeevm:eval_error(out_of_gas)
                             end;
@@ -455,8 +455,8 @@ get_contract_call_input(Target, IOffset, ISize, State) ->
                         {ok, ArgType, OutType} ->
                             DataType = {tuple, [word, ArgType]},
                             case heap_to_binary(DataType, ArgPtr, State) of
-                                {ok, Arg, GasUsed} ->
-                                    {Arg, OutType, spend_gas(GasUsed, State)};
+                                {ok, Arg, gas_used} ->
+                                    {Arg, OutType, spend_gas(gas_used, State)};
                                 {error, _Err}      ->
                                     aevm_eeevm:eval_error(out_of_gas)
                             end;
@@ -601,8 +601,8 @@ out_type(State)    -> maps:get(out_type, State).
 return_data(State) -> maps:get(return_data, State).
 refund(State)      -> maps:get(refund, State).
 gas(State)         -> maps:get(gas, State).
-gaslimit(State)    -> maps:get(gas_limit, State).
-gasprice(State)    -> maps:get(gas_price, State).
+gas_limit(State)    -> maps:get(gas_limit, State).
+gas_price(State)    -> maps:get(gas_price, State).
 gastable(State)    -> maps:get(gas_table, State).
 logs(State)        -> maps:get(logs, State).
 storage(State)     -> maps:get(storage, State).
@@ -643,7 +643,7 @@ set_return_data(Value, State) -> maps:put(return_data, Value, State).
 
 add_callcreates(#{ data := _
                  , destination := _
-                 , gasLimit := _
+                 , gas_limit := _
                  , value := _} = Callcreates, #{callcreates := Old} = State) ->
     State#{callcreates => [Callcreates|Old]}.
 

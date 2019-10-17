@@ -16,7 +16,7 @@ defmodule Store do
   @spec init(:ok) :: {:ok, %{}}
   def init(:ok) do
     Application.start(:sasl)
-    dir = Diode.dataDir()
+    dir = Diode.data_dir()
 
     Application.put_env(:mnesia, :dir, :binary.bin_to_list(dir))
 

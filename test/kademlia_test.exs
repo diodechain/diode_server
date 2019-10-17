@@ -26,7 +26,7 @@ defmodule KademliaTest do
     assert map_size(conns) == 0
 
     for n <- 1..@network_size do
-      pid = Server.ensure_node_connection(PeerHandler, nil, "localhost", kademliaPort(n))
+      pid = Server.ensure_node_connection(PeerHandler, nil, "localhost", kademlia_port(n))
       assert GenServer.call(pid, :ping) == :pong
       assert map_size(Server.get_connections(PeerHandler)) == n
     end

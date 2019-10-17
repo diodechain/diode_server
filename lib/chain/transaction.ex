@@ -1,9 +1,9 @@
 defmodule Chain.Transaction do
-  alias Chain.TransactionReceipt
+  alias Chain.transaction_receipt
 
   defstruct nonce: 1,
-            gasPrice: 0,
-            gasLimit: 0,
+            gas_price: 0,
+            gas_limit: 0,
             to: nil,
             value: 0,
             signature: nil,
@@ -13,8 +13,8 @@ defmodule Chain.Transaction do
   def nonce(%Chain.Transaction{nonce: nonce}), do: nonce
   def data(%Chain.Transaction{data: nil}), do: ""
   def data(%Chain.Transaction{data: data}), do: data
-  def gasPrice(%Chain.Transaction{gasPrice: gasPrice}), do: gasPrice
-  def gasLimit(%Chain.Transaction{gasLimit: gasLimit}), do: gasLimit
+  def gas_price(%Chain.Transaction{gas_price: gas_price}), do: gas_price
+  def gas_limit(%Chain.Transaction{gas_limit: gas_limit}), do: gas_limit
   def value(%Chain.Transaction{value: val}), do: val
   def signature(%Chain.Transaction{signature: sig}), do: sig
   def payload(%Chain.Transaction{to: nil, init: nil}), do: ""
@@ -26,14 +26,14 @@ defmodule Chain.Transaction do
 
   @spec from_rlp(binary()) :: Chain.Transaction.t()
   def from_rlp(bin) do
-    [nonce, gasPrice, gasLimit, to, value, init, rec, r, s] = Rlp.decode!(bin)
+    [nonce, gas_price, gas_limit, to, value, init, rec, r, s] = Rlp.decode!(bin)
 
     to = Rlp.bin2addr(to)
 
     %Chain.Transaction{
       nonce: Rlp.bin2num(nonce),
-      gasPrice: Rlp.bin2num(gasPrice),
-      gasLimit: Rlp.bin2num(gasLimit),
+      gas_price: Rlp.bin2num(gas_price),
+      gas_limit: Rlp.bin2num(gas_limit),
       to: to,
       value: Rlp.bin2num(value),
       init: if(to == nil, do: init, else: nil),
@@ -61,8 +61,8 @@ defmodule Chain.Transaction do
     with {1, %Chain.Transaction{}} <- {1, tx},
          {2, 65} <- {2, byte_size(signature(tx))},
          {4, true} <- {4, value(tx) >= 0},
-         {5, true} <- {5, gasPrice(tx) >= 0},
-         {6, true} <- {6, gasLimit(tx) >= 0},
+         {5, true} <- {5, gas_price(tx) >= 0},
+         {6, true} <- {6, gas_limit(tx) >= 0},
          {7, true} <- {7, byte_size(payload(tx)) >= 0} do
       true
     else
@@ -90,7 +90,7 @@ defmodule Chain.Transaction do
 
   @spec to_rlp(Chain.Transaction.t()) :: [...]
   def to_rlp(tx) do
-    [tx.nonce, tx.gasPrice, tx.gasLimit, tx.to, tx.value, payload(tx)] ++
+    [tx.nonce, tx.gas_price, tx.gas_limit, tx.to, tx.value, payload(tx)] ++
       Secp256k1.bitcoin_to_rlp(tx.signature)
   end
 
@@ -121,7 +121,7 @@ defmodule Chain.Transaction do
 
   @spec to_message(Chain.Transaction.t()) :: binary()
   def to_message(tx) do
-    [tx.nonce, tx.gasPrice, tx.gasLimit, tx.to, tx.value, payload(tx)]
+    [tx.nonce, tx.gas_price, tx.gas_limit, tx.to, tx.value, payload(tx)]
     |> Rlp.encode!()
   end
 
@@ -138,12 +138,12 @@ defmodule Chain.Transaction do
     from = from(tx)
     # IO.puts("Nonce: #{nonce} => #{Chain.State.account(state, from).nonce}")
 
-    # Note: Even a non-existing account can send transaction, as long as value and gasprice are 0
+    # Note: Even a non-existing account can send transaction, as long as value and gas_price are 0
     # :io.format("Trying nonce ~p (should be ~p) on account ~p~n", [nonce, Chain.State.ensure_account(state, from).nonce, from])
     # :io.format("~p~n", [:erlang.process_info(self(), :current_stacktrace)])
     case Chain.State.ensure_account(state, from) do
       from_acc = %Chain.Account{nonce: ^nonce} ->
-        fee = gasLimit(tx) * gasPrice(tx)
+        fee = gas_limit(tx) * gas_price(tx)
 
         # Deducting fee and value from source account
         from_acc = %{from_acc | nonce: nonce + 1, balance: from_acc.balance - tx.value - fee}
@@ -181,14 +181,14 @@ defmodule Chain.Transaction do
       |> Chain.State.set_account(from, from_acc)
       |> Chain.State.set_account(to(tx), acc)
 
-    evm = Evm.init(tx, new_state, env, acc.storageRoot, code, trace?)
+    evm = Evm.init(tx, new_state, env, acc.storage_root, code, trace?)
 
     case Evm.eval(evm) do
       {:ok, evm} ->
         new_state = Evm.state(evm)
 
         from_acc = Chain.State.account(new_state, from)
-        from_acc = %{from_acc | balance: from_acc.balance + Evm.gas(evm) * gasPrice(tx)}
+        from_acc = %{from_acc | balance: from_acc.balance + Evm.gas(evm) * gas_price(tx)}
         new_state = Chain.State.set_account(new_state, from, from_acc)
 
         # The destination might be selfdestructed
@@ -204,17 +204,17 @@ defmodule Chain.Transaction do
 
         # :io.format("evm: ~240p~n", [evm])
         {:ok, new_state,
-         %TransactionReceipt{
+         %transaction_receipt{
            evmout: Evm.out(evm),
            return_data: Evm.return_data(evm),
            data: Evm.data(evm),
            logs: Evm.logs(evm),
            trace: Evm.trace(evm),
-           gas_used: gasLimit(tx) - Evm.gas(evm),
+           gas_used: gas_limit(tx) - Evm.gas(evm),
            msg: :ok
          }}
 
-      {:error, msg, gasLeft} ->
+      {:error, msg, gas_left} ->
         # Only applying the full fee (restoring the tx.value)
         state =
           Chain.State.set_account(state, from, %{
@@ -222,19 +222,19 @@ defmodule Chain.Transaction do
             | balance: from_acc.balance + tx.value
           })
 
-        {:ok, state, %TransactionReceipt{msg: msg, gas_used: gasLimit(tx) - gasLeft}}
+        {:ok, state, %transaction_receipt{msg: msg, gas_used: gas_limit(tx) - gas_left}}
 
-      {:revert, message, gasLeft} ->
+      {:revert, message, gas_left} ->
         # Only applying the delta fee (see new_state vs. state)
-        gasUsed = gasLimit(tx) - gasLeft
+        gas_used = gas_limit(tx) - gas_left
 
         state =
           Chain.State.set_account(state, from, %{
             from_acc
-            | balance: from_acc.balance + gasLeft * gasPrice(tx) + tx.value
+            | balance: from_acc.balance + gas_left * gas_price(tx) + tx.value
           })
 
-        {:ok, state, %TransactionReceipt{msg: :revert, gas_used: gasUsed, evmout: message}}
+        {:ok, state, %transaction_receipt{msg: :revert, gas_used: gas_used, evmout: message}}
     end
   end
 end

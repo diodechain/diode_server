@@ -33,7 +33,7 @@ defmodule Chain.Worker do
 
   @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
   def start_link(_mode) do
-    GenServer.start_link(__MODULE__, Diode.workerMode(), name: __MODULE__)
+    GenServer.start_link(__MODULE__, Diode.worker_mode(), name: __MODULE__)
   end
 
   def init(mode) do
@@ -150,9 +150,9 @@ defmodule Chain.Worker do
     tx =
       %Transaction{
         nonce: Chain.Account.nonce(account),
-        gasPrice: 0,
-        gasLimit: 1_000_000_000,
-        to: Diode.registryAddress(),
+        gas_price: 0,
+        gas_limit: 1_000_000_000,
+        to: Diode.registry_address(),
         data: ABI.encode_spec("blockReward")
       }
       |> Transaction.sign(Wallet.privkey!(creds))

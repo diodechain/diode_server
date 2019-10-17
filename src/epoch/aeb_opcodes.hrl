@@ -41,7 +41,7 @@
 -define(   'CALLDATACOPY', 16#37).
 -define(       'CODESIZE', 16#38).
 -define(       'CODECOPY', 16#39).
--define(       'GASPRICE', 16#3a).
+-define(       'gas_price', 16#3a).
 -define(    'EXTCODESIZE', 16#3b).
 -define(    'EXTCODECOPY', 16#3c).
 -define( 'RETURNDATASIZE', 16#3d).
@@ -52,7 +52,7 @@
 -define(      'TIMESTAMP', 16#42).
 -define(         'NUMBER', 16#43).
 -define(     'DIFFICULTY', 16#44).
--define(       'GASLIMIT', 16#45).
+-define(       'gas_limit', 16#45).
 
 -define(            'POP', 16#50).
 -define(          'MLOAD', 16#51).
