@@ -5,7 +5,6 @@ defmodule Kademlia do
 
   # 2^256
   @max_oid 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF + 1
-  @alpha 3
 
   defstruct tasks: %{}, network: nil, cache: Lru.new(1024)
   @type t :: %Kademlia{tasks: Map.t(), network: KBuckets.t(), cache: Lru.t()}
@@ -132,89 +131,7 @@ defmodule Kademlia do
   end
 
   defp do_find_nodes(key, nearest, k, cmd) do
-    tasks =
-      Enum.map(1..@alpha, fn _ ->
-        Task.async(__MODULE__, :query_worker, [nil, key, self(), cmd])
-      end)
-
-    queried = []
-    ret = loop(key, @max_oid, nearest, k, [], [], queried)
-
-    Enum.map(tasks, fn task ->
-      send(task.pid, :done)
-      Task.shutdown(task, 100)
-    end)
-
-    flush()
-
-    case ret do
-      {:value, value, visited} ->
-        {:value, value, visited}
-
-      visited ->
-        visited
-    end
-  end
-
-  defp flush() do
-    receive do
-      {:kadret, _any, _distance, _task} -> flush()
-    after
-      0 -> :ok
-    end
-  end
-
-  defp loop(_key, _min_distance, [], _k, visited, waiting, queried)
-       when length(waiting) == @alpha do
-    KBuckets.unique(visited ++ queried)
-  end
-
-  defp loop(key, min_distance, queryable, k, visited, waiting, queried) do
-    receive do
-      {:kadret, {:value, value}, _distance, _task} ->
-        {:value, value, KBuckets.unique(visited ++ queried)}
-
-      {:kadret, nodes, distance, task} ->
-        waiting = [task | waiting]
-        visited = KBuckets.unique(visited ++ nodes)
-
-        min_distance = min(distance, min_distance)
-
-        # only those that are nearer
-        queryable =
-          KBuckets.unique(queryable ++ nodes)
-          |> Enum.filter(fn node ->
-            KBuckets.distance(key, node) < min_distance and
-              KBuckets.member?(queried, node) == false
-          end)
-          |> KBuckets.nearest_n(key, k)
-
-        sends = min(length(queryable), length(waiting))
-        {nexts, queryable} = Enum.split(queryable, sends)
-        {pids, waiting} = Enum.split(waiting, sends)
-        Enum.zip(nexts, pids) |> Enum.map(fn {next, pid} -> send(pid, {:next, next}) end)
-        queried = queried ++ nexts
-
-        loop(key, min_distance, queryable, k, visited, waiting, queried)
-    end
-  end
-
-  def query_worker(node, key, father, cmd) do
-    # :io.format("query_worker(#{inspect(node)}, ~n~400p, ~400p)~n", [key, father])
-
-    case node do
-      nil ->
-        send(father, {:kadret, [], @max_oid, self()})
-
-      node ->
-        ret = rpc(node, [cmd, key])
-        send(father, {:kadret, ret, KBuckets.distance(node, key), self()})
-    end
-
-    receive do
-      {:next, node} -> query_worker(node, key, father, cmd)
-      :done -> :ok
-    end
+    KademliaSearch.find_nodes(key, nearest, k, cmd)
   end
 
   @spec find_node_lookup(any()) :: [KBuckets.item()]
@@ -384,7 +301,7 @@ defmodule Kademlia do
     end)
   end
 
-  defp rpc(%KBuckets.Item{object: :self}, call) do
+  def rpc(%KBuckets.Item{object: :self}, call) do
     find_node_cmd = Client.find_node()
     find_value_cmd = Client.find_value()
     store_cmd = Client.store()
@@ -404,15 +321,15 @@ defmodule Kademlia do
     end
   end
 
-  defp rpc(%KBuckets.Item{node_id: node_id} = node, call) do
+  def rpc(%KBuckets.Item{node_id: node_id} = node, call) do
+    # :io.format("RPC: ~0p ~0p~n", [call, Wallet.printable(node_id)])
+    # :io.format("BT ~0p", [:erlang.process_info(self(), :current_stacktrace)])
     pid = ensure_node_connection(node)
-    tid = Task.async(GenServer, :call, [pid, {:rpc, call}])
 
-    case Task.yield(tid, 5000) || Task.shutdown(tid) do
-      {:ok, result} ->
-        result
-
-      nil ->
+    try do
+      GenServer.call(pid, {:rpc, call}, 500)
+    rescue
+      _error ->
         IO.puts("Failed to get a result from #{Wallet.printable(node_id)}")
         []
     end

@@ -11,6 +11,7 @@ defmodule RegistryTest do
       Chain.Worker.work()
     end
 
+    Chain.sync()
     :ok
   end
 
@@ -21,14 +22,17 @@ defmodule RegistryTest do
         total_connections: 1,
         total_bytes: 0,
         local_address: "spam",
-        block_number: Chain.peak(),
+        block_number: Chain.peak() + 1,
         fleet_contract: <<0::unsigned-size(160)>>
       )
       |> Ticket.device_sign(clientkey(1))
 
     raw = Ticket.raw(tck)
     tx = Registry.submitTicketRawTx(raw)
-    {{:revert, "Ticket from the future?"}, _} = Shell.call_tx(tx, "latest")
+    ret = Shell.call_tx(tx, "latest")
+    {{:revert, "Ticket from the future?"}, _} = ret
+    # if you get a  {{:revert, ""}, 85703} here it means for some reason the transaction
+    # passed the initial test but failed on fleet_contract == 0
   end
 
   test "zero ticket" do

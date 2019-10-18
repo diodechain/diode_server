@@ -11,7 +11,7 @@ defmodule PeerTest do
     start_clones(1)
 
     on_exit(fn ->
-      TestHelper.kill_clones()
+      kill_clones()
     end)
   end
 

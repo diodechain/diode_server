@@ -5,11 +5,14 @@ defmodule TestHelper do
   @cookie "EXTMP_K66"
 
   def reset() do
+    kill_clones()
+    Chain.Pool.flush()
+    Supervisor.terminate_child(Diode.Supervisor, Chain.Worker)
     Chain.reset_state()
     TicketStore.clear()
     Kademlia.reset()
     wait(0)
-    Chain.Worker.work()
+    Supervisor.restart_child(Diode.Supervisor, Chain.Worker)
     wait(1)
   end
 
@@ -40,7 +43,6 @@ defmodule TestHelper do
 
   def start_clones(number) do
     kill_clones()
-    :ok = wait_clones(0, 60)
     basedir = File.cwd!() <> "/clones"
     File.rm_rf!(basedir)
     File.mkdir!(basedir)
@@ -90,6 +92,7 @@ defmodule TestHelper do
 
   def kill_clones() do
     System.cmd("pkill", ["-fc", "-9", @cookie])
+    :ok = wait_clones(0, 60)
   end
 
   def wait_for(fun, comment, timeout \\ 10)
