@@ -43,6 +43,19 @@ defmodule Chain.Pool do
     Chain.Worker.update()
   end
 
+  def replace_transaction(old_tx, new_tx) do
+    old_key = Transaction.hash(old_tx)
+    new_key = Transaction.hash(new_tx)
+
+    cast(fn pool = %{transactions: transactions} ->
+      txs =
+        Map.put(transactions, new_key, new_tx)
+        |> Map.delete(old_key)
+
+      {:noreply, %{pool | transactions: txs}}
+    end)
+  end
+
   @spec flush() :: [Transaction.t()]
   def flush() do
     call(fn pool = %{transactions: transactions}, _from ->
@@ -77,5 +90,13 @@ defmodule Chain.Pool do
 
   def handle_call(fun, from, state) when is_function(fun) do
     fun.(state, from)
+  end
+
+  defp cast(fun) do
+    GenServer.cast(__MODULE__, fun)
+  end
+
+  def handle_cast(fun, state) when is_function(fun) do
+    fun.(state)
   end
 end

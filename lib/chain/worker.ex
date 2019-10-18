@@ -25,7 +25,9 @@ defmodule Chain.Worker do
   end
 
   def work() do
-    GenServer.call(__MODULE__, :work)
+    ret = GenServer.call(__MODULE__, :work)
+    Chain.sync()
+    ret
   end
 
   defp transactions(%Chain.Worker{proposal: proposal}), do: proposal
@@ -159,15 +161,14 @@ defmodule Chain.Worker do
 
     # Updating miner signed transaction nonces
     # 'map' keeps a mapping to the unchanged tx hashes to reference the tx-pool
-    {txs, _, map} =
-      Enum.reduce(transactions(state), {[tx], tx.nonce, %{}}, fn tx, {list, nonce, map} ->
-        hash = Transaction.hash(tx)
-
+    {txs, _} =
+      Enum.reduce(transactions(state), {[tx], tx.nonce}, fn tx, {list, nonce} ->
         if Transaction.from(tx) == miner do
-          tx = %{tx | nonce: nonce + 1} |> Transaction.sign(Wallet.privkey!(creds))
-          {list ++ [tx], nonce + 1, Map.put(map, Transaction.hash(tx), hash)}
+          new_tx = %{tx | nonce: nonce + 1} |> Transaction.sign(Wallet.privkey!(creds))
+          Chain.Pool.replace_transaction(tx, new_tx)
+          {list ++ [new_tx], nonce + 1}
         else
-          {list ++ [tx], nonce, map}
+          {list ++ [tx], nonce}
         end
       end)
 
@@ -175,14 +176,8 @@ defmodule Chain.Worker do
     done = Block.transactions(block)
 
     if done != txs do
-      keys =
-        MapSet.difference(MapSet.new(txs), MapSet.new(done))
-        |> Enum.map(fn tx ->
-          hash = Transaction.hash(tx)
-          Map.get(map, hash, hash)
-        end)
-
-      Chain.Pool.remove_transactions(keys)
+      MapSet.difference(MapSet.new(txs), MapSet.new(done))
+      |> Chain.Pool.remove_transactions()
     end
 
     target = Block.hash_target(block)

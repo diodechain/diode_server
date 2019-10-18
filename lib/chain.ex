@@ -49,6 +49,10 @@ defmodule Chain do
     end
   end
 
+  def sync() do
+    call(fn state, _from -> {:reply, :ok, state} end)
+  end
+
   @doc "Function for unit tests, replaces the current state"
   def set_state(state) do
     call(fn _state, _from ->
