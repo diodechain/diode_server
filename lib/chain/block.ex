@@ -10,7 +10,7 @@ defmodule Chain.Block do
         }
 
   # @min_difficulty 131072
-  @min_difficulty 65536
+  @min_difficulty 65_536
   @max_difficulty 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
 
   def header(%Block{header: header}), do: header

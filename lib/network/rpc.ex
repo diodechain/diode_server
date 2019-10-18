@@ -59,7 +59,7 @@ defmodule Network.Rpc do
             {:ok, _state, rcpt} ->
               %{
                 "messsage" => "VM Exception while processing transaction: #{rcpt.msg}",
-                "code" => if(rcpt.msg == :revert, do: -32000, else: -31000),
+                "code" => if(rcpt.msg == :revert, do: -32_000, else: -31_000),
                 "data" => rcpt.evmout
               }
 
@@ -240,7 +240,7 @@ defmodule Network.Rpc do
           else
             %{
               "messsage" => "VM Exception while processing transaction: #{rcpt.msg}",
-              "code" => if(rcpt.msg == :revert, do: -32000, else: -31000),
+              "code" => if(rcpt.msg == :revert, do: -32_000, else: -31_000),
               "data" => rcpt.evmout
             }
           end
@@ -329,7 +329,7 @@ defmodule Network.Rpc do
         result(id, true)
 
       "net_version" ->
-        result(id, "41043")
+        result(id, "41_043")
 
       # TODO
       "eth_subscribe" ->

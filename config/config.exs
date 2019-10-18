@@ -14,7 +14,7 @@ config :logger,
 
 case Mix.env() do
   :test ->
-    System.put_env("KADEMLIA_PORT", "51053")
+    System.put_env("KADEMLIA_PORT", "51_053")
     System.put_env("SEED", "diode://localhost:51052")
     System.put_env("WORKER_MODE", "poll")
     System.put_env("DATADIR", "testdata")

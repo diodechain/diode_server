@@ -187,7 +187,7 @@ defmodule Network.Server do
       verify_fun: {&check/3, nil},
       fail_if_no_peer_cert: true,
       # Requires client to advertise the same
-      # openssl s_client -curves secp256k1 -connect localhost:41043 -showcerts -msg -servername local -tls1_2 -tlsextdebug
+      # openssl s_client -curves secp256k1 -connect localhost:41_043 -showcerts -msg -servername local -tls1_2 -tlsextdebug
       eccs: [:secp256k1],
       active: false,
       reuseaddr: true,

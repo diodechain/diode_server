@@ -1,5 +1,5 @@
 #! /usr/bin/elixir
-# command = "openssl s_client -connect localhost:41043 -showcerts -msg -servername local -tls1_2 -tlsextdebug -curves secp256k1 -cert device_certificate.pem"
+# command = "openssl s_client -connect localhost:41_043 -showcerts -msg -servername local -tls1_2 -tlsextdebug -curves secp256k1 -cert device_certificate.pem"
 alias Object.Ticket, as: Ticket
 import Ticket
 
@@ -157,7 +157,7 @@ options = [
 ]
 
 :ssl.start()
-{:ok, socket} = :ssl.connect('localhost', 41043, options, 5000)
+{:ok, socket} = :ssl.connect('localhost', 41_043, options, 5000)
 
 :persistent_term.put(:no_tickets, false)
 

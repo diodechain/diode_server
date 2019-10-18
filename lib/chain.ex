@@ -122,7 +122,7 @@ defmodule Chain do
     if Diode.dev_mode?() do
       4
     else
-      40320
+      40_320
     end
   end
 

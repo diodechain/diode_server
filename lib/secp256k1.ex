@@ -165,7 +165,7 @@ defmodule Secp256k1 do
     hash = hash(:sha, public)
 
     {:OTPTBSCertificate, :v3, 9_671_339_679_901_102_673,
-     {:SignatureAlgorithm, {1, 2, 840, 10045, 4, 3, 2}, :asn1_NOVALUE},
+     {:SignatureAlgorithm, {1, 2, 840, 10_045, 4, 3, 2}, :asn1_NOVALUE},
      {:rdnSequence,
       [
         [{:AttributeTypeAndValue, {2, 5, 4, 6}, 'US'}],
@@ -185,7 +185,7 @@ defmodule Secp256k1 do
         [{:AttributeTypeAndValue, {2, 5, 4, 3}, {:utf8String, "www.example.com"}}]
       ]},
      {:OTPSubjectPublicKeyInfo,
-      {:PublicKeyAlgorithm, {1, 2, 840, 10045, 2, 1}, {:namedCurve, {1, 3, 132, 0, 10}}},
+      {:PublicKeyAlgorithm, {1, 2, 840, 10_045, 2, 1}, {:namedCurve, {1, 3, 132, 0, 10}}},
       {:ECPoint, public}}, :asn1_NOVALUE, :asn1_NOVALUE,
      [
        # Identifier: Subject Key Identifier - 2.5.29.14
