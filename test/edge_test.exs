@@ -14,6 +14,7 @@ defmodule EdgeTest do
 
   setup_all do
     IO.puts("Starting clients")
+    Diode.ticket_grace(4096)
     :persistent_term.put(:no_tickets, false)
     ensure_clients()
 
@@ -163,11 +164,7 @@ defmodule EdgeTest do
     assert(Object.key(node) == id)
 
     # Testing disconnect
-    for _ <- 1..7 do
-      ["error", 401, "bad input"] = rpc(:client_1, ["garbage", String.pad_leading("", 1024 * 50)])
-    end
-
-    ["error", 401, "bad input"] = rpc(:client_1, ["garbage", String.pad_leading("", 1024 * 51)])
+    ["error", 401, "bad input"] = rpc(:client_1, ["garbage", String.pad_leading("", 1024 * 3)])
 
     ["goodbye", "ticket expected", "you might get blacklisted"] =
       rpc(:client_1, ["garbage", String.pad_leading("", 1024)])
