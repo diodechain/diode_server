@@ -100,12 +100,17 @@ defmodule Diode do
     true == :persistent_term.get(:trace, false)
   end
 
-  def trace(false) do
-    :persistent_term.put(:trace, false)
+  def trace(enabled) when is_boolean(enabled) do
+    :persistent_term.put(:trace, enabled)
   end
 
-  def trace(true) do
-    :persistent_term.put(:trace, true)
+  @doc "Number of bytes the server is willing to send without payment yet."
+  def ticket_grace() do
+    :persistent_term.get(:ticket_grace, 1024 * 40960)
+  end
+
+  def ticket_grace(bytes) when is_integer(bytes) do
+    :persistent_term.put(:ticket_grace, bytes)
   end
 
   @spec hash(binary()) :: binary()

@@ -586,7 +586,7 @@ defmodule Network.EdgeHandler do
   defp account_incoming(state, msg), do: account(state, msg)
 
   defp account(state = %{unpaid_bytes: b}, msg) do
-    if b > 1024 * 40960 do
+    if b > Diode.ticket_grace() do
       send(self(), :stop_unpaid)
     end
 
