@@ -41,7 +41,7 @@ defmodule Shell do
 
     ret =
       case rcpt.msg do
-        :revert -> ABI.decode_revert(rcpt.evmout)
+        :evmc_revert -> ABI.decode_revert(rcpt.evmout)
         _ -> rcpt.evmout
       end
 

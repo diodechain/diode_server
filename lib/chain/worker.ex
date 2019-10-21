@@ -177,11 +177,13 @@ defmodule Chain.Worker do
 
     if done != txs do
       MapSet.difference(MapSet.new(txs), MapSet.new(done))
+      |> MapSet.to_list()
+      |> Enum.map(&Transaction.hash/1)
       |> Chain.Pool.remove_transactions()
     end
 
     target = Block.hash_target(block)
-    generate_candidate(%{state | candidate: block, target: target, time: time})
+    generate_candidate(%{state | candidate: block, target: target, time: time, proposal: tl(txs)})
   end
 
   defp generate_candidate(state) do

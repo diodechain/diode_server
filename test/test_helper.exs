@@ -48,7 +48,7 @@ defmodule TestHelper do
     File.mkdir!(basedir)
 
     for num <- 1..number do
-      clonedir = "#{basedir}/#{num}"
+      clonedir = "#{basedir}/#{num}/"
       file = File.stream!("#{basedir}/#{num}.log")
 
       spawn_link(fn ->

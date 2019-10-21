@@ -9,7 +9,7 @@ defmodule Chain.TransactionReceipt do
             trace: nil
 
   @type t :: %Chain.TransactionReceipt{
-          msg: binary() | :ok | :revert,
+          msg: binary() | :ok | :evmc_revert,
           # state: Chain.State.t() | nil,
           evmout: any(),
           gas_used: non_neg_integer() | nil,

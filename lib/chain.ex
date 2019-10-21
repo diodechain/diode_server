@@ -34,6 +34,7 @@ defmodule Chain do
 
     if store do
       store_file(Diode.dataDir(@cache), state(), true)
+      Chain.BlockCache.save()
     end
 
     saver_loop()
@@ -95,7 +96,7 @@ defmodule Chain do
   end
 
   @doc "GasPrice for block validation and estimation"
-  def gasPrice() do
+  def gas_price() do
     0
   end
 
@@ -223,7 +224,8 @@ defmodule Chain do
     block_hash = Block.hash(block)
 
     if block_by_hash(block_hash) != nil do
-      IO.puts("Chain.add_block: Rejected existing block")
+      IO.puts("Chain.add_block: Skipping existing block")
+      :added
     else
       number = Block.number(block)
 
@@ -302,7 +304,7 @@ defmodule Chain do
     for {tx, rcpt} <- Enum.zip([Block.transactions(block), Block.receipts(block)]) do
       status =
         case rcpt.msg do
-          :revert -> ABI.decode_revert(rcpt.evmout)
+          :evmc_revert -> ABI.decode_revert(rcpt.evmout)
           _ -> {rcpt.msg, rcpt.evmout}
         end
 
@@ -312,6 +314,11 @@ defmodule Chain do
       type = Atom.to_string(Transaction.type(tx))
       value = Transaction.value(tx)
       code = Base16.encode(Transaction.payload(tx))
+
+      code =
+        if byte_size(code) > 40 do
+          binary_part(code, 0, 37) <> "... [#{byte_size(code)}]"
+        end
 
       IO.puts("")
       IO.puts("\tTransaction: #{hash} Type: #{type}")

@@ -6,6 +6,7 @@
 /*.ez
 
 *.pem
+*.o
 
 # Generated on crash by the VM
 erl_crash.dump
@@ -18,3 +19,5 @@ erl_crash.dump
 clones
 config/diode.exs
 .history/
+evm/evm
+core
