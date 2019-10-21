@@ -43,6 +43,8 @@ defmodule Chain.Block do
 
   @spec validate(any()) :: %Chain.Block{} | {non_neg_integer(), any()}
   def validate(block) do
+    IO.puts("Block #{number(block)}: #{length(transactions(block))}txs")
+
     with {1, %Block{}} <- {1, block},
          {2, %Block{}} <- {2, parent(block)},
          {3, true} <-
@@ -54,10 +56,33 @@ defmodule Chain.Block do
             |> Enum.reject(fn tx -> tx == true end)},
          {6, true} <- {6, Diode.hash(encode_transactions(transactions(block))) == txhash(block)},
          {7, simBlock} <- {7, simulate(block)},
-         {8, true} <- {8, state_hash(simBlock) == state_hash(block)} do
+         {8, true} <- {8, state_equal(simBlock, block)} do
       %{block | receipts: simBlock.receipts}
     else
       {nr, error} -> {nr, error}
+    end
+  end
+
+  defp state_equal(simBlock, block) do
+    if state_hash(simBlock) != state_hash(block) do
+      # this is for evm_test::replay to produce debug output
+      if Diode.dev_mode?() do
+        err = %{
+          number: Block.number(block),
+          parent: Block.parent(block),
+          parent_hash: Block.parent_hash(block),
+          sim_state: state(simBlock),
+          block_state: state(block),
+          sim: simBlock,
+          block: block
+        }
+
+        File.write!("debug.block", BertInt.encode!(err))
+      end
+
+      false
+    else
+      true
     end
   end
 
@@ -120,6 +145,8 @@ defmodule Chain.Block do
       header: header
     }
 
+    t1 = Time.utc_now()
+
     {nstate, transactions, receipts} =
       Enum.reduce(transactions, {state(parent), [], []}, fn %Transaction{} = tx,
                                                             {%State{} = state, txs, rcpts} ->
@@ -132,6 +159,9 @@ defmodule Chain.Block do
             {state, txs, rcpts}
         end
       end)
+
+    t2 = Time.utc_now()
+    IO.puts("Block #{length(transactions)}: #{Time.diff(t2, t1, :millisecond)}ms")
 
     state_hash =
       Chain.state_store(nstate)
@@ -235,12 +265,12 @@ defmodule Chain.Block do
     BlockCache.number(BlockCache.parent(block)) + 1
   end
 
-  @spec gasPrice(Chain.Block.t()) :: non_neg_integer()
-  def gasPrice(%Block{} = block) do
+  @spec gas_price(Chain.Block.t()) :: non_neg_integer()
+  def gas_price(%Block{} = block) do
     price =
       Enum.reduce(transactions(block), nil, fn tx, price ->
-        if price == nil or price > Transaction.gasPrice(tx) do
-          Transaction.gasPrice(tx)
+        if price == nil or price > Transaction.gas_price(tx) do
+          Transaction.gas_price(tx)
         else
           price
         end
@@ -275,7 +305,7 @@ defmodule Chain.Block do
   @spec transactionStatus(Chain.Block.t(), Chain.Transaction.t()) :: 0 | 1
   def transactionStatus(%Block{} = block, %Transaction{} = tx) do
     case transactionReceipt(block, tx).msg do
-      :revert -> 0
+      :evmc_revert -> 0
       :ok -> 1
       _other -> 0
     end

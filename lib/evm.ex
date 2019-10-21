@@ -4,6 +4,20 @@ defmodule Evm do
   """
   alias Chain.Transaction
 
+  defstruct port: nil,
+            chain_state: nil,
+            refund: nil,
+            code: nil,
+            gas: nil,
+            selfdestruct: nil,
+            out: nil,
+            return_data: nil,
+            data: nil,
+            logs: [],
+            trace: nil,
+            msg: :evmc_success,
+            create_address: 0
+
   defmodule State do
     defstruct chain_state: nil,
               from: nil,
@@ -13,7 +27,7 @@ defmodule Evm do
               trace: false,
               coinbase: nil,
               difficulty: 0,
-              gasLimit: 0,
+              gas_limit: 0,
               timestamp: 0,
               number: 0,
               internal: false,
@@ -27,7 +41,8 @@ defmodule Evm do
     def code(%State{code: code}), do: code
     def coinbase(%State{coinbase: coinbase}), do: coinbase
     def difficulty(%State{difficulty: difficulty}), do: difficulty
-    def gasLimit(%State{gasLimit: gasLimit}), do: gasLimit
+    def gas_limit(%State{gas_limit: gas_limit}), do: gas_limit
+    def gas_price(%State{tx: tx}), do: Transaction.gas_price(tx)
     def timestamp(%State{timestamp: timestamp}), do: timestamp
     def number(%State{number: number}), do: number
 
@@ -36,65 +51,40 @@ defmodule Evm do
     def account(%State{chain_state: st} = state),
       do: Chain.State.ensure_account(st, address(state))
 
-    ###################################
-    ##### AEVM ChainAPI functions #####
-    ###################################
-    require Record
-    Record.defrecord(:call_result, result: nil, gas_spent: 0, type: :ok)
+    def call_contract(target, kind, gas, value, call_data, caller, state) do
+      target = <<target::unsigned-size(160)>>
+      from = <<caller::unsigned-size(160)>>
 
-    @type call_result ::
-            record(:call_result,
-              result: binary() | atom(),
-              gas_spent: non_neg_integer(),
-              type: :exception | :revert | :ok
-            )
+      case kind do
+        :evmc_create ->
+          do_create(value, call_data, gas, state)
 
-    def set_store(store, %State{chain_state: st} = state) do
-      # :io.format("set_store(~p) : ~p~n", [address(state), MerkleTree.to_list(store)])
-      account = %{account(state) | storageRoot: store}
-      %State{state | chain_state: Chain.State.set_account(st, address(state), account)}
+        :evmc_callcode ->
+          do_call_contract(from, target, gas, value, call_data, from, state)
+
+        _other ->
+          do_call_contract(target, target, gas, value, call_data, from, state)
+      end
     end
 
-    def get_balance(address, %State{chain_state: st}) do
-      Chain.State.ensure_account(st, :binary.part(address, 12, 20))
-      |> Chain.Account.balance()
-    end
-
-    def get_extcode(address, %State{chain_state: st}) do
-      Chain.State.ensure_account(st, :binary.part(address, 12, 20))
-      |> Chain.Account.code()
-    end
-
-    def blockhash(n, _state) do
-      # Not quite clean but aevm_eevm_state at least checks for future n before calling this.
-      Chain.block(n) |> Chain.Block.hash()
-    end
-
-    def call_contract(_target, <<0::256>>, _gas, _value, _callData, _callStack, _origin, state) do
-      {call_result(gas_spent: 0, type: :ok, result: <<0::256>>), state}
-    end
-
-    def call_contract(
-          target,
-          code,
-          gas,
-          value,
-          callData,
-          [caller | _callStack],
-          _origin,
-          %State{chain_state: st} = state
-        ) do
-      t = Chain.State.ensure_account(st, :binary.part(code, 12, 20))
+    defp do_call_contract(
+           target,
+           code,
+           gas,
+           value,
+           call_data,
+           from,
+           %State{chain_state: st} = state
+         ) do
+      code = Chain.State.ensure_account(st, code).code
 
       tx = %{
         state.tx
         | gasLimit: gas,
           value: value,
-          data: callData,
-          to: target |> Hash.to_address()
+          data: call_data,
+          to: target
       }
-
-      from = <<caller::160>>
 
       st1 =
         if value == 0 or from == tx.to do
@@ -108,42 +98,23 @@ defmodule Evm do
           |> Chain.State.set_account(tx.to, %{to_acc | balance: to_acc.balance + value})
         end
 
-      ret =
-        Evm.eval_internal(
-          evm(%{
-            state
-            | tx: tx,
-              chain_state: st1,
-              code: t.code,
-              from: caller
-          })
-        )
-
-      case ret do
-        {:ok, evm} ->
-          # :io.format("AFTER target = ~p gasLimit = ~p gas = ~p~n", [target, gas, Evm.gas(evm)])
-          {call_result(result: Evm.out(evm), gas_spent: gas - Evm.gas(evm), type: :ok),
-           %{
-             state
-             | chain_state: Evm.state(evm),
-               selfdestructs: Evm.raw(evm).chain_state.selfdestructs
-           }}
-
-        {:error, reason, gasLeft} ->
-          # :io.format("AFTER target = ~p gasLimit = ~p gas = ~p~n", [target, gas, gasLeft])
-          {call_result(gas_spent: gas - gasLeft, type: :exception, result: reason), state}
-
-        {:revert, reason, gasLeft} ->
-          # :io.format("AFTER target = ~p gasLimit = ~p gas = ~p~n", [target, gas, gasLeft])
-          {call_result(gas_spent: gas - gasLeft, type: :revert, result: reason), state}
-      end
+      Evm.eval_internal(
+        evm(%{
+          state
+          | tx: tx,
+            chain_state: st1,
+            code: code,
+            from: from |> :binary.decode_unsigned()
+        })
+      )
     end
 
-    def create_account(
-          value,
-          code,
-          evm = %{chain_state: %State{chain_state: st, tx: tx} = state, gas: gas}
-        ) do
+    defp do_create(
+           value,
+           code,
+           gas,
+           %State{chain_state: st, tx: tx} = state
+         ) do
       address = State.address(state)
       account = Chain.State.account(st, address)
 
@@ -161,18 +132,18 @@ defmodule Evm do
         |> Chain.State.set_account(address, account)
 
       state = %{state | chain_state: st}
-
       tx = %{tx | value: value, data: nil, to: to_address, gasLimit: gas}
 
+      evm =
+        evm(%{
+          state
+          | tx: tx,
+            code: code,
+            from: State.address(state) |> :binary.decode_unsigned()
+        })
+
       if code != nil do
-        case Evm.eval_internal(
-               evm(%{
-                 state
-                 | tx: tx,
-                   code: code,
-                   from: State.address(state) |> :binary.decode_unsigned()
-               })
-             ) do
+        case Evm.eval_internal(evm) do
           {:ok, evm2} ->
             st = Evm.state(evm2)
 
@@ -186,33 +157,27 @@ defmodule Evm do
                   Chain.State.set_account(st, to_address, to_account)
               end
 
-            evm = Evm.set_state(evm, st)
-            {:binary.decode_unsigned(to_address), evm}
+            evm2 = Evm.set_state(evm2, st)
+            {:ok, %{evm2 | create_address: Hash.integer(to_address), out: ""}}
 
-          {:error, _reason, gasLeft} ->
-            {0, %{evm | gas: gasLeft}}
-
-          {:revert, _reason, gasLeft} ->
-            {0, %{evm | gas: gasLeft}}
+          {error, evm2} ->
+            {error, evm2}
         end
       else
-        {0, evm}
+        {:ok, evm}
       end
     end
-
-    def gas_spent(call_result(gas_spent: gas_spent)), do: gas_spent
-    def return_value(call_result(type: type, result: result)), do: {type, result}
 
     ##############################
     ##### EVM Init functions #####
     ##############################
     def gas(%State{tx: tx, internal: true}) do
-      tx.gasLimit
+      Transaction.gas_limit(tx)
     end
 
     def gas(%State{tx: tx}) do
       # Calculcation initial gas according to yellow paper 6.2
-      gas = tx.gasLimit
+      gas = Transaction.gas_limit(tx)
 
       bytes = for <<byte::8 <- Transaction.payload(tx)>>, do: byte
       zeros = Enum.count(bytes, fn x -> x == 0 end)
@@ -231,46 +196,8 @@ defmodule Evm do
       gas - Evm.gas_cost(:GTRANSACTION)
     end
 
-    def exec(%State{tx: tx, from: from, origin: origin} = state) do
-      %{
-        address: :binary.decode_unsigned(address(state)),
-        caller: from,
-        creator: from,
-        data: Transaction.data(tx),
-        gasPrice: Transaction.gasPrice(tx),
-        value: Transaction.value(tx),
-        gas: gas(state),
-        code: code(state),
-        mem: %{mem_size: 0},
-        origin: origin,
-        store: store(state),
-        call_data_type: :undefined
-      }
-    end
-
-    def env(%State{} = state) do
-      %{
-        abi_version: 1,
-        chainState: %{state | internal: true},
-        chainAPI: __MODULE__,
-        currentCoinbase: coinbase(state),
-        currentDifficulty: difficulty(state),
-        currentGasLimit: gasLimit(state),
-        currentTimestamp: timestamp(state),
-        currentNumber: number(state),
-        vm_version: 2
-      }
-    end
-
-    def opts(%State{trace: trace}) do
-      %{
-        trace: trace,
-        trace_fun: &Evm.log/2
-      }
-    end
-
     def evm(%State{} = state) do
-      :aevm_eeevm_state.init(%{env: env(state), exec: exec(state), pre: %{}}, opts(state))
+      %Evm{chain_state: state, code: code(state), gas: gas(state)}
     end
   end
 
@@ -278,7 +205,10 @@ defmodule Evm do
     w = Store.wallet()
 
     tx =
-      Transaction.sign(%Transaction{gasLimit: 100_000, gasPrice: 0, value: 0}, Wallet.privkey!(w))
+      Transaction.sign(
+        %Transaction{gasLimit: 100_000, gasPrice: 0, value: 0},
+        Wallet.privkey!(w)
+      )
 
     from = :binary.decode_unsigned(Transaction.from(tx))
 
@@ -287,9 +217,9 @@ defmodule Evm do
       tx: tx,
       from: from,
       origin: from,
-      coinbase: Wallet.address!(w),
+      coinbase: Wallet.address!(w) |> :binary.decode_unsigned(),
       difficulty: 5,
-      gasLimit: 2_000_000,
+      gas_limit: 2_000_000,
       timestamp: DateTime.to_unix(DateTime.utc_now())
     }
 
@@ -315,7 +245,7 @@ defmodule Evm do
       origin: from,
       coinbase: Chain.Block.coinbase(block),
       difficulty: Chain.Block.difficulty(block),
-      gasLimit: Chain.Block.gasLimit(block),
+      gas_limit: Chain.Block.gasLimit(block),
       timestamp: Chain.Block.timestamp(block),
       number: Chain.Block.number(block)
     }
@@ -367,24 +297,22 @@ defmodule Evm do
     addr = State.address(evm.chain_state)
     to = Hash.integer(addr)
 
-    case code(evm) do
-      nil ->
-        case PreCompiles.get(to) do
-          nil -> {:ok, %{evm | out: ""}}
-          fun -> eval_internal_precompile(evm, fun)
-        end
-
-      _ ->
-        eval_internal_evm(evm)
+    if code(evm) == "" or code(evm) == nil do
+      case PreCompiles.get(to) do
+        nil -> {:ok, %{evm | out: ""}}
+        fun -> eval_internal_precompile(evm, fun)
+      end
+    else
+      eval_internal_evm(evm)
     end
   end
 
   def eval_internal_precompile(evm, fun) do
-    input = data(evm)
+    input = input(evm)
     gascost = fun.(:gas, input)
 
     if gascost > evm.gas do
-      {:error, :out_of_gas, 0}
+      {:evmc_out_of_gas, %{evm | gas: 0, msg: :evmc_out_of_gas}}
     else
       result = fun.(:run, input)
       result = binary_part(<<0::unsigned-size(256), result::binary>>, byte_size(result), 32)
@@ -393,10 +321,7 @@ defmodule Evm do
   end
 
   def eval_internal_evm(evm) do
-    # bef = evm.gas
-    ret = :aevm_eeevm.eval(evm)
-    # ret = {_, %{trace: trace}} = :aevm_eeevm.eval(evm)
-    # :io.format("debug.trace: ~p~n", [trace])
+    ret = do_eval(evm)
 
     with {:ok, evm2} <- ret do
       state = evm2.chain_state
@@ -408,8 +333,8 @@ defmodule Evm do
 
       # Collecting selfdestruct
       evm2 =
-        if evm2[:selfdestruct] != nil do
-          selfdestructs = [{State.address(state), evm2[:selfdestruct]} | state.selfdestructs]
+        if evm2.selfdestruct != nil do
+          selfdestructs = [{State.address(state), evm2.selfdestruct} | state.selfdestructs]
           %{evm2 | chain_state: %{state | selfdestructs: selfdestructs}}
         else
           evm2
@@ -427,7 +352,7 @@ defmodule Evm do
           if evm2.gas > deposit do
             {:ok, %{evm2 | gas: evm2.gas - deposit}}
           else
-            {:error, :out_of_gas, 0}
+            {:evmc_out_of_gas, %{evm2 | gas: 0}}
           end
       end
     else
@@ -435,19 +360,324 @@ defmodule Evm do
     end
   end
 
-  def raw(evm) do
-    evm
+  defp do_eval(evm) do
+    do_eval2(evm)
   end
 
-  def gas({:error, _reason, _gas}) do
-    -1
+  defp release_port(port) do
+    rest = Process.get(:evm_port, [])
+    Process.put(:evm_port, [port | rest])
   end
+
+  defp new_port() do
+    case Process.get(:evm_port, []) do
+      [] ->
+        Port.open({:spawn_executable, "./evm/evm"}, [:binary, {:packet, 4}])
+
+      [port | rest] ->
+        Process.put(:evm_port, rest)
+        port
+    end
+  end
+
+  defp do_eval2(evm = %{port: nil, chain_state: state}) do
+    port = new_port()
+
+    init_context = <<
+      "c",
+      State.gas_price(state)::unsigned-little-size(256),
+      state.origin::unsigned-size(160),
+      State.coinbase(state)::unsigned-size(160),
+      State.number(state)::unsigned-little-size(64),
+      State.timestamp(state)::unsigned-little-size(64),
+      State.gas_limit(state)::unsigned-little-size(64),
+      State.difficulty(state)::unsigned-little-size(256),
+      # chain_id
+      0::unsigned-size(256)
+    >>
+
+    true = Port.command(port, init_context)
+
+    evm = %{evm | port: port}
+    ret = do_eval2(evm)
+    release_port(port)
+    ret
+  end
+
+  defp do_eval2(evm) do
+    tx = evm.chain_state.tx
+
+    to = :binary.decode_unsigned(State.address(evm.chain_state))
+    value = Transaction.value(tx)
+    input = input(evm)
+    input_len = byte_size(input)
+
+    code = code(evm)
+    code_len = byte_size(code)
+
+    message = <<
+      "r",
+      evm.chain_state.from::unsigned-size(160),
+      to::unsigned-size(160),
+      value::unsigned-size(256),
+      input_len::signed-little-size(64),
+      input::binary-size(input_len),
+      gas(evm)::unsigned-little-size(64),
+      # depth
+      0::unsigned-little-size(32),
+      code_len::signed-little-size(64),
+      code::binary-size(code_len)
+    >>
+
+    Port.command(evm.port, message)
+    loop({:cont, evm})
+  end
+
+  defp loop({:cont, evm}) do
+    receive do
+      {_port, {:data, data}} ->
+        loop(process_data(data, evm))
+
+      {'EXIT', _port, _reason} ->
+        throw({:evm_crash, evm, 0})
+    after
+      5000 ->
+        throw({:evm_timeout, evm, 0})
+    end
+  end
+
+  defp loop(other) do
+    other
+  end
+
+  defp process_data(
+         <<"ok", gas_left::signed-little-size(64), ret_code::signed-little-size(64),
+           len::unsigned-little-size(64), rest::binary-size(len)>>,
+         evm
+       ) do
+    status = status_code(ret_code)
+    evm = %{evm | out: rest, gas: gas_left, msg: status}
+
+    case status do
+      :evmc_success -> {:ok, evm}
+      other -> {other, evm}
+    end
+  end
+
+  # get_storage(addr, key)
+  defp process_data(
+         <<"gs", addr::unsigned-size(160), key::unsigned-little-size(256)>>,
+         evm
+       ) do
+    value =
+      Chain.State.ensure_account(state(evm), addr)
+      |> Chain.Account.storageInteger(key)
+
+    true = Port.command(evm.port, <<value::unsigned-size(256)>>)
+    {:cont, evm}
+  end
+
+  # set_storage(addr, key, value) -> old_value
+  defp process_data(
+         <<"ss", addr::unsigned-size(160), key::unsigned-little-size(256),
+           new_value::unsigned-size(256)>>,
+         evm
+       ) do
+    state = state(evm)
+    account = Chain.State.ensure_account(state, addr)
+    value = account |> Chain.Account.storageInteger(key)
+    account = Chain.Account.storageSetValue(account, key, new_value)
+
+    evm = set_state(evm, Chain.State.set_account(state, <<addr::unsigned-size(160)>>, account))
+
+    true = Port.command(evm.port, <<value::unsigned-size(256)>>)
+    {:cont, evm}
+  end
+
+  # account_exists?()
+  defp process_data(<<"ae", addr::unsigned-size(160)>>, evm) do
+    state = state(evm)
+
+    ret =
+      case Chain.State.account(state, <<addr::unsigned-size(160)>>) do
+        nil -> 0
+        %Chain.Account{} -> 1
+      end
+
+    true = Port.command(evm.port, <<ret::unsigned-little-size(64)>>)
+    {:cont, evm}
+  end
+
+  # get_balance(addr)
+  defp process_data(<<"gb", addr::unsigned-size(160)>>, evm) do
+    value =
+      Chain.State.ensure_account(state(evm), addr)
+      |> Chain.Account.balance()
+
+    true = Port.command(evm.port, <<value::unsigned-size(256)>>)
+    {:cont, evm}
+  end
+
+  # get_code_size(addr)
+  defp process_data(<<"gc", addr::unsigned-size(160)>>, evm) do
+    size =
+      Chain.State.ensure_account(state(evm), addr)
+      |> Chain.Account.code()
+      |> byte_size()
+
+    true = Port.command(evm.port, <<size::unsigned-little-size(64)>>)
+    {:cont, evm}
+  end
+
+  # get_code_hash(addr)
+  defp process_data(<<"gd", addr::unsigned-size(160)>>, evm) do
+    hash =
+      Chain.State.ensure_account(state(evm), addr)
+      |> Chain.Account.codehash()
+
+    true = Port.command(evm.port, <<hash::binary-size(32)>>)
+    {:cont, evm}
+  end
+
+  # copy_code(addr)
+  defp process_data(
+         <<"cc", addr::unsigned-size(160), offset::unsigned-little-size(64),
+           size::unsigned-little-size(64)>>,
+         evm
+       ) do
+    code =
+      Chain.State.ensure_account(state(evm), addr)
+      |> Chain.Account.code()
+
+    length = min(size, byte_size(code) - offset)
+    code = binary_part(code, offset, length)
+
+    true = Port.command(evm.port, <<length::unsigned-little-size(64), code::binary-size(length)>>)
+    {:cont, evm}
+  end
+
+  # selfdestruct(addr, benefactor)
+  defp process_data(
+         <<"sd", _addr::unsigned-size(160), ben::unsigned-size(160)>>,
+         evm
+       ) do
+    {:cont, %{evm | selfdestruct: ben |> :binary.encode_unsigned()}}
+  end
+
+  # get_block_hash(number)
+  defp process_data(<<"gh", number::signed-little-size(64)>>, evm) do
+    hash = Chain.block(number) |> Chain.Block.hash()
+    true = Port.command(evm.port, <<hash::binary-size(32)>>)
+    {:cont, evm}
+  end
+
+  # call(...)
+  defp process_data(
+         <<"ca", kind::signed-little-size(64), sender::unsigned-size(160),
+           destination::unsigned-size(160), value::unsigned-size(256),
+           len::unsigned-little-size(64), input::binary-size(len),
+           gas::unsigned-little-size(64)>>,
+         evm
+       ) do
+    kind =
+      case kind do
+        0 -> :evmc_call
+        1 -> :evmc_delegatecall
+        2 -> :evmc_callcode
+        3 -> :evmc_create
+        4 -> :evmc_create2
+      end
+
+    {code, evm2} =
+      State.call_contract(destination, kind, gas, value, input, sender, evm.chain_state)
+
+    state =
+      if code == :ok do
+        %{
+          evm.chain_state
+          | chain_state: Evm.state(evm2),
+            selfdestructs: evm2.chain_state.selfdestructs
+        }
+      else
+        evm.chain_state
+      end
+
+    code = status_atom(evm2.msg)
+
+    message = <<
+      Evm.gas(evm2)::unsigned-little-size(64),
+      code::signed-little-size(64),
+      byte_size(Evm.out(evm2))::unsigned-little-size(64),
+      Evm.out(evm2)::binary,
+      Evm.create_address(evm2)::unsigned-size(160)
+    >>
+
+    true = Port.command(evm.port, message)
+    {:cont, %{evm | chain_state: state}}
+  end
+
+  # emit_log(number)
+  defp process_data(
+         <<"lo", addr::unsigned-size(160), size::unsigned-little-size(64),
+           data::binary-size(size), count::unsigned-little-size(64), topics::binary>>,
+         evm
+       ) do
+    topics = for n <- 1..count, do: binary_part(topics, (n - 1) * 32, 32)
+    logs = evm.logs ++ [{<<addr::unsigned-size(160)>>, topics, data}]
+    {:cont, %{evm | logs: logs}}
+  end
+
+  defp process_data(other, evm) do
+    :io.format("dump ~p ~0p~n", [binary_part(other, 0, 2), other])
+    {:cont, evm}
+  end
+
+  defp status_code(0), do: :evmc_success
+  defp status_code(1), do: :evmc_failure
+  defp status_code(2), do: :evmc_revert
+  defp status_code(3), do: :evmc_out_of_gas
+  defp status_code(4), do: :evmc_invalid_instruction
+  defp status_code(5), do: :evmc_undefined_instruction
+  defp status_code(6), do: :evmc_stack_overflow
+  defp status_code(7), do: :evmc_stack_underflow
+  defp status_code(8), do: :evmc_bad_jump_destination
+  defp status_code(9), do: :evmc_invalid_memory_access
+  defp status_code(10), do: :evmc_call_depth_exceeded
+  defp status_code(11), do: :evmc_static_mode_violation
+  defp status_code(12), do: :evmc_precompile_failure
+  defp status_code(13), do: :evmc_validation_failure
+  defp status_code(14), do: :evmc_argument_out_of_range
+  defp status_code(15), do: :evmc_wasm_unreachable_instruction
+  defp status_code(16), do: :evmc_wasm_trap
+  defp status_code(-1), do: :evmc_internal_error
+  defp status_code(-2), do: :evmc_rejected
+  defp status_code(-3), do: :evmc_out_of_memory
+  defp status_atom(:evmc_success), do: 0
+  defp status_atom(:evmc_failure), do: 1
+  defp status_atom(:evmc_revert), do: 2
+  defp status_atom(:evmc_out_of_gas), do: 3
+  defp status_atom(:evmc_invalid_instruction), do: 4
+  defp status_atom(:evmc_undefined_instruction), do: 5
+  defp status_atom(:evmc_stack_overflow), do: 6
+  defp status_atom(:evmc_stack_underflow), do: 7
+  defp status_atom(:evmc_bad_jump_destination), do: 8
+  defp status_atom(:evmc_invalid_memory_access), do: 9
+  defp status_atom(:evmc_call_depth_exceeded), do: 10
+  defp status_atom(:evmc_static_mode_violation), do: 11
+  defp status_atom(:evmc_precompile_failure), do: 12
+  defp status_atom(:evmc_validation_failure), do: 13
+  defp status_atom(:evmc_argument_out_of_range), do: 14
+  defp status_atom(:evmc_wasm_unreachable_instruction), do: 15
+  defp status_atom(:evmc_wasm_trap), do: 16
+  defp status_atom(:evmc_internal_error), do: -1
+  defp status_atom(:evmc_rejected), do: -2
+  defp status_atom(:evmc_out_of_memory), do: -3
 
   def gas(evm) do
     evm.gas
   end
 
-  def code(evm) do
+  defp code(evm) do
     evm.code
   end
 
@@ -459,16 +689,16 @@ defmodule Evm do
     evm.out
   end
 
-  def data(evm) do
-    evm.data
+  def create_address(evm) do
+    evm.create_address
   end
 
   def return_data(evm) do
     evm.return_data
   end
 
-  def storage(evm) do
-    evm.storage
+  def input(evm) do
+    Transaction.payload(evm.chain_state.tx)
   end
 
   def trace(evm) do
@@ -484,6 +714,43 @@ defmodule Evm do
   end
 
   def gas_cost(atom) do
-    :aec_governance.vm_gas_table()[atom]
+    case atom do
+      :GZERO -> 0
+      :GBASE -> 2
+      :GVERYLOW -> 3
+      :GLOW -> 5
+      :GMID -> 8
+      :GHIGH -> 10
+      :GEXTCODESIZE -> 700
+      :GEXTCODECOPY -> 700
+      :GBALANCE -> 400
+      :GSLOAD -> 200
+      :GJUMPDEST -> 1
+      :GSSET -> 20000
+      :GSRESET -> 5000
+      :RSCLEAR -> 15000
+      :RSELFDESTRUCT -> 24000
+      :GSELFDESTRUCT -> 5000
+      :GCREATE -> 32000
+      :GCODEDEPOSIT -> 200
+      :GCALL -> 700
+      :GCALLVALUE -> 9000
+      :GCALLSTIPEND -> 2300
+      :GNEWACCOUNT -> 25000
+      :GEXP -> 10
+      :GEXPBYTE -> 50
+      :GMEMORY -> 3
+      :GTXCREATE -> 32000
+      :GTXDATAZERO -> 4
+      :GTXDATANONZERO -> 68
+      :GTRANSACTION -> 21000
+      :GLOG -> 375
+      :GLOGDATA -> 8
+      :GLOGTOPIC -> 375
+      :GSHA3 -> 30
+      :GSHA3WORD -> 6
+      :GCOPY -> 3
+      :GBLOCKHASH -> 20
+    end
   end
 end

@@ -7,14 +7,19 @@ defmodule ABI do
   end
 
   def decode_revert(<<"">>) do
-    {:revert, ""}
+    {:evmc_revert, ""}
   end
 
   # Decoding "Error(string)" type revert messages
   def decode_revert(
         <<8, 195, 121, 160, 32::unsigned-size(256), length::unsigned-size(256), rest::binary>>
       ) do
-    {:revert, binary_part(rest, 0, length)}
+    {:evmc_revert, binary_part(rest, 0, length)}
+  end
+
+  def decode_revert(other) do
+    :io.format("decode_revert(~0p)~n", [other])
+    {:evmc_revert, "blubb"}
   end
 
   def encode_spec(name, types \\ []) do

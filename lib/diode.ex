@@ -134,7 +134,6 @@ defmodule Diode do
     |> String.split(" ", trim: true)
     |> Enum.map(fn int ->
       decode_int(int)
-      |> :binary.encode_unsigned()
       |> Wallet.from_privkey()
     end)
 

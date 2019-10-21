@@ -5,8 +5,7 @@ defmodule EvmTest do
 
   test "init" do
     evm = Evm.init()
-    ret = Evm.eval(evm)
-    assert :ok == elem(ret, 0)
+    {:ok, _ret} = Evm.eval(evm)
   end
 
   test "create contract" do
@@ -40,7 +39,7 @@ defmodule EvmTest do
 
     user_acc = %Chain.Account{
       nonce: ctx.nonce,
-      balance: ctx.value + 2 * Transaction.gasLimit(ctx) * Transaction.gasPrice(ctx)
+      balance: ctx.value + 2 * Transaction.gas_limit(ctx) * Transaction.gas_price(ctx)
     }
 
     assert Wallet.pubkey!(Transaction.origin(ctx)) == Wallet.pubkey!(wallet)
@@ -48,13 +47,13 @@ defmodule EvmTest do
     state = Chain.State.set_account(state, Wallet.address!(wallet), user_acc)
 
     # Fail test 1: Too little balance
-    ctx_fail = %{ctx | gasLimit: ctx.gasLimit * 1_000_000} |> Transaction.sign(priv)
+    ctx_fail = %{ctx | gasLimit: Transaction.gas_limit(ctx) * 1_000_000} |> Transaction.sign(priv)
     assert {:error, :not_enough_balance} == Transaction.apply(ctx_fail, block, state)
 
     # Fail test 2: Too little gas
     ctx_fail = %{ctx | gasLimit: 1} |> Transaction.sign(priv)
 
-    {:ok, _state, %TransactionReceipt{msg: :out_of_gas}} =
+    {:ok, _state, %TransactionReceipt{msg: :evmc_out_of_gas}} =
       Transaction.apply(ctx_fail, block, state)
 
     {:ok, state, %TransactionReceipt{msg: :ok}} = Transaction.apply(ctx, block, state)
@@ -78,7 +77,9 @@ defmodule EvmTest do
 
     # Fail test 3: value on non_payable method
     tx_fail = %{tx | value: 1} |> Transaction.sign(priv)
-    {:ok, _state, %TransactionReceipt{msg: :revert}} = Transaction.apply(tx_fail, block, state)
+
+    {:ok, _state, %TransactionReceipt{msg: :evmc_revert}} =
+      Transaction.apply(tx_fail, block, state)
 
     {:ok, state, %TransactionReceipt{msg: :ok, evmout: evmout}} =
       Transaction.apply(tx, block, state)

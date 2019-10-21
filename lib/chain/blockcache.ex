@@ -9,8 +9,18 @@ defmodule Chain.BlockCache do
   end
 
   def init(_) do
-    __MODULE__ = :ets.new(__MODULE__, [:named_table, :compressed, :public])
-    {:ok, __MODULE__}
+    case :ets.file2tab(Diode.dataDir("blockcache.ets") |> :erlang.binary_to_list()) do
+      {:ok, __MODULE__} ->
+        {:ok, __MODULE__}
+
+      {:error, _reason} ->
+        __MODULE__ = :ets.new(__MODULE__, [:named_table, :compressed, :public])
+        {:ok, __MODULE__}
+    end
+  end
+
+  def save() do
+    :ets.tab2file(__MODULE__, Diode.dataDir("blockcache.ets") |> :erlang.binary_to_list())
   end
 
   def handle_call({:do_cache, block}, _from, state) do
@@ -31,9 +41,9 @@ defmodule Chain.BlockCache do
     }
   end
 
-  def cache(nil) do
-    %Chain.BlockCache{}
-  end
+  # def cache(nil) do
+  #   %Chain.BlockCache{}
+  # end
 
   def cache(block) do
     hash = Block.hash(block)
@@ -83,7 +93,7 @@ defmodule Chain.BlockCache do
   defdelegate encode_transactions(transactions), to: Block
   defdelegate extraData(block), to: Block
   defdelegate gasLimit(block), to: Block
-  defdelegate gasPrice(block), to: Block
+  defdelegate gas_price(block), to: Block
   defdelegate gasUsed(block), to: Block
   defdelegate hash(block), to: Block
   defdelegate hash_in_target?(block, hash), to: Block

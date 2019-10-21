@@ -22,7 +22,7 @@ defmodule Wallet do
     Wallet.from_privkey(private)
   end
 
-  @spec from_privkey(<<_::256>>) :: Wallet.t()
+  @spec from_privkey(<<_::256>> | integer()) :: Wallet.t()
   def from_privkey(privkey) when is_integer(privkey) do
     from_privkey(<<privkey::unsigned-size(256)>>)
   end

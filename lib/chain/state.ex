@@ -21,7 +21,8 @@ defmodule Chain.State do
     Map.get(map, MerkleTree.get(store, id))
   end
 
-  @spec ensure_account(Chain.State.t(), <<_::160>>) :: Chain.Account.t()
+  @spec ensure_account(Chain.State.t(), <<_::160>> | Wallet.t() | non_neg_integer()) ::
+          Chain.Account.t()
   def ensure_account(state = %Chain.State{}, id = wallet()) do
     ensure_account(state, Wallet.address!(id))
   end
@@ -31,6 +32,10 @@ defmodule Chain.State do
       nil -> %Chain.Account{nonce: 0}
       acc -> acc
     end
+  end
+
+  def ensure_account(state = %Chain.State{}, id) when is_integer(id) do
+    ensure_account(state, <<id::unsigned-size(160)>>)
   end
 
   @spec set_account(Chain.State.t(), binary(), Chain.Account.t()) :: Chain.State.t()

@@ -4,6 +4,10 @@ defmodule Hash do
     :binary.decode_unsigned(hash)
   end
 
+  def to_address(hash = <<_::160>>) do
+    hash
+  end
+
   def to_address(hash = <<_::256>>) do
     binary_part(hash, 12, 20)
   end

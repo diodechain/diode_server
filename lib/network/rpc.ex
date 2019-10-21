@@ -59,7 +59,7 @@ defmodule Network.Rpc do
             {:ok, _state, rcpt} ->
               %{
                 "messsage" => "VM Exception while processing transaction: #{rcpt.msg}",
-                "code" => if(rcpt.msg == :revert, do: -32000, else: -31000),
+                "code" => if(rcpt.msg == :evmc_revert, do: -32000, else: -31000),
                 "data" => rcpt.evmout
               }
 
@@ -240,7 +240,7 @@ defmodule Network.Rpc do
           else
             %{
               "messsage" => "VM Exception while processing transaction: #{rcpt.msg}",
-              "code" => if(rcpt.msg == :revert, do: -32000, else: -31000),
+              "code" => if(rcpt.msg == :evmc_revert, do: -32000, else: -31000),
               "data" => rcpt.evmout
             }
           end
@@ -323,7 +323,7 @@ defmodule Network.Rpc do
         result(id, Chain.peak())
 
       "eth_gasPrice" ->
-        result(id, Chain.gasPrice())
+        result(id, Chain.gas_price())
 
       "net_listening" ->
         result(id, true)
@@ -362,7 +362,7 @@ defmodule Network.Rpc do
                   "action" => %{
                     "callType" => Atom.to_string(Transaction.type(tx)),
                     "from" => Transaction.from(tx),
-                    "gas" => Transaction.gasLimit(tx),
+                    "gas" => Transaction.gas_limit(tx),
                     "init" => Transaction.payload(tx),
                     "to" => Transaction.to(tx),
                     "value" => Transaction.value(tx)
@@ -536,7 +536,7 @@ defmodule Network.Rpc do
     from = Wallet.address!(wallet)
 
     gas = Map.get(opts, "gas", 0x15F90)
-    gasPrice = Map.get(opts, "gasPrice", 0x3B9ACA00)
+    gas_price = Map.get(opts, "gasPrice", 0x3B9ACA00)
     value = Map.get(opts, "value", 0x0)
     blockRef = Map.get(opts, "blockRef", "latest")
 
@@ -554,7 +554,7 @@ defmodule Network.Rpc do
           %Chain.Transaction{
             to: nil,
             nonce: nonce,
-            gasPrice: gasPrice,
+            gasPrice: gas_price,
             gasLimit: gas,
             init: data,
             value: value
@@ -565,7 +565,7 @@ defmodule Network.Rpc do
           %Chain.Transaction{
             to: to,
             nonce: nonce,
-            gasPrice: gasPrice,
+            gasPrice: gas_price,
             gasLimit: gas,
             data: data,
             value: value
@@ -603,7 +603,7 @@ defmodule Network.Rpc do
       "blockNumber" => Block.number(block),
       "from" => Transaction.from(tx),
       "gas" => Block.transactionGas(block, tx),
-      "gasPrice" => Transaction.gasPrice(tx),
+      "gasPrice" => Transaction.gas_price(tx),
       "hash" => Transaction.hash(tx),
       "input" => Transaction.payload(tx),
       "nonce" => Transaction.nonce(tx),
