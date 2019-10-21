@@ -24,6 +24,8 @@ defmodule Chain.Block do
   def state(%Block{} = block), do: Chain.state_load(state_hash(block))
   def state_hash(%Block{header: header}), do: header.state_hash
   @spec hash(Chain.Block.t()) :: binary()
+  # Fix for creating a signature of a non-exisiting block in registry_test.ex
+  def hash(nil), do: nil
   def hash(%Block{header: header}), do: header.block_hash
   @spec transactions(Chain.Block.t()) :: [Chain.Transaction.t()]
   def transactions(%Block{transactions: transactions}), do: transactions
