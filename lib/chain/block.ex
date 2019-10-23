@@ -43,7 +43,7 @@ defmodule Chain.Block do
 
   @spec validate(any()) :: %Chain.Block{} | {non_neg_integer(), any()}
   def validate(block) do
-    IO.puts("Block #{number(block)}: #{length(transactions(block))}txs")
+    IO.puts("Block #{number(block)}.: #{length(transactions(block))}txs")
 
     with {1, %Block{}} <- {1, block},
          {2, %Block{}} <- {2, parent(block)},
@@ -161,7 +161,7 @@ defmodule Chain.Block do
       end)
 
     t2 = Time.utc_now()
-    IO.puts("Block #{length(transactions)}: #{Time.diff(t2, t1, :millisecond)}ms")
+    IO.puts("Block #{length(transactions)}txs: #{Time.diff(t2, t1, :millisecond)}ms")
 
     state_hash =
       Chain.state_store(nstate)
@@ -257,7 +257,7 @@ defmodule Chain.Block do
   end
 
   @spec number(Block.t()) :: non_neg_integer()
-  def number(nil) do
+  def number(%Block{header: %Chain.Header{previous_block: nil}}) do
     0
   end
 
@@ -283,7 +283,8 @@ defmodule Chain.Block do
   end
 
   def epoch(%Block{} = block) do
-    Contract.Registry.epoch(block)
+    rem(number(block), Chain.epoch_length())
+    # Contract.Registry.epoch(block)
   end
 
   @spec gasUsed(Block.t()) :: non_neg_integer()
