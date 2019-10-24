@@ -1,5 +1,6 @@
 
-CXXFLAGS=-I. -O3 -g -Wall -Wno-unknown-pragmas
+CFLAGS=-I. -O3 -g -Wall -Wno-unknown-pragmas
+CXXFLAGS=-std=c++17 $(CFLAGS)
 LDFLAGS=-lboost_system
 INTERP=libaleth-interpreter
 
@@ -19,7 +20,7 @@ host.o: host.hpp
 	g++ -c $(CXXFLAGS) $< -o $@
 
 %.o : %.c
-	gcc -c $(CXXFLAGS) $< -o $@
+	gcc -c $(CFLAGS) $< -o $@
 
 .PHONY: clean
 clean:
