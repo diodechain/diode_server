@@ -4,3 +4,18 @@ elixir:
 otp_release:
   - 22.0
 sudo: true
+addons:
+  apt:
+    update: true
+    sources:
+      - sourceline: 'ppa:mhier/libboost-latest'
+      - ubuntu-toolchain-r-test
+    packages:
+      - gcc-8
+      - g++-8
+      - boost1.67      
+
+script:
+  - sudo ln -s /usr/bin/gcc-8 /usr/local/bin/gcc
+  - sudo ln -s /usr/bin/g++-8 /usr/local/bin/g++
+  - mix test
