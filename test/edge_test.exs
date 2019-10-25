@@ -6,6 +6,8 @@ defmodule EdgeTest do
   import Ticket
   import TestHelper
 
+  @ticket_grace 4096
+
   setup do
     TicketStore.clear()
     :persistent_term.put(:no_tickets, false)
@@ -14,7 +16,7 @@ defmodule EdgeTest do
 
   setup_all do
     IO.puts("Starting clients")
-    Diode.ticket_grace(4096)
+    Diode.ticket_grace(@ticket_grace)
     :persistent_term.put(:no_tickets, false)
     ensure_clients()
 
@@ -48,6 +50,12 @@ defmodule EdgeTest do
       assert Wallet.equal?(id1, clientid(2))
       assert Wallet.equal?(id2, clientid(1))
     end
+
+    # Test byte counter matches
+    assert call(:client_1, :bytes) == {:ok, 102}
+    assert call(:client_2, :bytes) == {:ok, 102}
+    assert rpc(:client_1, ["bytes"]) == ["response", "bytes", 102]
+    assert rpc(:client_2, ["bytes"]) == ["response", "bytes", 102]
   end
 
   test "getblock" do
@@ -112,7 +120,8 @@ defmodule EdgeTest do
              [
                "response",
                "ticket",
-               "thanks!"
+               "thanks!",
+               0
              ]
 
     # Submitting a second ticket with the same count should fail
@@ -174,6 +183,7 @@ defmodule EdgeTest do
   end
 
   test "port" do
+    check_counters()
     # Checking wrong port_id usage
     assert rpc(:client_1, ["portopen", "wrongid", 3000]) == [
              "error",
@@ -193,6 +203,7 @@ defmodule EdgeTest do
              "can't connect to yourself"
            ]
 
+    check_counters()
     # Connecting to "right" port id
     client2id = Wallet.address!(clientid(2))
     assert csend(:client_1, ["portopen", client2id, 3000]) == {:ok, :ok}
@@ -203,16 +214,23 @@ defmodule EdgeTest do
     {:ok, ["response", "portopen", "ok", ref2]} = crecv(:client_1)
     assert ref1 == ref2
 
-    for _ <- 1..10 do
+    for n <- 1..50 do
+      check_counters()
+
       # Sending traffic
-      assert rpc(:client_2, ["portsend", ref1, "ping from 2!"]) == ["response", "portsend", "ok"]
-      assert crecv(:client_1) == {:ok, ["portsend", ref1, "ping from 2!"]}
+      msg = String.duplicate("ping from 2!", n * n)
+      assert rpc(:client_2, ["portsend", ref1, msg]) == ["response", "portsend", "ok"]
+      assert crecv(:client_1) == {:ok, ["portsend", ref1, msg]}
+
+      check_counters()
 
       # Both ways
-      assert rpc(:client_1, ["portsend", ref1, "ping from 1!"]) == ["response", "portsend", "ok"]
-      assert crecv(:client_2) == {:ok, ["portsend", ref1, "ping from 1!"]}
+      msg = String.duplicate("ping from 1!", n * n)
+      assert rpc(:client_1, ["portsend", ref1, msg]) == ["response", "portsend", "ok"]
+      assert crecv(:client_2) == {:ok, ["portsend", ref1, msg]}
     end
 
+    check_counters()
     # Closing port
     assert rpc(:client_1, ["portclose", ref1]) == ["response", "portclose", "ok"]
     assert crecv(:client_2) == {:ok, ["portclose", ref1]}
@@ -370,6 +388,15 @@ defmodule EdgeTest do
     assert false == Process.alive?(old_pid)
   end
 
+  defp check_counters() do
+    # Checking counters
+    {:ok, bytes} = call(:client_2, :bytes)
+    assert rpc(:client_2, ["bytes"]) == ["response", "bytes", bytes]
+
+    {:ok, bytes} = call(:client_1, :bytes)
+    assert rpc(:client_1, ["bytes"]) == ["response", "bytes", bytes]
+  end
+
   defp kill(atom) do
     case Process.whereis(atom) do
       nil ->
@@ -425,19 +452,22 @@ defmodule EdgeTest do
   end
 
   defp create_ticket(socket, state = %{unpaid_bytes: ub, paid_bytes: pb}) do
-    if ub >= pb + 1024 and not :persistent_term.get(:no_tickets) do
-      do_create_ticket(socket, state)
+    if ub >= pb + @ticket_grace and not :persistent_term.get(:no_tickets) do
+      state = do_create_ticket(socket, state)
+      handle_ticket(socket, state)
     else
       state
     end
   end
 
-  defp do_create_ticket(socket, state) do
+  defp do_create_ticket(socket, state = %{unpaid_bytes: unpaid_bytes, paid_bytes: paid_bytes}) do
+    count = div(unpaid_bytes + 400 - paid_bytes, @ticket_grace)
+
     tck =
       ticket(
         server_id: Wallet.address!(Store.wallet()),
         total_connections: state.conns,
-        total_bytes: state.paid_bytes + 1024,
+        total_bytes: paid_bytes + @ticket_grace * count,
         local_address: "spam",
         block_number: Chain.peak(),
         fleet_contract: <<0::unsigned-size(160)>>
@@ -454,54 +484,63 @@ defmodule EdgeTest do
       Ticket.device_signature(tck)
     ]
 
-    :ssl.send(socket, Json.encode!(data))
+    msg = Json.encode!(data)
+    if socket != nil, do: :ok = :ssl.send(socket, msg)
 
-    %{state | paid_bytes: state.paid_bytes + 1024}
+    %{
+      state
+      | paid_bytes: state.paid_bytes + @ticket_grace * count,
+        unpaid_bytes: state.unpaid_bytes + byte_size(msg)
+    }
   end
 
-  def handle_tickets(socket, state, msg) do
-    if not :persistent_term.get(:no_tickets) do
-      case Json.decode!(msg) do
-        ["response", "ticket", "thanks!"] ->
-          state
-
-        ["response", "ticket", "too_low", _peak, conns, bytes, _address, _signature] ->
-          state = %{state | conns: conns, paid_bytes: bytes, unpaid_bytes: bytes + 1024}
-          create_ticket(socket, state)
-
-        _ ->
-          false
+  def handle_ticket(socket, state = %{events: events}) do
+    msg =
+      receive do
+        {:ssl, _, msg} -> msg
+      after
+        1500 -> throw(:missing_ticket_reply)
       end
-    else
-      false
+
+    case Json.decode!(msg) do
+      ["response", "ticket", "thanks!", _bytes] ->
+        %{state | unpaid_bytes: state.unpaid_bytes + byte_size(msg)}
+
+      ["response", "ticket", "too_low", _peak, conns, bytes, _address, _signature] ->
+        state = %{
+          state
+          | conns: conns,
+            paid_bytes: bytes,
+            unpaid_bytes: bytes + state.unpaid_bytes + byte_size(msg)
+        }
+
+        create_ticket(socket, state)
+
+      _ ->
+        handle_ticket(socket, %{state | events: :queue.in(msg, events)})
     end
   end
 
   def clientloop(socket, state) do
     state = create_ticket(socket, state)
 
+    if not :queue.is_empty(state.events) do
+      {{:value, msg}, events} = :queue.out(state.events)
+      clientloop(socket, handle_msg(msg, %{state | events: events}))
+    end
+
     receive do
       {:ssl, _, msg} ->
-        # IO.puts("Received #{msg}")
-        state = %{state | unpaid_bytes: state.unpaid_bytes + byte_size(msg)}
-
-        case handle_tickets(socket, state, msg) do
-          false ->
-            case state.recv do
-              nil ->
-                clientloop(socket, %{state | data: :queue.in(msg, state.data)})
-
-              from ->
-                send(from, {:ret, msg})
-                clientloop(socket, %{state | recv: nil})
-            end
-
-          state ->
-            clientloop(socket, state)
-        end
+        clientloop(socket, handle_msg(msg, state))
 
       {:ssl_closed, _} ->
-        IO.puts("Remote closed the connection")
+        IO.puts("Remote closed the connection, #{inspect(state)}")
+
+        if :queue.is_empty(state.data) do
+          :ok
+        else
+          clientloop(nil, state)
+        end
 
       {pid, :peek} ->
         send(pid, {:ret, :queue.peek(state.data)})
@@ -517,13 +556,17 @@ defmodule EdgeTest do
             %{state | data: queue}
           end
 
-        clientloop(socket, state)
+        if socket == nil and :queue.is_empty(state.data) do
+          :ok
+        else
+          clientloop(socket, state)
+        end
 
       {pid, :quit} ->
         send(pid, {:ret, :ok})
 
       {pid, :bytes} ->
-        send(pid, {:ret, state.unpaid_bytes})
+        send(pid, {:ret, state.unpaid_bytes - state.paid_bytes})
         clientloop(socket, state)
 
       {pid, :ping} ->
@@ -535,14 +578,26 @@ defmodule EdgeTest do
         clientloop(socket, state)
 
       {pid, {:send, data}} ->
-        # IO.puts("Sending #{data}")
-        :ok = :ssl.send(socket, data)
+        if socket != nil, do: :ok = :ssl.send(socket, data)
         send(pid, {:ret, :ok})
         state = %{state | unpaid_bytes: state.unpaid_bytes + byte_size(data)}
         clientloop(socket, state)
 
       msg ->
-        IO.puts("Unhanloced: #{inspect(msg)}")
+        IO.puts("Unhandled: #{inspect(msg)}")
+    end
+  end
+
+  defp handle_msg(msg, state) do
+    state = %{state | unpaid_bytes: state.unpaid_bytes + byte_size(msg)}
+
+    case state.recv do
+      nil ->
+        %{state | data: :queue.in(msg, state.data)}
+
+      from ->
+        send(from, {:ret, msg})
+        %{state | recv: nil}
     end
   end
 
@@ -617,7 +672,8 @@ defmodule EdgeTest do
       key: key,
       unpaid_bytes: bytes,
       paid_bytes: bytes,
-      conns: conns
+      conns: conns,
+      events: :queue.new()
     }
 
     pid = Process.spawn(__MODULE__, :clientboot, [socket, state], [])

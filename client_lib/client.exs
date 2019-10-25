@@ -123,7 +123,7 @@ defmodule Client do
   def handle_tickets(state, msg) do
     if not :persistent_term.get(:no_tickets) do
       case Json.decode!(msg) do
-        ["response", "ticket", "thanks!"] ->
+        ["response", "ticket", "thanks!", _num] ->
           state
 
         ["response", "ticket", "too_low", _peak, conns, bytes, _address, _signature] ->

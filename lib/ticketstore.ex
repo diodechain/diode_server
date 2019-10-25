@@ -74,7 +74,7 @@ defmodule TicketStore do
       case find(key) do
         nil ->
           write(key, tck)
-          {:ok, 0}
+          {:ok, Ticket.total_bytes(tck)}
 
         last ->
           if Ticket.total_connections(last) < Ticket.total_connections(tck) or

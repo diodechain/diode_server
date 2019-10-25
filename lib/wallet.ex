@@ -105,3 +105,11 @@ defmodule Wallet do
     false
   end
 end
+
+defimpl Inspect, for: Wallet do
+  import Inspect.Algebra
+
+  def inspect(wallet, _opts) do
+    concat(["#Wallet<", Wallet.printable(wallet), ">"])
+  end
+end
