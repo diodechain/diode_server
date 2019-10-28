@@ -194,8 +194,11 @@ defmodule Network.PeerHandler do
   end
 
   defp handle_msg([@publish, blocks], state) when is_list(blocks) do
-    :io.format("Syncing ...~n")
+    # For better resource usage we only let one process sync at full
+    # throttle
+    throttle_sync()
 
+    # Actual syncing
     {msg, state} =
       Enum.reduce_while(blocks, {"ok", state}, fn block, {_, state} ->
         case handle_msg([@publish, block], state) do
@@ -250,10 +253,25 @@ defmodule Network.PeerHandler do
             # replay block backup list
             Enum.each(state.blocks, fn oldblock ->
               with %Chain.Block{} <- Block.parent(oldblock),
-                   %Chain.Block{} = block <- Block.validate(oldblock) do
-                Chain.add_block(block, false)
+                   block_hash <- Block.hash(oldblock) do
+                if Chain.block_by_hash(block_hash) != nil do
+                  IO.puts("Chain.add_block: Skipping existing block")
+                else
+                  case Block.validate(oldblock) do
+                    %Chain.Block{} = block ->
+                      throttle_sync()
+                      Chain.add_block(block, false)
+
+                    _ ->
+                      :ok
+                  end
+                end
               end
             end)
+
+            if Process.whereis(:active_peer_sync) == self() do
+              Process.unregister(:active_peer_sync)
+            end
 
             # delete backup list on first successfull block
             {[@response, @publish, "ok"], %{state | blocks: []}}
@@ -307,6 +325,24 @@ defmodule Network.PeerHandler do
   defp handle_msg(msg, state) do
     IO.puts("Unhandled: #{inspect(msg)}")
     {:noreply, state}
+  end
+
+  defp throttle_sync() do
+    # For better resource usage we only let one process sync at full
+    # throttle
+    case Process.whereis(:active_peer_sync) do
+      nil ->
+        Process.register(self(), :active_peer_sync)
+        :io.format("Syncing ...~n")
+
+      pid ->
+        if pid != self() do
+          :io.format("Syncing slow ...~n")
+          Process.sleep(1000)
+        else
+          :io.format("Syncing ...~n")
+        end
+    end
   end
 
   defp peer(state) do

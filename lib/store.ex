@@ -57,21 +57,30 @@ defmodule Store do
   end
 
   defp ensure_identity() do
-    record =
-      read_one(:keyValue, :identity, fn ->
-        id = Secp256k1.generate()
-        record = keyValue(key: :identity, value: id)
-        :ok = :mnesia.write(record)
-        record
-      end)
+    case :persistent_term.get(:identity, nil) do
+      nil ->
+        record =
+          read_one(:keyValue, :identity, fn ->
+            id = Secp256k1.generate()
+            record = keyValue(key: :identity, value: id)
+            :ok = :mnesia.write(record)
+            record
+          end)
 
-    keyValue(record, :value)
+        id = keyValue(record, :value)
+        :persistent_term.put(:identity, id)
+        id
+
+      id ->
+        id
+    end
   end
 
   def set_wallet(wallet) do
     id = {Wallet.pubkey!(wallet), Wallet.privkey!(wallet)}
     record = keyValue(key: :identity, value: id)
     write_one(record)
+    :persistent_term.put(:identity, id)
   end
 
   defp read_one(table, key, default) do
