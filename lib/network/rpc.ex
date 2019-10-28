@@ -2,10 +2,12 @@ defmodule Network.Rpc do
   alias Chain.BlockCache, as: Block
   alias Chain.Transaction
 
-  def handle_jsonrpc(%{"_json" => rpcs}) when is_list(rpcs) do
+  def handle_jsonrpc(rpcs, opts \\ [])
+
+  def handle_jsonrpc(%{"_json" => rpcs}, opts) when is_list(rpcs) do
     body =
       Enum.reduce(rpcs, [], fn rpc, acc ->
-        {_status, body} = handle_jsonrpc(rpc)
+        {_status, body} = handle_jsonrpc(rpc, opts)
         [body | acc]
         # :io.format("~p~n", [body])
       end)
@@ -14,7 +16,7 @@ defmodule Network.Rpc do
     {200, body}
   end
 
-  def handle_jsonrpc(body_params) when is_map(body_params) do
+  def handle_jsonrpc(body_params, opts) when is_map(body_params) do
     %{
       "method" => method,
       "id" => id
@@ -22,25 +24,14 @@ defmodule Network.Rpc do
 
     params = Map.get(body_params, "params", [])
 
-    ret =
-      try do
-        handle_jsonrpc(id, method, params)
-      catch
-        :notfound -> result(id, nil, 404, %{"message" => "Not found"})
-      end
-
-    if Diode.dev_mode?() do
-      if method == "__eth_getTransactionReceipt" do
-        :io.format("~s ~0p =>~n~0p~n", [method, params, ret])
-      else
-        :io.format("~s~n", [method])
-      end
+    try do
+      handle_jsonrpc(id, method, params, opts)
+    catch
+      :notfound -> result(id, nil, 404, %{"message" => "Not found"})
     end
-
-    ret
   end
 
-  defp handle_jsonrpc(id, method, params) do
+  defp handle_jsonrpc(id, method, params, opts) do
     case method do
       "eth_sendRawTransaction" ->
         [hextx] = params
@@ -204,28 +195,21 @@ defmodule Network.Rpc do
         # TODO real estimate
         result(id, Chain.gasLimit())
 
-      "eth_sendTransaction" ->
-        [%{} = opts] = params
-
-        opts = decode_opts(opts)
-        %{"from" => from, "data" => data} = opts
-        wallet = Enum.find(Diode.wallets(), fn w -> Wallet.address!(w) == from end)
-        tx = create_transaction(wallet, data, opts)
-
-        Chain.Pool.add_transaction(tx)
-
-        if Diode.dev_mode?() do
-          Chain.Worker.work()
-        end
-
-        result(id, Chain.Transaction.hash(tx))
-
       "eth_call" ->
         [%{} = opts, ref] = params
 
         opts = decode_opts(opts)
-        %{"from" => from, "data" => data} = opts
-        wallet = Enum.find(Diode.wallets(), fn w -> Wallet.address!(w) == from end)
+        data = opts["data"]
+
+        wallet =
+          case Map.get(opts, "from") do
+            nil ->
+              Wallet.new()
+
+            from ->
+              Enum.find(Diode.wallets(), Wallet.new(), fn w -> Wallet.address!(w) == from end)
+          end
+
         tx = create_transaction(wallet, data, opts)
 
         block = getBlock(ref)
@@ -434,12 +418,45 @@ defmodule Network.Rpc do
         result(id, ret)
 
       _ ->
-        if Diode.dev_mode?() do
-          handle_dev(id, method, params)
-        else
+        ret =
+          if Diode.dev_mode?() do
+            handle_dev(id, method, params)
+          end
+
+        ret =
+          if ret == nil and opts.private == true do
+            handle_private(id, method, params)
+          end
+
+        if ret == nil do
           :io.format("Unhandled: ~p ~p~n", [method, params])
           {422, "what method?"}
+        else
+          ret
         end
+    end
+  end
+
+  def handle_private(id, method, params) do
+    case method do
+      "eth_sendTransaction" ->
+        [%{} = opts] = params
+
+        opts = decode_opts(opts)
+        %{"from" => from, "data" => data} = opts
+        wallet = Enum.find(Diode.wallets(), fn w -> Wallet.address!(w) == from end)
+        tx = create_transaction(wallet, data, opts)
+
+        Chain.Pool.add_transaction(tx)
+
+        if Diode.dev_mode?() do
+          Chain.Worker.work()
+        end
+
+        result(id, Chain.Transaction.hash(tx))
+
+      _ ->
+        false
     end
   end
 
@@ -483,8 +500,7 @@ defmodule Network.Rpc do
         result(id, "", 200)
 
       _ ->
-        :io.format("Unhandled: ~p ~p~n", [method, params])
-        {422, "what method?"}
+        false
     end
   end
 

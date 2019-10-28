@@ -30,9 +30,8 @@ defmodule Network.RpcHttp do
 
   post "/" do
     conn = cors(conn)
-    {status, body} = Network.Rpc.handle_jsonrpc(conn.body_params)
-
-    # :io.format("http(~330p)~n", [body])
+    is_local = conn.remote_ip == {127, 0, 0, 0}
+    {status, body} = Network.Rpc.handle_jsonrpc(conn.body_params, private: is_local)
 
     send_resp(conn, status, Poison.encode!(body))
   end

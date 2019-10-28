@@ -14,33 +14,6 @@ defmodule Diode do
       :io.format("~0p~n", [:inet.gethostname()])
     end
 
-    children = [
-      worker(PubSub, [args]),
-      worker(Store, [args]),
-      worker(Chain, [args]),
-      worker(Chain.BlockCache, [args]),
-      worker(Chain.Pool, [args]),
-      worker(Chain.Worker, [workerMode()]),
-
-      # Starting External Interfaces
-      Supervisor.child_spec({Network.Server, {edgePort(), Network.EdgeHandler}}, id: EdgeServer),
-      Supervisor.child_spec({Network.Server, {kademliaPort(), Network.PeerHandler}},
-        id: KademliaServer
-      ),
-      worker(Kademlia, [args]),
-      Plug.Adapters.Cowboy.child_spec(:http, Network.RpcHttp, [], [
-        {:port, rpcPort()},
-        {:dispatch,
-         [
-           {:_,
-            [
-              {"/ws", Network.RpcWs, []},
-              {:_, Plug.Adapters.Cowboy.Handler, {Network.RpcHttp, []}}
-            ]}
-         ]}
-      ])
-    ]
-
     IO.puts("====== ENV #{Mix.env()} ======")
     :persistent_term.put(:env, Mix.env())
     IO.puts("Edge Port: #{edgePort()}")
@@ -67,6 +40,38 @@ defmodule Diode do
     end
 
     IO.puts("")
+
+    children = [
+      worker(PubSub, [args]),
+      worker(Store, [args]),
+      worker(Chain, [args]),
+      worker(Chain.BlockCache, [args]),
+      worker(Chain.Pool, [args]),
+      worker(Chain.Worker, [workerMode()]),
+
+      # Starting External Interfaces
+      Supervisor.child_spec({Network.Server, {edgePort(), Network.EdgeHandler}}, id: EdgeServer),
+      Supervisor.child_spec({Network.Server, {kademliaPort(), Network.PeerHandler}},
+        id: KademliaServer
+      ),
+      worker(Kademlia, [args]),
+      Plug.Cowboy.child_spec(
+        scheme: :http,
+        plug: Network.RpcHttp,
+        options: [
+          port: rpcPort(),
+          ip: {0, 0, 0, 0},
+          compress: not Diode.dev_mode?(),
+          dispatch: [
+            {:_,
+             [
+               {"/ws", Network.RpcWs, []},
+               {:_, Plug.Adapters.Cowboy.Handler, {Network.RpcHttp, []}}
+             ]}
+          ]
+        ]
+      )
+    ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
