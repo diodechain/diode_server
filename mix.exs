@@ -26,7 +26,8 @@ defmodule Diode.Mixfile do
       {:poison, "~> 3.0"},
       {:libsecp256k1, "~> 0.1.10"},
       {:keccakf1600, "~> 2.0", hex: :keccakf1600_orig},
-      {:elixir_make, "~> 0.4", runtime: false}
+      {:elixir_make, "~> 0.4", runtime: false},
+      {:benchee, "~> 1.0", only: :benchmark}
     ]
   end
 end

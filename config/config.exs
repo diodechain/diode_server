@@ -13,6 +13,9 @@ config :logger,
   metadata: [:request_id]
 
 case Mix.env() do
+  :benchmark ->
+    System.put_env("WORKER_MODE", "disabled")
+
   :test ->
     System.put_env("KADEMLIA_PORT", "51053")
     System.put_env("SEED", "diode://localhost:51052")
