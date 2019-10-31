@@ -91,7 +91,7 @@ defmodule Chain do
 
   @doc "Gaslimit for block validation and estimation"
   def gasLimit() do
-    8_000_000
+    100_000_000_000
   end
 
   @doc "GasPrice for block validation and estimation"

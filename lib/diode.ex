@@ -14,14 +14,16 @@ defmodule Diode do
       :io.format("~0p~n", [:inet.gethostname()])
     end
 
-    children = [
+    base_children = [
       worker(PubSub, [args]),
       worker(Store, [args]),
       worker(Chain, [args]),
       worker(Chain.BlockCache, [args]),
       worker(Chain.Pool, [args]),
-      worker(Chain.Worker, [workerMode()]),
+      worker(Chain.Worker, [workerMode()])
+    ]
 
+    network_children = [
       # Starting External Interfaces
       Supervisor.child_spec({Network.Server, {edgePort(), Network.EdgeHandler}}, id: EdgeServer),
       Supervisor.child_spec({Network.Server, {kademliaPort(), Network.PeerHandler}},
@@ -40,6 +42,13 @@ defmodule Diode do
          ]}
       ])
     ]
+
+    children =
+      if Mix.env() == :benchmark do
+        base_children
+      else
+        base_children ++ network_children
+      end
 
     IO.puts("====== ENV #{Mix.env()} ======")
     :persistent_term.put(:env, Mix.env())

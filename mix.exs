@@ -24,7 +24,8 @@ defmodule Diode.Mixfile do
       {:plug, "~> 1.0"},
       {:poison, "~> 3.0"},
       {:libsecp256k1, "~> 0.1.10"},
-      {:keccakf1600, "~> 2.0", hex: :keccakf1600_orig}
+      {:keccakf1600, "~> 2.0", hex: :keccakf1600_orig},
+      {:benchee, "~> 1.0", only: :benchmark}
     ]
   end
 end
