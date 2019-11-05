@@ -74,7 +74,7 @@ defmodule Network.Server do
   def handle_call({:ensure_node_connection, node_id, address, port}, _from, state) do
     case Map.get(state.clients, node_id) do
       nil ->
-        {:ok, worker} = GenServer.start_link(state.protocol, [:connect, node_id, address, port])
+        worker = start_worker!(state, [:connect, node_id, address, port])
         {:reply, worker, state}
 
       client ->
@@ -112,8 +112,7 @@ defmodule Network.Server do
                   Process.exit(pid, :disconnect)
               end
 
-              {:ok, worker} = GenServer.start_link(state.protocol, [:init, newSocket2])
-
+              worker = start_worker!(state, [:init, newSocket2])
               set_keepalive(newSocket2)
               :ok = :ssl.controlling_process(newSocket2, worker)
               %Network.Server{state | clients: Map.put(state.clients, node_id, worker)}
@@ -126,6 +125,11 @@ defmodule Network.Server do
 
     send(self(), :accept)
     {:noreply, state2}
+  end
+
+  defp start_worker!(state, cmd) do
+    {:ok, worker} = GenServer.start_link(state.protocol, cmd, hibernate_after: 5_000)
+    worker
   end
 
   # 4.2. The setsockopt function call
