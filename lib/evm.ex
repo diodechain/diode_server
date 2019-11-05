@@ -1,6 +1,6 @@
 defmodule Evm do
   @moduledoc """
-  Wrapper around epoch/aevm
+  EVM Interface using an extern C application based on EVMC (currently Aleth)
   """
   alias Chain.Transaction
 
