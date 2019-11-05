@@ -43,7 +43,7 @@ defmodule Chain.Block do
 
   @spec validate(any()) :: %Chain.Block{} | {non_neg_integer(), any()}
   def validate(block) do
-    IO.puts("Block #{number(block)}.: #{length(transactions(block))}txs")
+    # IO.puts("Block #{number(block)}.: #{length(transactions(block))}txs")
 
     with {1, %Block{}} <- {1, block},
          {2, %Block{}} <- {2, parent(block)},
@@ -161,7 +161,15 @@ defmodule Chain.Block do
       end)
 
     t2 = Time.utc_now()
-    IO.puts("Block #{length(transactions)}txs: #{Time.diff(t2, t1, :millisecond)}ms")
+    diff = Time.diff(t2, t1, :millisecond)
+
+    if diff > 50 do
+      IO.puts(
+        "Block slow blog #{length(transactions)}txs: #{diff}ms parent:(#{
+          Base16.encode(header.previous_block)
+        })"
+      )
+    end
 
     state_hash =
       Chain.state_store(nstate)
