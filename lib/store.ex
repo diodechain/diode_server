@@ -1,3 +1,6 @@
+# Diode Server
+# Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
+# Licensed under the Diode License, Version 1.0
 defmodule Store do
   alias Chain.BlockCache, as: Block
   alias Chain.Transaction

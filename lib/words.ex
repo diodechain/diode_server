@@ -1,3 +1,6 @@
+# Diode Server
+# Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
+# Licensed under the Diode License, Version 1.0
 defmodule Words do
   @words {"abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract",
           "absurd", "abuse", "access", "accident", "account", "accuse", "achieve", "acid",

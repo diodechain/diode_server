@@ -1,3 +1,6 @@
+# Diode Server
+# Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
+# Licensed under the Diode License, Version 1.0
 defmodule Base16 do
   @spec encode(binary() | non_neg_integer(), any()) :: <<_::16, _::_*8>>
   def encode(int, bigX \\ true)

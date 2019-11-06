@@ -1,3 +1,6 @@
+# Diode Server
+# Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
+# Licensed under the Diode License, Version 1.0
 defmodule Json do
   def encode!(object, bigX \\ true) do
     encodable = do_encode(object, bigX)
@@ -81,12 +84,6 @@ defmodule Json do
 
   defp do_decode(bin) when is_binary(bin) do
     case bin do
-      <<"base58:", rest::binary>> ->
-        :base58.base58_to_binary(:erlang.binary_to_list(rest))
-
-      <<"base32:", rest::binary>> ->
-        :base32.decode(:erlang.binary_to_list(rest))
-
       <<"0x", _rest::binary>> ->
         Base16.decode(bin)
 

@@ -1,3 +1,6 @@
+# Diode Server
+# Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
+# Licensed under the Diode License, Version 1.0
 defmodule PreCompiles do
   def get(1), do: &ecrecover/2
   def get(2), do: &sha256/2

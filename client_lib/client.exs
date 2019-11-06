@@ -1,5 +1,6 @@
-#! /usr/bin/elixir
-# command = "openssl s_client -connect localhost:41043 -showcerts -msg -servername local -tls1_2 -tlsextdebug -curves secp256k1 -cert device_certificate.pem"
+# Diode Server
+# Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
+# Licensed under the Diode License, Version 1.0
 alias Object.Ticket, as: Ticket
 import Ticket
 

@@ -1,8 +1,6 @@
-/* EVMC: Ethereum Client-VM Connector API.
- * Copyright 2016-2019 The EVMC Authors.
- * Licensed under the Apache License, Version 2.0.
- */
-
+// EVMC Wrapper
+// Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
+// Licensed under the GNU General Public License, Version 3.
 #include <evmc/evmc.hpp>
 #include <unordered_map>
 #include <utility>

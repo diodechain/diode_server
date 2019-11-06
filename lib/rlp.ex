@@ -1,3 +1,6 @@
+# Diode Server
+# Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
+# Licensed under the Diode License, Version 1.0
 defmodule Rlp do
   @spec encode!(nil | binary() | maybe_improper_list() | non_neg_integer() | tuple()) :: binary()
   def encode!(term) do

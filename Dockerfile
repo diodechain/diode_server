@@ -1,3 +1,6 @@
+# Diode Server
+# Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
+# Licensed under the Diode License, Version 1.0
 FROM elixir:1.9
 
 RUN apt-get update && apt-get install -y libboost-dev libboost-system-dev

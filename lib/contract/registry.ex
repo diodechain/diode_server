@@ -1,3 +1,6 @@
+# Diode Server
+# Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
+# Licensed under the Diode License, Version 1.0
 defmodule Contract.Registry do
   @moduledoc """
     Wrapper for the DiodeRegistry contract functions
