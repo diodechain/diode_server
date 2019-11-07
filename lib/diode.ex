@@ -60,23 +60,27 @@ defmodule Diode do
         id: KademliaServer
       ),
       worker(Kademlia, [args]),
-      Plug.Cowboy.child_spec(
-        scheme: :http,
-        plug: Network.RpcHttp,
-        options: [
-          port: rpcPort(),
-          ip: {0, 0, 0, 0},
-          compress: not Diode.dev_mode?(),
-          dispatch: [
-            {:_,
-             [
-               {"/ws", Network.RpcWs, []},
-               {:_, Plug.Adapters.Cowboy.Handler, {Network.RpcHttp, []}}
-             ]}
-          ]
-        ]
-      )
+      cowboy(:http, port: rpcPort())
     ]
+
+    base_children =
+      case File.read("priv/privkey.pem") do
+        {:ok, _} ->
+          IO.puts("====== Enabling SSL")
+
+          https =
+            cowboy(:https,
+              keyfile: "priv/privkey.pem",
+              certfile: "priv/cert.pem",
+              port: rpcsPort(),
+              otp_app: Diode
+            )
+
+          base_children ++ [https]
+
+        _ ->
+          base_children
+      end
 
     children =
       if Mix.env() == :benchmark do
@@ -88,6 +92,25 @@ defmodule Diode do
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     Supervisor.start_link(children, strategy: :one_for_one, name: Diode.Supervisor)
+  end
+
+  defp cowboy(scheme, opts) do
+    Plug.Cowboy.child_spec(
+      scheme: scheme,
+      plug: Network.RpcHttp,
+      options:
+        [
+          ip: {0, 0, 0, 0},
+          compress: not Diode.dev_mode?(),
+          dispatch: [
+            {:_,
+             [
+               {"/ws", Network.RpcWs, []},
+               {:_, Plug.Adapters.Cowboy.Handler, {Network.RpcHttp, []}}
+             ]}
+          ]
+        ] ++ opts
+    )
   end
 
   @spec env :: :prod | :test | :dev
@@ -180,6 +203,10 @@ defmodule Diode do
   @spec rpcPort() :: integer()
   def rpcPort() do
     get_env_int("RPC_PORT", 8545)
+  end
+
+  def rpcsPort() do
+    get_env_int("RPCS_PORT", 8443)
   end
 
   @spec edgePort() :: integer()
