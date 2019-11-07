@@ -53,6 +53,7 @@ defmodule Chain.Worker do
   def update(), do: GenServer.cast(__MODULE__, :update)
   @spec set_mode(any()) :: :ok
   def set_mode(mode), do: GenServer.cast(__MODULE__, {:set_mode, mode})
+  def mode(), do: GenServer.call(__MODULE__, :mode)
 
   def handle_cast({:set_mode, mode}, state) do
     {:noreply, %{state | mode: mode}}
@@ -87,6 +88,10 @@ defmodule Chain.Worker do
 
   def handle_call(:work, _from, state) do
     {:reply, :ok, do_work(state)}
+  end
+
+  def handle_call(:mode, _from, state) do
+    {:reply, state.mode, state}
   end
 
   def handle_info(:sleep, state = %{mode: mode}) do

@@ -8,6 +8,10 @@ defmodule Network.Rpc do
   def handle_jsonrpc(rpcs, opts \\ [])
 
   def handle_jsonrpc(%{"_json" => rpcs}, opts) when is_list(rpcs) do
+    handle_jsonrpc(rpcs, opts)
+  end
+
+  def handle_jsonrpc(rpcs, opts) when is_list(rpcs) do
     body =
       Enum.reduce(rpcs, [], fn rpc, acc ->
         {_status, body} = handle_jsonrpc(rpc, opts)
@@ -36,6 +40,14 @@ defmodule Network.Rpc do
 
   defp handle_jsonrpc(id, method, params, opts) do
     case method do
+      "net_peerCount" ->
+        peers = Network.Server.get_connections(Network.PeerHandler)
+        result(id, map_size(peers))
+
+      "net_edgeCount" ->
+        peers = Network.Server.get_connections(Network.EdgeHandler)
+        result(id, map_size(peers))
+
       "eth_sendRawTransaction" ->
         [hextx] = params
         bintx = Base16.decode(hextx)
@@ -157,12 +169,24 @@ defmodule Network.Rpc do
 
         result(id, ret)
 
+      "eth_mining" ->
+        mining =
+          case Chain.Worker.mode() do
+            :disabled -> false
+            _ -> true
+          end
+
+        result(id, mining)
+
       "eth_accounts" ->
         addresses =
           Diode.wallets()
           |> Enum.map(&Wallet.address!/1)
 
         result(id, addresses)
+
+      "eth_coinbase" ->
+        result(id, Wallet.address!(Diode.miner()))
 
       "eth_getBalance" ->
         [address, ref] = params
