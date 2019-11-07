@@ -93,18 +93,10 @@ defmodule Network.PeerHandler do
         :io.format("PeerHandler expected hello message, timeout~n")
         {:stop, :normal, state}
     end
-
-    {:noreply, state}
   end
 
   def handle_info({:ssl, socket, omsg}, state) do
     msg = decode(omsg)
-
-    # :io.format("Got message type ~p (~p bytes / ~p) ~n", [
-    #   hd(msg),
-    #   byte_size(omsg),
-    #   byte_size(:erlang.term_to_binary(msg))
-    # ])
 
     case handle_msg(msg, state) do
       {reply, state} when not is_atom(reply) ->
@@ -139,10 +131,11 @@ defmodule Network.PeerHandler do
 
       {:stop, :normal, state}
     else
+      GenServer.cast(self(), {:rpc, [Network.PeerHandler.publish(), Chain.peakBlock()]})
+
       if Map.has_key?(state, :peer_port) do
         {:noreply, state}
       else
-        # Todo: need connection abort when no hello after 5 sec
         server = Object.decode!(server)
         id = Wallet.address!(state.node_id)
         ^id = Object.key(server)
