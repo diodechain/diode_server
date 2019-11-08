@@ -31,22 +31,36 @@ defmodule Network.Rpc do
 
     params = Map.get(body_params, "params", [])
 
-    try do
-      handle_jsonrpc(id, method, params, opts)
-    catch
-      :notfound -> result(id, nil, 404, %{"message" => "Not found"})
+    {result, code, error} =
+      try do
+        execute_rpc(method, params, opts)
+      catch
+        :notfound -> {nil, 404, %{"message" => "Not found"}}
+      end
+
+    envelope = %{
+      "id" => id,
+      "jsonrpc" => "2.0",
+      "result" => Json.prepare!(result, false)
+    }
+
+    if error == nil do
+      {code, envelope}
+    else
+      envelope = Map.put(envelope, "error", Json.prepare!(error, false))
+      {code, envelope}
     end
   end
 
-  defp handle_jsonrpc(id, method, params, opts) do
+  def execute_rpc(method, params, opts) do
     case method do
       "net_peerCount" ->
         peers = Network.Server.get_connections(Network.PeerHandler)
-        result(id, map_size(peers))
+        result(map_size(peers))
 
       "net_edgeCount" ->
         peers = Network.Server.get_connections(Network.EdgeHandler)
-        result(id, map_size(peers))
+        result(map_size(peers))
 
       "eth_sendRawTransaction" ->
         [hextx] = params
@@ -89,11 +103,14 @@ defmodule Network.Rpc do
         end
 
         res = Base16.encode(Chain.Transaction.hash(tx))
-        result(id, res, 200, err)
+        result(res, 200, err)
 
       "parity_pendingTransactions" ->
         # todo
-        result(id, [])
+        result([])
+
+      "eth_syncing" ->
+        result(Diode.syncing?())
 
       "eth_getTransactionByHash" ->
         [txh] = params
@@ -101,7 +118,7 @@ defmodule Network.Rpc do
         tx = Store.transaction(txh)
         block = Chain.block_by_hash(Store.transaction_block(txh))
 
-        result(id, transaction_result(tx, block))
+        result(transaction_result(tx, block))
 
       "eth_getTransactionCount" ->
         [address, ref] = params
@@ -115,7 +132,7 @@ defmodule Network.Rpc do
             nil -> 0
           end
 
-        result(id, nonce)
+        result(nonce)
 
       # Network.Rpc.handle_jsonrpc(%{"id" => 0, "method" => "eth_getBlockByNumber", "params" => ["0x0", false]})
       "eth_getBlockByNumber" ->
@@ -167,7 +184,7 @@ defmodule Network.Rpc do
           "uncles" => uncles
         }
 
-        result(id, ret)
+        result(ret)
 
       "eth_mining" ->
         mining =
@@ -176,17 +193,17 @@ defmodule Network.Rpc do
             _ -> true
           end
 
-        result(id, mining)
+        result(mining)
 
       "eth_accounts" ->
         addresses =
           Diode.wallets()
           |> Enum.map(&Wallet.address!/1)
 
-        result(id, addresses)
+        result(addresses)
 
       "eth_coinbase" ->
-        result(id, Wallet.address!(Diode.miner()))
+        result(Wallet.address!(Diode.miner()))
 
       "eth_getBalance" ->
         [address, ref] = params
@@ -201,7 +218,7 @@ defmodule Network.Rpc do
             nil -> 0
           end
 
-        result(id, balance)
+        result(balance)
 
       "eth_getCode" ->
         [address, ref] = params
@@ -216,11 +233,11 @@ defmodule Network.Rpc do
             nil -> ""
           end
 
-        result(id, code)
+        result(code)
 
       "eth_estimateGas" ->
         # TODO real estimate
-        result(id, Chain.gasLimit())
+        result(Chain.gasLimit())
 
       "eth_call" ->
         [%{} = opts, ref] = params
@@ -256,7 +273,7 @@ defmodule Network.Rpc do
             }
           end
 
-        result(id, res, 200, err)
+        result(res, 200, err)
 
       "eth_getTransactionReceipt" ->
         # TODO
@@ -265,7 +282,7 @@ defmodule Network.Rpc do
 
         case Store.transaction_block(txbin) do
           nil ->
-            result(id, nil)
+            result(nil)
 
           hash ->
             block = Chain.block_by_hash(hash)
@@ -298,7 +315,7 @@ defmodule Network.Rpc do
               # "out" => Block.transactionOut(block, tx)
             }
 
-            result(id, ret)
+            result(ret)
         end
 
       "eth_getLogs" ->
@@ -306,9 +323,9 @@ defmodule Network.Rpc do
 
         try do
           block = getBlock(blockRef)
-          result(id, Block.logs(block))
+          result(Block.logs(block))
         catch
-          :notfound -> result(id, [])
+          :notfound -> result([])
         end
 
       # eth_getLogs [#{<<"fromBlock">> => <<"0x7">>}]
@@ -331,24 +348,16 @@ defmodule Network.Rpc do
       # }
 
       "eth_blockNumber" ->
-        result(id, Chain.peak())
+        result(Chain.peak())
 
       "eth_gasPrice" ->
-        result(id, Chain.gas_price())
+        result(Chain.gas_price())
 
       "net_listening" ->
-        result(id, true)
+        result(true)
 
       "net_version" ->
-        result(id, "41043")
-
-      # TODO
-      "eth_subscribe" ->
-        result(id, "0x12345")
-
-      # TODO
-      "eth_unsubscribe" ->
-        result(id, true)
+        result("41043")
 
       # curl --data '{"method":"trace_replayBlockTransactions","params":["0x2ed119",["trace"]],"id":1,"jsonrpc":"2.0"}' -H "Content-Type: application/json" -X POST localhost:8545
       "trace_replayBlockTransactions" ->
@@ -421,7 +430,7 @@ defmodule Network.Rpc do
         #     { ... }
         #   ]
         # }
-        result(id, traces)
+        result(traces)
 
       "trace_block" ->
         [ref] = params
@@ -442,17 +451,23 @@ defmodule Network.Rpc do
           }
         ]
 
-        result(id, ret)
+        result(ret)
 
       _ ->
+        # Handling optional fallbacks
         ret =
           if Diode.dev_mode?() do
-            handle_dev(id, method, params)
+            execute_dev(method, params)
           end
 
         ret =
-          if ret == nil and opts.private == true do
-            handle_private(id, method, params)
+          if ret == nil and opts[:private] == true do
+            execute_private(method, params)
+          end
+
+        ret =
+          if ret == nil and opts[:extra] !== nil do
+            apply(opts[:extra], :execute_rpc, [method, params])
           end
 
         if ret == nil do
@@ -464,7 +479,7 @@ defmodule Network.Rpc do
     end
   end
 
-  def handle_private(id, method, params) do
+  def execute_private(method, params) do
     case method do
       "eth_sendTransaction" ->
         [%{} = opts] = params
@@ -480,14 +495,14 @@ defmodule Network.Rpc do
           Chain.Worker.work()
         end
 
-        result(id, Chain.Transaction.hash(tx))
+        result(Chain.Transaction.hash(tx))
 
       _ ->
-        false
+        nil
     end
   end
 
-  def handle_dev(id, method, params) do
+  def execute_dev(method, params) do
     case method do
       "evm_snapshot" ->
         case params do
@@ -496,16 +511,16 @@ defmodule Network.Rpc do
             file = :erlang.phash2(snapshot) |> Base16.encode(false)
             path = Diode.dataDir(file)
             Chain.store_file(path, snapshot)
-            result(id, file)
+            result(file)
 
           [file] ->
             if Enum.member?(File.ls!(Diode.dataDir()), file) do
               Chain.load_file(Diode.dataDir(file))
               |> Chain.set_state()
 
-              result(id, "")
+              result("")
             else
-              result(id, "", 404)
+              result("", 404)
             end
         end
 
@@ -516,18 +531,18 @@ defmodule Network.Rpc do
               Chain.load_file(Diode.dataDir(file))
               |> Chain.set_state()
 
-              result(id, "")
+              result("")
             else
-              result(id, "", 404)
+              result("", 404)
             end
         end
 
       "evm_mine" ->
         Chain.Worker.work()
-        result(id, "", 200)
+        result("", 200)
 
       _ ->
-        false
+        nil
     end
   end
 
@@ -619,23 +634,8 @@ defmodule Network.Rpc do
     tx
   end
 
-  defp result(id, result, code \\ 200, error \\ nil) do
-    if error == nil do
-      {code,
-       %{
-         "id" => id,
-         "jsonrpc" => "2.0",
-         "result" => Json.prepare!(result, false)
-       }}
-    else
-      {code,
-       %{
-         "id" => id,
-         "jsonrpc" => "2.0",
-         "result" => Json.prepare!(result, false),
-         "error" => Json.prepare!(error, false)
-       }}
-    end
+  defp result(result, code \\ 200, error \\ nil) do
+    {result, code, error}
   end
 
   defp transaction_result(%Transaction{} = tx, %Chain.Block{} = block) do

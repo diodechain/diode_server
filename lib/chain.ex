@@ -285,6 +285,8 @@ defmodule Chain do
         Chain.Pool.remove_transactions(block)
 
         # Let the ticketstore know the new block
+        PubSub.publish(:rpc, {:rpc, :block, block})
+
         spawn(fn ->
           TicketStore.newblock()
         end)

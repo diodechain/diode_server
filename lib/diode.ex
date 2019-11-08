@@ -164,6 +164,10 @@ defmodule Diode do
     Store.wallet()
   end
 
+  def syncing?() do
+    Process.whereis(:active_sync) != nil
+  end
+
   @spec wallets() :: [Wallet.t()]
   @doc """
     Decode env parameter such as

@@ -255,7 +255,7 @@ defmodule Network.PeerHandler do
                 else
                   case Block.validate(oldblock) do
                     %Chain.Block{} = block ->
-                      throttle_sync()
+                      throttle_sync(true)
                       Chain.add_block(block, false)
 
                     _ ->
@@ -265,8 +265,9 @@ defmodule Network.PeerHandler do
               end
             end)
 
-            if Process.whereis(:active_peer_sync) == self() do
-              Process.unregister(:active_peer_sync)
+            if Process.whereis(:active_sync) == self() do
+              Process.unregister(:active_sync)
+              PubSub.publish(:rpc, {:rpc, :syncing, false})
             end
 
             # delete backup list on first successfull block
@@ -323,12 +324,16 @@ defmodule Network.PeerHandler do
     {:noreply, state}
   end
 
-  defp throttle_sync() do
+  defp throttle_sync(register \\ false) do
     # For better resource usage we only let one process sync at full
     # throttle
-    case Process.whereis(:active_peer_sync) do
+    case Process.whereis(:active_sync) do
       nil ->
-        Process.register(self(), :active_peer_sync)
+        if register do
+          Process.register(self(), :active_sync)
+          PubSub.publish(:rpc, {:rpc, :syncing, true})
+        end
+
         :io.format("Syncing ...~n")
 
       pid ->
