@@ -249,58 +249,63 @@ defmodule Chain do
       |> Base16.encode(false)
 
     call(fn state, _from ->
-      peak = state.peak
-      totalDiff = Block.totalDifficulty(peak) + Block.difficulty(peak) * blockchainDelta()
-      peak_hash = Block.hash(peak)
-      author = Wallet.words(Block.miner(block))
-      info = "chain ##{number}[#{prefix}] @#{author}"
-
-      if peak_hash == parent_hash or Block.totalDifficulty(block) > totalDiff do
-        if peak_hash == parent_hash do
-          IO.puts("Chain.add_block: Extending main #{info}")
-          Store.set_block_transactions(block)
-        else
-          IO.puts("Chain.add_block: Replacing main #{info}")
-          Store.clear_transactions()
-
-          :mnesia.transaction(fn ->
-            Enum.each(blocks(block_hash), &Store.set_block_transactions/1)
-          end)
-        end
-
-        # Printing some debug output per transaction
-        if Diode.dev_mode?() do
-          print_transactions(block)
-        end
-
-        # Update the state
-        state = %{state | peak: block}
-        :ets.insert(__MODULE__, {block_hash, block})
-        :ets.insert(__MODULE__, {number, block})
-
-        # Schedule a job to store the current state
-        send(Chain.Saver, :store)
-        # Remove all transactions that have been processed in this block
-        # from the outstanding local transaction pool
-        Chain.Pool.remove_transactions(block)
-
-        # Let the ticketstore know the new block
-        PubSub.publish(:rpc, {:rpc, :block, block})
-
-        spawn(fn ->
-          TicketStore.newblock()
-        end)
-
-        if relay do
-          Kademlia.publish(block)
-        end
-
+      if block_by_hash(block_hash) != nil do
+        IO.puts("Chain.add_block: Skipping existing block (2)")
         {:reply, :added, state}
       else
-        IO.puts("Chain.add_block: Extending  alt #{info}")
-        :ets.insert(__MODULE__, {block_hash, block})
-        :ets.insert(__MODULE__, {number, block})
-        {:reply, :stored, state}
+        peak = state.peak
+        totalDiff = Block.totalDifficulty(peak) + Block.difficulty(peak) * blockchainDelta()
+        peak_hash = Block.hash(peak)
+        author = Wallet.words(Block.miner(block))
+        info = "chain ##{number}[#{prefix}] @#{author}"
+
+        if peak_hash == parent_hash or Block.totalDifficulty(block) > totalDiff do
+          if peak_hash == parent_hash do
+            IO.puts("Chain.add_block: Extending main #{info}")
+            Store.set_block_transactions(block)
+          else
+            IO.puts("Chain.add_block: Replacing main #{info}")
+            Store.clear_transactions()
+
+            :mnesia.transaction(fn ->
+              Enum.each(blocks(block_hash), &Store.set_block_transactions/1)
+            end)
+          end
+
+          # Printing some debug output per transaction
+          if Diode.dev_mode?() do
+            print_transactions(block)
+          end
+
+          # Update the state
+          state = %{state | peak: block}
+          :ets.insert(__MODULE__, {block_hash, block})
+          :ets.insert(__MODULE__, {number, block})
+
+          # Schedule a job to store the current state
+          send(Chain.Saver, :store)
+          # Remove all transactions that have been processed in this block
+          # from the outstanding local transaction pool
+          Chain.Pool.remove_transactions(block)
+
+          # Let the ticketstore know the new block
+          PubSub.publish(:rpc, {:rpc, :block, block})
+
+          spawn(fn ->
+            TicketStore.newblock()
+          end)
+
+          if relay do
+            Kademlia.publish(block)
+          end
+
+          {:reply, :added, state}
+        else
+          IO.puts("Chain.add_block: Extending  alt #{info}")
+          :ets.insert(__MODULE__, {block_hash, block})
+          :ets.insert(__MODULE__, {number, block})
+          {:reply, :stored, state}
+        end
       end
     end)
   end
