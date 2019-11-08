@@ -43,6 +43,7 @@ defmodule Chain.Pool do
       {:reply, :ok, %{pool | transactions: txs}}
     end)
 
+    Kademlia.publish(tx)
     Chain.Worker.update()
   end
 
