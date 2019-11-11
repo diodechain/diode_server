@@ -27,14 +27,18 @@ defmodule Chain.GenesisFactory do
 
     std = [
       # The Accountant
-      addrBalance(accountant, ether(1000)),
+      addrBalance(accountant, ether(100_000)),
       # The Faucet
-      addrBalance(0xBADA81FAE68925FEC725790C34B68B5FACA90D45, ether(1000)),
+      addrBalance(0xBADA81FAE68925FEC725790C34B68B5FACA90D45, ether(100_000)),
       # Reserved A-D
-      addrBalance(0x34E3961098DE3348B465CC82791BD0F7EBCE3ECD, ether(1000)),
-      addrBalance(0xC0C416B326133D74335E6828D558EFE315BD597E, ether(1000)),
-      addrBalance(0x58CC80F5526594F07F33FD4BE4AEF153BAB602B2, ether(1000)),
-      addrBalance(0x45AA0730CF4216F7195FC1F5903A171A1FAA5209, ether(1000)),
+      addrBalance(0x34E3961098DE3348B465CC82791BD0F7EBCE3ECD, ether(100_000)),
+      addrBalance(0xC0C416B326133D74335E6828D558EFE315BD597E, ether(100_000)),
+      addrBalance(0x58CC80F5526594F07F33FD4BE4AEF153BAB602B2, ether(100_000)),
+      addrBalance(0x45AA0730CF4216F7195FC1F5903A171A1FAA5209, ether(100_000)),
+      # alpha, beta, gamma
+      addrBalance(0x937C492A77AE90DE971986D003FFBC5F8BB2232C, ether(50_000)),
+      addrBalance(0xCECA2F8CF1983B4CF0C1BA51FD382C2BC37ABA58, ether(50_000)),
+      addrBalance(0x68E0BAFDDA9EF323F692FC080D612718C941D120, ether(50_000)),
 
       # The Registry with the accountant placed
       addrAccount(

@@ -121,11 +121,12 @@ defmodule Chain.Block do
         1
       else
         Contract.Registry.minerValue(0, Block.miner(block), blockRef)
-        |> div(Shell.ether(100))
-        |> max(10)
+        |> div(Shell.ether(1000))
+        |> max(1)
+        |> min(50)
       end
 
-    div(stake * stake * @max_difficulty, 100 * Block.difficulty(block))
+    div(stake * stake * @max_difficulty, Block.difficulty(block))
   end
 
   @doc "Creates a new block and stores the generated state in cache file"
