@@ -33,8 +33,8 @@ defmodule Network.RpcHttp do
 
   post "/" do
     conn = cors(conn)
-    is_local = conn.remote_ip == {127, 0, 0, 0}
-    {status, body} = Network.Rpc.handle_jsonrpc(conn.body_params, private: is_local)
+    local = is_local(conn.remote_ip)
+    {status, body} = Network.Rpc.handle_jsonrpc(conn.body_params, private: local)
 
     send_resp(conn, status, Poison.encode!(body))
   end
@@ -42,4 +42,7 @@ defmodule Network.RpcHttp do
   match _ do
     send_resp(conn, 404, Poison.encode!("not found"))
   end
+
+  defp is_local({127, 0, 0, _any}), do: true
+  defp is_local(_conn), do: false
 end

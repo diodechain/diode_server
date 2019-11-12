@@ -52,7 +52,34 @@ defmodule Network.Rpc do
     end
   end
 
+  defp execute([{true, {mod, fun}} | rest], args) do
+    case apply(mod, fun, args) do
+      nil -> execute(rest, args)
+      other -> other
+    end
+  end
+
+  defp execute([_ | rest], args) do
+    execute(rest, args)
+  end
+
+  defp execute([], [method, params]) do
+    :io.format("Unhandled: ~p ~p~n", [method, params])
+    {422, "what method?"}
+  end
+
   def execute_rpc(method, params, opts) do
+    apis = [
+      {true, {__MODULE__, :execute_std}},
+      {Diode.dev_mode?(), {__MODULE__, :execute_dev}},
+      {opts[:private], {__MODULE__, :execute_private}},
+      {opts[:extra], opts[:extra]}
+    ]
+
+    execute(apis, [method, params])
+  end
+
+  def execute_std(method, params) do
     case method do
       "net_peerCount" ->
         peers = Network.Server.get_connections(Network.PeerHandler)
@@ -454,28 +481,7 @@ defmodule Network.Rpc do
         result(ret)
 
       _ ->
-        # Handling optional fallbacks
-        ret =
-          if Diode.dev_mode?() do
-            execute_dev(method, params)
-          end
-
-        ret =
-          if ret == nil and opts[:private] == true do
-            execute_private(method, params)
-          end
-
-        ret =
-          if ret == nil and opts[:extra] !== nil do
-            apply(opts[:extra], :execute_rpc, [method, params])
-          end
-
-        if ret == nil do
-          :io.format("Unhandled: ~p ~p~n", [method, params])
-          {422, "what method?"}
-        else
-          ret
-        end
+        nil
     end
   end
 
