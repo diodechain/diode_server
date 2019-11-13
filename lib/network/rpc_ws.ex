@@ -19,7 +19,7 @@ defmodule Network.RpcWs do
 
   def websocket_handle({:text, message}, req, state) do
     with {:ok, message} <- Poison.decode(message) do
-      {_status, response} = Network.Rpc.handle_jsonrpc(message, extra: __MODULE__)
+      {_status, response} = Network.Rpc.handle_jsonrpc(message, extra: {__MODULE__, :execute_rpc})
       {:reply, {:text, Poison.encode!(response)}, req, state}
     else
       {:ok, state} ->

@@ -77,7 +77,7 @@ defmodule Network.Rpc do
       {true, {__MODULE__, :execute_std}},
       {Diode.dev_mode?(), {__MODULE__, :execute_dev}},
       {opts[:private], {__MODULE__, :execute_private}},
-      {opts[:extra], opts[:extra]}
+      {is_tuple(opts[:extra]), opts[:extra]}
     ]
 
     execute(apis, [method, params])
