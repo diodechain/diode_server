@@ -6,6 +6,7 @@ ExUnit.start(seed: 0)
 defmodule TestHelper do
   @delay_clone 10_000
   @cookie "EXTMP_K66"
+  @max_clones 11
 
   def reset() do
     kill_clones()
@@ -31,12 +32,20 @@ defmodule TestHelper do
     end
   end
 
+  def edgePort(num) do
+    10000 + num * @max_clones
+  end
+
   def kademliaPort(num) do
-    10001 + num * 3
+    10001 + num * @max_clones
   end
 
   def rpcPort(num) do
-    10002 + num * 3
+    10002 + num * @max_clones
+  end
+
+  def rpcsPort(num) do
+    10003 + num * @max_clones
   end
 
   def name_clone(n) do
@@ -61,7 +70,8 @@ defmodule TestHelper do
           env: [
             {"DATA_DIR", clonedir},
             {"RPC_PORT", "#{rpcPort(num)}"},
-            {"EDGE_PORT", "#{10000 + num * 3}"},
+            {"RPCS_PORT", "#{rpcsPort(num)}"},
+            {"EDGE_PORT", "#{edgePort(num)}"},
             {"KADEMLIA_PORT", "#{kademliaPort(num)}"},
             {"SEED", "diode://localhost:#{kademliaPort(num)}"}
           ],

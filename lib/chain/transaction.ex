@@ -9,6 +9,7 @@ defmodule Chain.Transaction do
             gasLimit: 0,
             to: nil,
             value: 0,
+            chain_id: Diode.chain_id(),
             signature: nil,
             init: nil,
             data: nil
@@ -26,6 +27,7 @@ defmodule Chain.Transaction do
   def payload(%Chain.Transaction{data: data}), do: data
   def to(%Chain.Transaction{to: nil} = tx), do: new_contract_address(tx)
   def to(%Chain.Transaction{to: to}), do: to
+  def chain_id(%Chain.Transaction{chain_id: chain_id}), do: chain_id
 
   @spec from_rlp(binary()) :: Chain.Transaction.t()
   def from_rlp(bin) do
@@ -41,7 +43,8 @@ defmodule Chain.Transaction do
       value: Rlp.bin2num(value),
       init: if(to == nil, do: init, else: nil),
       data: if(to != nil, do: init, else: nil),
-      signature: Secp256k1.rlp_to_bitcoin(rec, r, s)
+      signature: Secp256k1.rlp_to_bitcoin(rec, r, s),
+      chain_id: Secp256k1.chain_id(rec)
     }
   end
 
@@ -94,7 +97,7 @@ defmodule Chain.Transaction do
   @spec to_rlp(Chain.Transaction.t()) :: [...]
   def to_rlp(tx) do
     [tx.nonce, gas_price(tx), gas_limit(tx), tx.to, tx.value, payload(tx)] ++
-      Secp256k1.bitcoin_to_rlp(tx.signature)
+      Secp256k1.bitcoin_to_rlp(tx.signature, tx.chain_id)
   end
 
   @spec from(Chain.Transaction.t()) :: <<_::160>>
@@ -123,8 +126,15 @@ defmodule Chain.Transaction do
   end
 
   @spec to_message(Chain.Transaction.t()) :: binary()
-  def to_message(tx) do
+  def to_message(tx = %Chain.Transaction{chain_id: nil}) do
+    # pre EIP-155 encoding
     [tx.nonce, gas_price(tx), gas_limit(tx), tx.to, tx.value, payload(tx)]
+    |> Rlp.encode!()
+  end
+
+  def to_message(tx = %Chain.Transaction{chain_id: chain_id}) do
+    # EIP-155 encoding
+    [tx.nonce, gas_price(tx), gas_limit(tx), tx.to, tx.value, payload(tx), chain_id, 0, 0]
     |> Rlp.encode!()
   end
 

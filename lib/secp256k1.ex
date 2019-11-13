@@ -117,23 +117,35 @@ defmodule Secp256k1 do
     nil
   end
 
-  def rlp_to_bitcoin(<<rec::big-unsigned>>, r, s)
-      when byte_size(r) <= 32 and byte_size(s) <= 32 do
-    rec =
-      case rec do
-        27 -> 27
-        28 -> 28
-        rec -> 28 - rem(rec, 2)
-      end
-
-    # :io.format("dump: ~p~n", [[rec, r, s]])
-    r = :binary.decode_unsigned(r)
-    s = :binary.decode_unsigned(s)
-    <<rec - 27, r::big-unsigned-size(256), s::big-unsigned-size(256)>>
+  def rlp_to_bitcoin(rec, r, s)
+      when is_binary(rec) and byte_size(r) <= 32 and byte_size(s) <= 32 do
+    rec = :binary.decode_unsigned(rec, :big)
+    rec = 1 - rem(rec, 2)
+    r = :binary.decode_unsigned(r, :big)
+    s = :binary.decode_unsigned(s, :big)
+    <<rec::little-unsigned, r::big-unsigned-size(256), s::big-unsigned-size(256)>>
   end
 
-  def bitcoin_to_rlp(<<rec, r::big-unsigned-size(256), s::big-unsigned-size(256)>>) do
+  def chain_id(rec) when is_binary(rec) do
+    rec = :binary.decode_unsigned(rec, :big)
+
+    if rec >= 35 do
+      odd = 1 - rem(rec, 2)
+      div(rec - (35 + odd), 2)
+    else
+      nil
+    end
+  end
+
+  def bitcoin_to_rlp(signature, chain_id \\ nil)
+
+  def bitcoin_to_rlp(<<rec, r::big-unsigned-size(256), s::big-unsigned-size(256)>>, nil) do
     [rec + 27, r, s]
+  end
+
+  def bitcoin_to_rlp(<<rec, r::big-unsigned-size(256), s::big-unsigned-size(256)>>, chain_id) do
+    # EIP-155
+    [chain_id * 2 + rec + 35, r, s]
   end
 
   @doc "Converts X.509 signature to bitcoin style signature"

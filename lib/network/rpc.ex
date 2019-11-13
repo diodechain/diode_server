@@ -24,6 +24,8 @@ defmodule Network.Rpc do
   end
 
   def handle_jsonrpc(body_params, opts) when is_map(body_params) do
+    # :io.format("handle_jsonrpc: ~p~n", [body_params])
+
     %{
       "method" => method,
       "id" => id
@@ -45,9 +47,11 @@ defmodule Network.Rpc do
     }
 
     if error == nil do
+      # :io.format("handle_jsonrpc = ~p~n", [envelope])
       {code, envelope}
     else
       envelope = Map.put(envelope, "error", Json.prepare!(error, false))
+      # :io.format("handle_jsonrpc: = ~p~n", [envelope])
       {code, envelope}
     end
   end
@@ -139,32 +143,27 @@ defmodule Network.Rpc do
       "eth_syncing" ->
         result(Diode.syncing?())
 
+      "eth_chainId" ->
+        result(Diode.chain_id())
+
       "eth_getTransactionByHash" ->
         [txh] = params
         txh = Base16.decode(txh)
         tx = Store.transaction(txh)
-        block = Chain.block_by_hash(Store.transaction_block(txh))
 
-        result(transaction_result(tx, block))
+        case tx do
+          %Transaction{} ->
+            block = Chain.block_by_hash(Store.transaction_block(txh))
+            result(transaction_result(tx, block))
 
-      "eth_getTransactionCount" ->
-        [address, ref] = params
-        address = Base16.decode(address)
-        block = getBlock(ref)
-        state = Block.state(block)
-
-        nonce =
-          case Chain.State.account(state, address) do
-            %Chain.Account{nonce: nonce} -> nonce
-            nil -> 0
-          end
-
-        result(nonce)
+          nil ->
+            result(nil, 404, "Not found")
+        end
 
       # Network.Rpc.handle_jsonrpc(%{"id" => 0, "method" => "eth_getBlockByNumber", "params" => ["0x0", false]})
       "eth_getBlockByNumber" ->
         [ref, full] = params
-        block = getBlock(ref)
+        block = get_block(ref)
 
         miner = Block.miner(block)
         txs = Block.transactions(block)
@@ -232,35 +231,25 @@ defmodule Network.Rpc do
       "eth_coinbase" ->
         result(Wallet.address!(Diode.miner()))
 
+      "eth_getTransactionCount" ->
+        get_account(params)
+        |> Chain.Account.nonce()
+        |> result()
+
       "eth_getBalance" ->
-        [address, ref] = params
-        address = Base16.decode(address)
-
-        %Chain.Block{} = block = getBlock(ref)
-        state = Block.state(block)
-
-        balance =
-          case Chain.State.account(state, address) do
-            %Chain.Account{balance: balance} -> balance
-            nil -> 0
-          end
-
-        result(balance)
+        get_account(params)
+        |> Chain.Account.balance()
+        |> result()
 
       "eth_getCode" ->
-        [address, ref] = params
-        address = Base16.decode(address)
+        get_account(params)
+        |> Chain.Account.code()
+        |> result()
 
-        %Chain.Block{} = block = getBlock(ref)
-        state = Block.state(block)
-
-        code =
-          case Chain.State.account(state, address) do
-            %Chain.Account{code: code} -> code
-            nil -> ""
-          end
-
-        result(code)
+      "eth_getCodeHash" ->
+        get_account(params)
+        |> Chain.Account.codehash()
+        |> result()
 
       "eth_estimateGas" ->
         # TODO real estimate
@@ -283,7 +272,7 @@ defmodule Network.Rpc do
 
         tx = create_transaction(wallet, data, opts)
 
-        block = getBlock(ref)
+        block = get_block(ref)
         state = Block.state(block)
         {:ok, _state, rcpt} = Chain.Transaction.apply(tx, block, state)
 
@@ -349,7 +338,7 @@ defmodule Network.Rpc do
         [%{"fromBlock" => blockRef}] = params
 
         try do
-          block = getBlock(blockRef)
+          block = get_block(blockRef)
           result(Block.logs(block))
         catch
           :notfound -> result([])
@@ -384,12 +373,12 @@ defmodule Network.Rpc do
         result(true)
 
       "net_version" ->
-        result("41043")
+        result(Integer.to_string(Diode.chain_id()))
 
       # curl --data '{"method":"trace_replayBlockTransactions","params":["0x2ed119",["trace"]],"id":1,"jsonrpc":"2.0"}' -H "Content-Type: application/json" -X POST localhost:8545
       "trace_replayBlockTransactions" ->
         [ref, ["trace"]] = params
-        block = getBlock(ref)
+        block = get_block(ref)
         txs = Block.transactions(block)
 
         # reward =
@@ -461,7 +450,7 @@ defmodule Network.Rpc do
 
       "trace_block" ->
         [ref] = params
-        block = getBlock(ref)
+        block = get_block(ref)
 
         ret = [
           %{
@@ -552,7 +541,15 @@ defmodule Network.Rpc do
     end
   end
 
-  def getBlock(ref) do
+  defp get_account([address, ref]) do
+    address = Base16.decode(address)
+
+    get_block(ref)
+    |> Block.state()
+    |> Chain.State.ensure_account(address)
+  end
+
+  def get_block(ref) do
     case ref do
       %Chain.Block{} ->
         ref
@@ -570,7 +567,7 @@ defmodule Network.Rpc do
         Chain.block(0)
 
       <<"0x", _rest::binary()>> ->
-        getBlock(Base16.decode_int(ref))
+        get_block(Base16.decode_int(ref))
 
       num when is_integer(num) ->
         case Chain.block(num) do
@@ -606,7 +603,7 @@ defmodule Network.Rpc do
 
     nonce =
       Map.get_lazy(opts, "nonce", fn ->
-        Chain.Block.state(getBlock(blockRef))
+        Chain.Block.state(get_block(blockRef))
         |> Chain.State.ensure_account(from)
         |> Chain.Account.nonce()
       end)

@@ -38,7 +38,7 @@ defmodule Shell do
   end
 
   def call_tx(tx, blockRef) do
-    block = Network.Rpc.getBlock(blockRef)
+    block = Network.Rpc.get_block(blockRef)
     state = Chain.Block.state(block)
     {:ok, _state, rcpt} = Chain.Transaction.apply(tx, block, state)
 

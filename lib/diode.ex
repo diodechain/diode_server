@@ -118,6 +118,10 @@ defmodule Diode do
     :persistent_term.get(:env)
   end
 
+  def chain_id() do
+    41043
+  end
+
   @spec dev_mode? :: boolean
   def dev_mode?() do
     env() == :dev or env() == :test
