@@ -97,6 +97,7 @@ defmodule Network.PeerHandler do
 
   def handle_info({:ssl, socket, omsg}, state) do
     msg = decode(omsg)
+    # :io.format("msg from ~p~n", [peer(state)])
 
     case handle_msg(msg, state) do
       {reply, state} when not is_atom(reply) ->

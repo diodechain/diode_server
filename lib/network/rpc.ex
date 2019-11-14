@@ -255,6 +255,18 @@ defmodule Network.Rpc do
         |> Chain.Account.codehash()
         |> result()
 
+      "eth_getStorageAt" ->
+        [address, location, ref] = params
+
+        get_account([address, ref])
+        |> Chain.Account.storageValue(Base16.decode_int(location))
+        |> result()
+
+      "eth_getStorage" ->
+        get_account(params).storageRoot
+        |> MerkleTree.to_list()
+        |> result()
+
       "eth_estimateGas" ->
         # TODO real estimate
         result(Chain.gasLimit())
