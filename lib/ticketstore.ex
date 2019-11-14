@@ -50,7 +50,7 @@ defmodule TicketStore do
         |> Enum.map(fn tck -> Ticket.raw(tck) end)
         |> List.flatten()
         |> Contract.Registry.submitTicketRawTx()
-        |> Chain.Pool.add_transaction()
+        |> Chain.Pool.add_transaction(true)
 
         tickets
         |> Enum.map(fn tck ->

@@ -35,7 +35,7 @@ defmodule Chain.Pool do
   end
 
   @spec add_transaction(Transaction.t()) :: :ok
-  def add_transaction(%Transaction{} = tx) do
+  def add_transaction(%Transaction{} = tx, publish \\ false) do
     key = Transaction.hash(tx)
 
     call(fn pool = %{transactions: transactions}, _from ->
@@ -43,7 +43,7 @@ defmodule Chain.Pool do
       {:reply, :ok, %{pool | transactions: txs}}
     end)
 
-    Kademlia.publish(tx)
+    if publish, do: Kademlia.publish(tx)
     Chain.Worker.update()
   end
 

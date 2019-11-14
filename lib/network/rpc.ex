@@ -36,6 +36,10 @@ defmodule Network.Rpc do
     {result, code, error} =
       try do
         execute_rpc(method, params, opts)
+      rescue
+        ErlangError ->
+          :io.format("Network.Rpc: ErlangError in ~p: ~0p~n", [method, __STACKTRACE__])
+          {nil, 400, %{"message" => "Bad Request"}}
       catch
         :notfound -> {nil, 404, %{"message" => "Not found"}}
       end
@@ -124,9 +128,9 @@ defmodule Network.Rpc do
               }
           end
 
-        # Adding transaciton
+        # Adding transacton
         if err == nil do
-          Chain.Pool.add_transaction(tx)
+          Chain.Pool.add_transaction(tx, true)
         end
 
         if Diode.dev_mode?() do
@@ -484,7 +488,7 @@ defmodule Network.Rpc do
         wallet = Enum.find(Diode.wallets(), fn w -> Wallet.address!(w) == from end)
         tx = create_transaction(wallet, data, opts)
 
-        Chain.Pool.add_transaction(tx)
+        Chain.Pool.add_transaction(tx, true)
 
         if Diode.dev_mode?() do
           Chain.Worker.work()
