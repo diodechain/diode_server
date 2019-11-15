@@ -6,10 +6,17 @@ CXXFLAGS=-std=c++17 $(CFLAGS)
 LDFLAGS=-lboost_system
 INTERP=libaleth-interpreter
 
-DEPS  = $(INTERP)/VMOpt.o $(INTERP)/VM.o $(INTERP)/VMCalls.o 
+DEPS  = $(INTERP)/VMOpt.o $(INTERP)/VM.o $(INTERP)/VMCalls.o
 DEPS += intx/div.o
 DEPS += evmc/instruction_metrics.o
 DEPS += ethash/keccak.o ethash/keccakf1600.o
+
+ifneq ($(OS),Windows_NT)
+	OS_S := $(shell uname)
+	ifeq ($(OS_S), Darwin)
+		CFLAGS+=-I./mac
+	endif
+endif
 
 all: $(DEPS) main.o host.o
 	g++ $^ $(LDFLAGS) -o evm
