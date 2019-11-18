@@ -195,8 +195,9 @@ defmodule Chain.Transaction do
       |> Chain.State.set_account(to(tx), acc)
 
     evm = Evm.init(tx, new_state, env, acc.storageRoot, code, trace?)
+    ret = Evm.eval(evm)
 
-    case Evm.eval(evm) do
+    case ret do
       {:ok, evm} ->
         new_state = Evm.state(evm)
 

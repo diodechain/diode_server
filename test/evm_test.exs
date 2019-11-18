@@ -12,8 +12,8 @@ defmodule EvmTest do
   end
 
   test "create contract" do
-    wallet = Wallet.new()
-    priv = Wallet.privkey!(wallet)
+    from_wallet = Wallet.new()
+    priv = Wallet.privkey!(from_wallet)
     miner = Wallet.new()
 
     state = Chain.State.new()
@@ -45,9 +45,9 @@ defmodule EvmTest do
       balance: ctx.value + 2 * Transaction.gas_limit(ctx) * Transaction.gas_price(ctx)
     }
 
-    assert Wallet.pubkey!(Transaction.origin(ctx)) == Wallet.pubkey!(wallet)
+    assert Wallet.pubkey!(Transaction.origin(ctx)) == Wallet.pubkey!(from_wallet)
 
-    state = Chain.State.set_account(state, Wallet.address!(wallet), user_acc)
+    state = Chain.State.set_account(state, Wallet.address!(from_wallet), user_acc)
 
     # Fail test 1: Too little balance
     ctx_fail = %{ctx | gasLimit: Transaction.gas_limit(ctx) * 1_000_000} |> Transaction.sign(priv)
@@ -76,7 +76,7 @@ defmodule EvmTest do
     tx = %{tx | nonce: ctx.nonce + 1, to: Transaction.new_contract_address(ctx)}
     tx = Transaction.sign(tx, priv)
 
-    assert Wallet.pubkey!(Transaction.origin(tx)) == Wallet.pubkey!(wallet)
+    assert Wallet.pubkey!(Transaction.origin(tx)) == Wallet.pubkey!(from_wallet)
 
     # Fail test 3: value on non_payable method
     tx_fail = %{tx | value: 1} |> Transaction.sign(priv)
@@ -93,5 +93,53 @@ defmodule EvmTest do
     acc = Chain.State.account(state, Transaction.new_contract_address(ctx))
     value = Chain.Account.storageInteger(acc, 0)
     assert value == 1
+  end
+
+  test "transfer cash contract" do
+    miner = Wallet.new()
+    to_wallet = Wallet.new()
+    from_wallet = Wallet.new()
+    priv = Wallet.privkey!(from_wallet)
+
+    state = Chain.State.new()
+    block = %Chain.Block{header: %Chain.Header{miner_pubkey: Wallet.pubkey!(miner)}}
+
+    # Creating simple transfer
+    ctx = %Transaction{
+      gasPrice: 0,
+      gasLimit: 1_000_000,
+      value: 2,
+      nonce: 1,
+      to: Wallet.address!(to_wallet)
+    }
+
+    ctx = Transaction.sign(ctx, priv)
+
+    from_acc = %Chain.Account{
+      nonce: 1,
+      balance: 10
+    }
+
+    to_acc = %Chain.Account{
+      nonce: 1,
+      balance: 0
+    }
+
+    state = Chain.State.set_account(state, Wallet.address!(from_wallet), from_acc)
+    state = Chain.State.set_account(state, Wallet.address!(to_wallet), to_acc)
+
+    # Checking initial balances
+    assert Chain.Account.balance(from_acc) == 10
+    assert Chain.Account.balance(to_acc) == 0
+
+    {:ok, state, recpt = %TransactionReceipt{msg: :ok, evmout: ""}} =
+      Transaction.apply(ctx, block, state)
+
+    # Checking new balances
+    from_acc = Chain.State.account(state, Wallet.address!(from_wallet))
+    to_acc = Chain.State.account(state, Wallet.address!(to_wallet))
+
+    assert Chain.Account.balance(from_acc) == 8
+    assert Chain.Account.balance(to_acc) == 2
   end
 end
