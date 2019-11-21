@@ -179,7 +179,7 @@ defmodule Chain.Transaction do
     # Creating / finding destination account
     {acc, code} =
       if contract_creation?(tx) do
-        acc = %Chain.Account{nonce: 1}
+        acc = Chain.Account.new(nonce: 1)
         {acc, payload(tx)}
       else
         acc = Chain.State.ensure_account(state, to(tx))
@@ -194,7 +194,7 @@ defmodule Chain.Transaction do
       |> Chain.State.set_account(from, from_acc)
       |> Chain.State.set_account(to(tx), acc)
 
-    evm = Evm.init(tx, new_state, env, acc.storageRoot, code, trace?)
+    evm = Evm.init(tx, new_state, env, acc.storage_root, code, trace?)
     ret = Evm.eval(evm)
 
     case ret do

@@ -46,6 +46,7 @@ struct hash<pair<evmc::address,evmc::bytes32>>
 class Host : public evmc::Host
 {
     std::unordered_map<std::pair<evmc::address, evmc::bytes32>, evmc::bytes32> m_storage_cache{};
+    std::unordered_map<std::pair<evmc::address, evmc::bytes32>, evmc::bytes32> m_storage_write_cache{};
 public:
     evmc_tx_context tx_context{};
 
@@ -53,6 +54,7 @@ public:
     void reset();
     bool account_exists(const evmc::address& addr) noexcept final;
     bool get_cache(const evmc::address& addr, const evmc::bytes32& key, evmc::bytes32& out) noexcept;
+    void send_updates() noexcept;
     evmc::bytes32 get_storage(const evmc::address& addr, const evmc::bytes32& key) noexcept final;
     evmc_storage_status set_storage(const evmc::address& addr,
                                     const evmc::bytes32& key,

@@ -21,3 +21,7 @@ config/diode.exs
 .history/
 evm/evm
 core
+ttb_last_config
+data_dev/
+data_prod/
+data_test/

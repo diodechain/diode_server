@@ -372,26 +372,6 @@ defmodule Chain do
     end
   end
 
-  @spec state_load(binary()) :: Chain.State.t()
-  def state_load(state_hash) do
-    case Process.get(:state_cache) do
-      {^state_hash, state} ->
-        state
-
-      _ ->
-        name = Base16.encode(state_hash)
-        state = load_file("states/#{name}")
-        Process.put(:state_cache, {state_hash, state})
-        state
-    end
-  end
-
-  @spec state_store(Chain.State.t()) :: Chain.State.t()
-  def state_store(state) do
-    name = Base16.encode(Chain.State.hash(state))
-    store_file("states/#{name}", state)
-  end
-
   defp genesis() do
     Chain.GenesisFactory.testnet()
   end

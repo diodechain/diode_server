@@ -6,6 +6,23 @@ require Logger
 defmodule Diode do
   use Application
 
+  def start_mnesia() do
+    Application.start(:sasl)
+    dir = Diode.dataDir()
+
+    Application.put_env(:mnesia, :dir, :binary.bin_to_list(dir))
+    Application.put_env(:mnesia, :dump_log_write_threshold, 5000)
+
+    case :mnesia.create_schema([node()]) do
+      :ok -> :ok
+      {:error, {_, {:already_exists, _}}} -> :ok
+    end
+
+    Application.ensure_all_started(:mnesia)
+    MnesiaMerkleTree.init()
+    Chain.State.init()
+  end
+
   def start(_type, args) do
     import Supervisor.Spec, warn: false
 
@@ -22,7 +39,9 @@ defmodule Diode do
     IO.puts("Edge Port: #{edgePort()}")
     IO.puts("Peer Port: #{kademliaPort()}")
     IO.puts("RPC  Port: #{rpcPort()}")
+    IO.puts("Data Dir : #{dataDir()}")
     IO.puts("")
+    start_mnesia()
 
     if dev_mode?() and [] == wallets() do
       wallets = for _n <- 1..5, do: Wallet.new()
@@ -198,7 +217,7 @@ defmodule Diode do
 
   @spec dataDir(binary()) :: binary()
   def dataDir(file \\ "") do
-    get_env("DATA_DIR", File.cwd!() <> "/data/") <> file
+    get_env("DATA_DIR", File.cwd!() <> "/data_" <> Atom.to_string(env()) <> "/") <> file
   end
 
   def host() do

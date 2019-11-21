@@ -192,7 +192,7 @@ defmodule Network.EdgeHandler do
                 %{
                   nonce: account.nonce,
                   balance: account.balance,
-                  storageRoot: MerkleTree.root_hash(account.storageRoot),
+                  storage_root: MerkleTree.root_hash(account.storage_root),
                   code: Chain.Account.codehash(account)
                 },
                 proof
@@ -206,11 +206,11 @@ defmodule Network.EdgeHandler do
             nil ->
               send!(state, ["error", "getaccountroots", "account does not exist"])
 
-            %Chain.Account{storageRoot: storageRoot} ->
+            %Chain.Account{storage_root: storage_root} ->
               send!(state, [
                 "response",
                 "getaccountroots",
-                MerkleTree.root_hashes(storageRoot)
+                MerkleTree.root_hashes(storage_root)
               ])
           end
 
@@ -221,11 +221,11 @@ defmodule Network.EdgeHandler do
             nil ->
               send!(state, ["error", "getaccountvalue", "account does not exist"])
 
-            %Chain.Account{storageRoot: storageRoot} ->
+            %Chain.Account{storage_root: storage_root} ->
               send!(state, [
                 "response",
                 "getaccountvalue",
-                MerkleTree.get_proofs(storageRoot, key)
+                MerkleTree.get_proofs(storage_root, key)
               ])
           end
 

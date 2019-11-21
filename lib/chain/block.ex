@@ -24,7 +24,7 @@ defmodule Chain.Block do
   def nonce(%Block{header: header}), do: header.nonce
   def miner(%Block{header: header}), do: Header.miner(header)
   @spec state(Chain.Block.t()) :: Chain.State.t()
-  def state(%Block{} = block), do: Chain.state_load(state_hash(block))
+  def state(%Block{} = block), do: Chain.State.restore(state_hash(block))
   def state_hash(%Block{header: header}), do: header.state_hash
   @spec hash(Chain.Block.t()) :: binary()
   # Fix for creating a signature of a non-exisiting block in registry_test.ex
@@ -175,9 +175,7 @@ defmodule Chain.Block do
       )
     end
 
-    state_hash =
-      Chain.state_store(nstate)
-      |> State.hash()
+    state_hash = State.hash(nstate)
 
     header = %Header{
       header

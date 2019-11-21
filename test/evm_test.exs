@@ -40,10 +40,11 @@ defmodule EvmTest do
     ctx = %{Transaction.from_rlp(bin) | gasLimit: 100_000_000}
     ctx = Transaction.sign(ctx, priv)
 
-    user_acc = %Chain.Account{
-      nonce: ctx.nonce,
-      balance: ctx.value + 2 * Transaction.gas_limit(ctx) * Transaction.gas_price(ctx)
-    }
+    user_acc =
+      Chain.Account.new(
+        nonce: ctx.nonce,
+        balance: ctx.value + 2 * Transaction.gas_limit(ctx) * Transaction.gas_price(ctx)
+      )
 
     assert Wallet.pubkey!(Transaction.origin(ctx)) == Wallet.pubkey!(from_wallet)
 
@@ -115,15 +116,17 @@ defmodule EvmTest do
 
     ctx = Transaction.sign(ctx, priv)
 
-    from_acc = %Chain.Account{
-      nonce: 1,
-      balance: 10
-    }
+    from_acc =
+      Chain.Account.new(
+        nonce: 1,
+        balance: 10
+      )
 
-    to_acc = %Chain.Account{
-      nonce: 1,
-      balance: 0
-    }
+    to_acc =
+      Chain.Account.new(
+        nonce: 1,
+        balance: 0
+      )
 
     state = Chain.State.set_account(state, Wallet.address!(from_wallet), from_acc)
     state = Chain.State.set_account(state, Wallet.address!(to_wallet), to_acc)
@@ -164,23 +167,27 @@ defmodule EvmTest do
 
     ctx = Transaction.sign(ctx, priv)
 
-    from_acc = %Chain.Account{
-      nonce: 1,
-      balance: 10
-    }
+    from_acc =
+      Chain.Account.new(
+        nonce: 1,
+        balance: 10
+      )
 
-    to_acc = %Chain.Account{
-      nonce: 1,
-      balance: 0
-    }
+    to_acc =
+      Chain.Account.new(
+        nonce: 1,
+        balance: 0
+      )
 
     state = Chain.State.set_account(state, Wallet.address!(from_wallet), from_acc)
     state = Chain.State.set_account(state, Wallet.address!(to_wallet), to_acc)
 
     state =
-      Chain.State.set_account(state, Wallet.address!(contract), %Chain.Account{
-        code: transfer_contract()
-      })
+      Chain.State.set_account(
+        state,
+        Wallet.address!(contract),
+        Chain.Account.new(code: transfer_contract())
+      )
 
     # Checking initial balances
     assert Chain.Account.balance(from_acc) == 10

@@ -34,7 +34,7 @@ defmodule ChainTest do
          balance: Rlp.bin2num(state["balance"]),
          code: Rlp.bin2addr(state["code"]),
          nonce: Rlp.bin2num(state["nonce"]),
-         storageRoot:
+         storage_root:
            Enum.reduce(state["storage"], MerkleTree.new(), fn {key, value}, tree ->
              MerkleTree.insert(tree, Rlp.hex2num(key), Rlp.bin2num(value))
            end)
@@ -131,7 +131,7 @@ defmodule ChainTest do
     accounts = map_accounts(test["pre"])
 
     base = Wallet.from_address(test["genesisBlockHeader"]["coinbase"])
-    accounts = [{base, %Account{balance: 100_000_000, nonce: 0}} | accounts]
+    accounts = [{base, Account.new(balance: 100_000_000, nonce: 0)} | accounts]
 
     transactions = []
     miner = Wallet.new()
@@ -237,12 +237,11 @@ defmodule ChainTest do
     reference_accounts = map_accounts(test["postState"])
 
     :io.format("GOT: ~p~n", [
-      State.accounts(state) |> Enum.map(fn {w, acc} -> {w, to_list(acc.storageRoot)} end)
+      State.accounts(state) |> Enum.map(fn {w, acc} -> {w, to_list(acc.storage_root)} end)
     ])
 
     for {wallet, account} <- reference_accounts do
       addr = Wallet.address!(wallet)
-      # {addr, %Account{}} = {addr, State.account(state, addr)}
       result = State.account(state, addr)
 
       if result == nil do
@@ -265,10 +264,10 @@ defmodule ChainTest do
         assert Account.nonce(result) == Account.nonce(account)
         assert Account.code(result) == Account.code(account)
 
-        # for {key, value} <- to_list(result.storageRoot) do
+        # for {key, value} <- to_list(result.storage_root) do
         #   assert {key, value} == {key, Account.storageInteger(account, key)}
         # end
-        assert to_list(result.storageRoot) == to_list(account.storageRoot)
+        assert to_list(result.storage_root) == to_list(account.storage_root)
       end
     end
 

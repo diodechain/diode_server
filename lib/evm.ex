@@ -38,7 +38,7 @@ defmodule Evm do
 
     @spec store(Evm.State.t()) :: MerkleTree.merkle()
     def store(%State{chain_state: st} = state) do
-      Chain.State.ensure_account(st, address(state)).storageRoot
+      Chain.State.ensure_account(st, address(state)).storage_root
     end
 
     def code(%State{code: code}), do: code
@@ -132,7 +132,7 @@ defmodule Evm do
         |> Hash.to_address()
 
       account = %{account | nonce: account.nonce + 1, balance: account.balance - value}
-      to_account = %Chain.Account{nonce: 1, balance: value}
+      to_account = Chain.Account.new(nonce: 1, balance: value)
 
       st =
         st
@@ -221,7 +221,7 @@ defmodule Evm do
     from = :binary.decode_unsigned(Transaction.from(tx))
 
     state = %State{
-      chain_state: %Chain.State{},
+      chain_state: Chain.State.new(),
       tx: tx,
       from: from,
       origin: from,
@@ -465,40 +465,38 @@ defmodule Evm do
 
   # get_storage(addr, key)
   defp process_data(
-         <<"gs", addr::unsigned-size(160), key::unsigned-little-size(256)>>,
+         <<"gs", addr::binary-size(20), key::binary-size(32)>>,
          evm
        ) do
     value =
       Chain.State.ensure_account(state(evm), addr)
-      |> Chain.Account.storageInteger(key)
+      |> Chain.Account.storageValue(key)
 
-    true = Port.command(evm.port, <<value::unsigned-size(256)>>)
+    true = Port.command(evm.port, value)
     {:cont, evm}
   end
 
   # set_storage(addr, key, value) -> old_value
-  defp process_data(
-         <<"ss", addr::unsigned-size(160), key::unsigned-little-size(256),
-           new_value::unsigned-size(256)>>,
-         evm
-       ) do
-    state = state(evm)
-    account = Chain.State.ensure_account(state, addr)
-    value = account |> Chain.Account.storageInteger(key)
-    account = Chain.Account.storageSetValue(account, key, new_value)
+  defp process_data(<<"su", rest::binary>>, evm) do
+    updates = parse_map(rest, %{})
+    # :io.format("dump_parse: ~p~n", [updates])
+    state =
+      Enum.reduce(updates, state(evm), fn {addr, kvs}, state ->
+        acc = Chain.State.ensure_account(state, addr)
+        store = MerkleTree.insert_items(acc.storage_root, Map.to_list(kvs))
+        acc = %{acc | storage_root: store}
+        Chain.State.set_account(state, addr, acc)
+      end)
 
-    evm = set_state(evm, Chain.State.set_account(state, <<addr::unsigned-size(160)>>, account))
-
-    true = Port.command(evm.port, <<value::unsigned-size(256)>>)
-    {:cont, evm}
+    {:cont, set_state(evm, state)}
   end
 
   # account_exists?()
-  defp process_data(<<"ae", addr::unsigned-size(160)>>, evm) do
+  defp process_data(<<"ae", addr::binary-size(20)>>, evm) do
     state = state(evm)
 
     ret =
-      case Chain.State.account(state, <<addr::unsigned-size(160)>>) do
+      case Chain.State.account(state, addr) do
         nil -> 0
         %Chain.Account{} -> 1
       end
@@ -508,7 +506,7 @@ defmodule Evm do
   end
 
   # get_balance(addr)
-  defp process_data(<<"gb", addr::unsigned-size(160)>>, evm) do
+  defp process_data(<<"gb", addr::binary-size(20)>>, evm) do
     value =
       Chain.State.ensure_account(state(evm), addr)
       |> Chain.Account.balance()
@@ -518,7 +516,7 @@ defmodule Evm do
   end
 
   # get_code_size(addr)
-  defp process_data(<<"gc", addr::unsigned-size(160)>>, evm) do
+  defp process_data(<<"gc", addr::binary-size(20)>>, evm) do
     size =
       Chain.State.ensure_account(state(evm), addr)
       |> Chain.Account.code()
@@ -529,7 +527,7 @@ defmodule Evm do
   end
 
   # get_code_hash(addr)
-  defp process_data(<<"gd", addr::unsigned-size(160)>>, evm) do
+  defp process_data(<<"gd", addr::binary-size(20)>>, evm) do
     hash =
       Chain.State.ensure_account(state(evm), addr)
       |> Chain.Account.codehash()
@@ -540,7 +538,7 @@ defmodule Evm do
 
   # copy_code(addr)
   defp process_data(
-         <<"cc", addr::unsigned-size(160), offset::unsigned-little-size(64),
+         <<"cc", addr::binary-size(20), offset::unsigned-little-size(64),
            size::unsigned-little-size(64)>>,
          evm
        ) do
@@ -557,10 +555,10 @@ defmodule Evm do
 
   # selfdestruct(addr, benefactor)
   defp process_data(
-         <<"sd", _addr::unsigned-size(160), ben::unsigned-size(160)>>,
+         <<"sd", _addr::binary-size(20), ben::binary-size(20)>>,
          evm
        ) do
-    {:cont, %{evm | selfdestruct: ben |> :binary.encode_unsigned()}}
+    {:cont, %{evm | selfdestruct: ben}}
   end
 
   # get_block_hash(number)
@@ -617,16 +615,17 @@ defmodule Evm do
 
   # emit_log(number)
   defp process_data(
-         <<"lo", addr::unsigned-size(160), size::unsigned-little-size(64),
-           data::binary-size(size), count::unsigned-little-size(64), topics::binary>>,
+         <<"lo", addr::binary-size(20), size::unsigned-little-size(64), data::binary-size(size),
+           count::unsigned-little-size(64), topics::binary>>,
          evm
        ) do
     topics = for n <- 1..count, do: binary_part(topics, (n - 1) * 32, 32)
-    logs = evm.logs ++ [{<<addr::unsigned-size(160)>>, topics, data}]
+    logs = evm.logs ++ [{addr, topics, data}]
     {:cont, %{evm | logs: logs}}
   end
 
   defp process_data(other, evm) do
+    IO.puts("EVM.process_data what?: #{inspect(other)}")
     {:cont, evm}
   end
 
@@ -750,5 +749,19 @@ defmodule Evm do
       :GCOPY -> 3
       :GBLOCKHASH -> 20
     end
+  end
+
+  defp parse_map(
+         <<addr::binary-size(20), key::binary-size(32), value::binary-size(32), rest::binary>>,
+         map
+       ) do
+    parse_map(
+      rest,
+      Map.update(map, addr, %{key => value}, fn acc -> Map.put(acc, key, value) end)
+    )
+  end
+
+  defp parse_map("", map) do
+    map
   end
 end

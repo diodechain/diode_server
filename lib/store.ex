@@ -18,19 +18,7 @@ defmodule Store do
 
   @spec init(:ok) :: {:ok, %{}}
   def init(:ok) do
-    Application.start(:sasl)
-    dir = Diode.dataDir()
-
-    Application.put_env(:mnesia, :dir, :binary.bin_to_list(dir))
-
-    case :mnesia.create_schema([node()]) do
-      :ok -> :ok
-      {:error, {_, {:already_exists, _}}} -> :ok
-    end
-
-    Application.ensure_all_started(:mnesia)
     create_table!(:keyValue, Keyword.keys(keyValue(keyValue())))
-
     ensure_identity()
     IO.puts("==== Mining Node ====")
     IO.puts("#{Wallet.printable(Store.wallet())}")

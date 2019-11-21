@@ -14,7 +14,7 @@ defmodule Chain.GenesisFactory do
   end
 
   defp addrBalance(addr, balance) do
-    {Wallet.from_address(addr), %Account{balance: balance}}
+    {Wallet.from_address(addr), Account.new(balance: balance)}
   end
 
   defp addrAccount(addr, account) do
@@ -43,20 +43,20 @@ defmodule Chain.GenesisFactory do
       # The Registry with the accountant placed
       addrAccount(
         Diode.registryAddress(),
-        %Account{
+        Account.new(
           balance: ether(100_000_000),
           code: Base16.decode(registryContract())
-        }
+        )
         |> Account.storageSetValue(1, accountant)
       ),
 
       # The Fleet with the operator and accountant placed
       addrAccount(
         Diode.fleetAddress(),
-        %Account{
+        Account.new(
           balance: 0,
           code: Base16.decode(fleetContract())
-        }
+        )
         |> Account.storageSetValue(0, Diode.registryAddress() |> :binary.decode_unsigned())
         |> Account.storageSetValue(2, accountant)
       )
@@ -65,7 +65,7 @@ defmodule Chain.GenesisFactory do
     if Diode.dev_mode?() do
       std ++
         Enum.map(Diode.wallets(), fn wallet ->
-          {wallet, %Account{balance: ether(1000)}}
+          {wallet, Account.new(balance: ether(1000))}
         end)
     else
       std
@@ -117,8 +117,6 @@ defmodule Chain.GenesisFactory do
   @spec genesis(any(), [Chain.Transaction.t()], Wallet.t()) :: Chain.Block.t()
   def genesis(accounts, transactions, miner) do
     state = genesis_state(accounts)
-    Chain.state_store(state)
-
     parent = genesis_parent(state, miner)
     block = Chain.Block.create(parent, transactions, miner, 1_555_510_594)
     header = Chain.Block.header(block)

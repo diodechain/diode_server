@@ -2,12 +2,23 @@
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
 defmodule Chain.Account do
-  defstruct nonce: 0, balance: 0, storageRoot: MerkleTree.new(), code: nil
+  @enforce_keys [:storage_root]
+  defstruct nonce: 0, balance: 0, storage_root: nil, code: nil
 
   @type t :: %Chain.Account{
           nonce: non_neg_integer(),
-          balance: non_neg_integer()
+          balance: non_neg_integer(),
+          storage_root: MerkleTree.t(),
+          code: binary() | nil
         }
+
+  def new(props \\ []) do
+    acc = %Chain.Account{storage_root: MnesiaMerkleTree.new()}
+
+    Enum.reduce(props, acc, fn {key, value}, acc ->
+      Map.put(acc, key, value)
+    end)
+  end
 
   def code(%Chain.Account{code: nil}), do: ""
   def code(%Chain.Account{code: code}), do: code
@@ -15,12 +26,12 @@ defmodule Chain.Account do
   def balance(%Chain.Account{balance: balance}), do: balance
 
   def storageSetValue(
-        %Chain.Account{storageRoot: store} = acc,
+        %Chain.Account{storage_root: store} = acc,
         key = <<_k::256>>,
         value = <<_v::256>>
       ) do
     store = MerkleTree.insert(store, key, value)
-    %Chain.Account{acc | storageRoot: store}
+    %Chain.Account{acc | storage_root: store}
   end
 
   def storageSetValue(acc, key, value) when is_integer(key) do
@@ -36,8 +47,11 @@ defmodule Chain.Account do
     storageValue(acc, <<key::unsigned-size(256)>>)
   end
 
-  def storageValue(%Chain.Account{storageRoot: store}, key) when is_binary(key) do
-    MerkleTree.get(store, key)
+  def storageValue(%Chain.Account{storage_root: store}, key) when is_binary(key) do
+    case MerkleTree.get(store, key) do
+      nil -> <<0::unsigned-size(256)>>
+      bin -> bin
+    end
   end
 
   @spec storageInteger(Chain.Account.t(), binary() | integer()) :: non_neg_integer()
@@ -53,7 +67,7 @@ defmodule Chain.Account do
     [
       account.nonce,
       account.balance,
-      MerkleTree.root_hash(account.storageRoot),
+      MerkleTree.root_hash(account.storage_root),
       codehash(account)
     ]
   end

@@ -58,6 +58,7 @@ int main() {
             fread(code.data(), code_size);
 
             evmc_result ret = vm->execute(vm, &host, EVMC_CONSTANTINOPLE, &msg, code.data(), code_size);
+            host.send_updates();
             
             int64_t ref_size = ret.output_size;
             int64_t gas_left = ret.gas_left;

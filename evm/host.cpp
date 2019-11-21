@@ -77,22 +77,25 @@ evmc_storage_status Host::set_storage(const evmc::address& addr,
                                 const evmc::bytes32& key,
                                 const evmc::bytes32& value) noexcept
 {
-    evmc::bytes32 prev_value;
-
-    dlog("set_storage(%s)\n", hex(key.bytes));
-
-    nwrite(2 + sizeof(addr.bytes) + sizeof(key.bytes) + sizeof(value.bytes));
-    fwrite("ss", 2);
-    fwrite(addr.bytes, sizeof(addr.bytes));
-    fwrite(key.bytes, sizeof(key.bytes));
-    fwrite(value.bytes, sizeof(value.bytes));
-    fflush(stdout);
-
-    nread();
-    fread(prev_value.bytes, sizeof(prev_value.bytes));
-
+    evmc::bytes32 prev_value = get_storage(addr, key);
     m_storage_cache[std::make_pair(addr, key)] = value;
+    m_storage_write_cache[std::make_pair(addr, key)] = value;
     return (prev_value == value) ? EVMC_STORAGE_UNCHANGED : EVMC_STORAGE_MODIFIED;
+}
+
+void Host::send_updates() noexcept {
+    dlog("send_updates()\n");
+
+    auto count = m_storage_write_cache.size();
+    nwrite(2 + count * (sizeof(evmc::address) + sizeof(evmc::bytes32) + sizeof(evmc::bytes32)));
+    fwrite("su", 2);
+    for (auto& [keys, value]: m_storage_write_cache) {
+        auto& [addr, key] = keys;
+        fwrite(addr.bytes, sizeof(addr.bytes));
+        fwrite(key.bytes, sizeof(key.bytes));
+        fwrite(value.bytes, sizeof(value.bytes));
+    }
+    fflush(stdout);
 }
 
 evmc::uint256be Host::get_balance(const evmc::address& addr) noexcept

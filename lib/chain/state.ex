@@ -3,25 +3,36 @@
 # Licensed under the Diode License, Version 1.0
 defmodule Chain.State do
   import Wallet
-  defstruct store: MerkleTree.new(), map: %{}
+
+  @enforce_keys [:store]
+  defstruct store: nil
+
+  def init() do
+    Store.create_table!(:state_accounts, [:hash, :account])
+  end
 
   def new() do
-    %Chain.State{store: MerkleTree.new()}
+    %Chain.State{store: MnesiaMerkleTree.new()}
+  end
+
+  def restore(state_root) do
+    {:ok, store} = MnesiaMerkleTree.restore(state_root)
+    %Chain.State{store: store}
   end
 
   def hash(%Chain.State{store: tree}) do
     MerkleTree.root_hash(tree)
   end
 
-  def accounts(%Chain.State{store: store, map: map}) do
+  def accounts(%Chain.State{store: store}) do
     MerkleTree.to_list(store)
-    |> Enum.map(fn {key, value} -> {key, Map.get(map, value)} end)
+    |> Enum.map(fn {key, value} -> {key, from_key(value)} end)
     |> Map.new()
   end
 
   @spec account(Chain.State.t(), <<_::160>>) :: Chain.Account.t() | nil
-  def account(%Chain.State{store: store, map: map}, id = <<_::160>>) do
-    Map.get(map, MerkleTree.get(store, id))
+  def account(%Chain.State{store: store}, id = <<_::160>>) do
+    from_key(MerkleTree.get(store, id))
   end
 
   @spec ensure_account(Chain.State.t(), <<_::160>> | Wallet.t() | non_neg_integer()) ::
@@ -32,7 +43,7 @@ defmodule Chain.State do
 
   def ensure_account(state = %Chain.State{}, id = <<_::160>>) do
     case account(state, id) do
-      nil -> %Chain.Account{nonce: 0}
+      nil -> Chain.Account.new(nonce: 0)
       acc -> acc
     end
   end
@@ -42,22 +53,40 @@ defmodule Chain.State do
   end
 
   @spec set_account(Chain.State.t(), binary(), Chain.Account.t()) :: Chain.State.t()
-  def set_account(state = %Chain.State{store: store, map: map}, id = <<_::160>>, account) do
+  def set_account(state = %Chain.State{store: store}, id = <<_::160>>, account) do
     hash = Chain.Account.hash(account)
-    # store = MerkleTree.delete(store, id)
     store = MerkleTree.insert(store, id, hash)
-    map = Map.put(map, hash, account)
 
-    # Recreating map, ensuring to skip non-referenced entries
-    map = for {_k, v} <- MerkleTree.to_list(store), into: %{}, do: {v, Map.fetch!(map, v)}
-    %{state | store: store, map: map}
+    {:atomic, :ok} =
+      :mnesia.transaction(fn ->
+        case :mnesia.read(:state_accounts, hash) do
+          [{:state_accounts, ^hash, ^account}] -> :ok
+          [] -> :mnesia.write({:state_accounts, hash, account})
+        end
+      end)
+
+    %{state | store: store}
   end
 
   @spec delete_account(Chain.State.t(), binary()) :: Chain.State.t()
-  def delete_account(state = %Chain.State{store: store, map: map}, id = <<_::160>>) do
+  def delete_account(state = %Chain.State{store: store}, id = <<_::160>>) do
     store = MerkleTree.delete(store, id)
-    # Recreating map, ensuring to skip non-referenced entries
-    map = for {_k, v} <- MerkleTree.to_list(store), into: %{}, do: {v, Map.fetch!(map, v)}
-    %{state | store: store, map: map}
+    %{state | store: store}
+  end
+
+  # ========================================================
+  # Internal Mnesia Specific
+  # ========================================================
+  defp from_key(nil), do: nil
+
+  defp from_key(mnesia_key) when is_binary(mnesia_key) do
+    [{:state_accounts, ^mnesia_key, account}] =
+      if :mnesia.is_transaction() do
+        :mnesia.read(:state_accounts, mnesia_key)
+      else
+        :mnesia.dirty_read(:state_accounts, mnesia_key)
+      end
+
+    account
   end
 end
