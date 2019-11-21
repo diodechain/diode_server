@@ -35,7 +35,7 @@ int main() {
             // evmc_uint256be chain_id;         /**< The blockchain's ChainID. */
             bread(host.tx_context.chain_id);
         } else if (cmd == 'r') {
-            struct evmc_message msg;
+            struct evmc_message msg{};
             msg.kind = EVMC_CALL;
 
             bread(msg.sender);

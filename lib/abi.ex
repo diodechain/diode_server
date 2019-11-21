@@ -30,6 +30,12 @@ defmodule ABI do
     binary_part(Hash.keccak_256(signature), 0, 4)
   end
 
+  def encode_call(name, types \\ [], values \\ []) do
+    fun = ABI.encode_spec(name, types)
+    args = ABI.encode_args(types, values)
+    fun <> args
+  end
+
   def do_encode_data(type, value) do
     if String.ends_with?(type, "[]") do
       subtype = binary_part(type, 0, byte_size(type) - 2)

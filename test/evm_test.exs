@@ -95,7 +95,7 @@ defmodule EvmTest do
     assert value == 1
   end
 
-  test "transfer cash contract" do
+  test "transfer cash simple" do
     miner = Wallet.new()
     to_wallet = Wallet.new()
     from_wallet = Wallet.new()
@@ -132,8 +132,7 @@ defmodule EvmTest do
     assert Chain.Account.balance(from_acc) == 10
     assert Chain.Account.balance(to_acc) == 0
 
-    {:ok, state, recpt = %TransactionReceipt{msg: :ok, evmout: ""}} =
-      Transaction.apply(ctx, block, state)
+    {:ok, state, %TransactionReceipt{msg: :ok, evmout: ""}} = Transaction.apply(ctx, block, state)
 
     # Checking new balances
     from_acc = Chain.State.account(state, Wallet.address!(from_wallet))
@@ -141,5 +140,72 @@ defmodule EvmTest do
 
     assert Chain.Account.balance(from_acc) == 8
     assert Chain.Account.balance(to_acc) == 2
+  end
+
+  test "transfer cash contract" do
+    miner = Wallet.new()
+    to_wallet = Wallet.new()
+    from_wallet = Wallet.new()
+    contract = Wallet.new()
+    priv = Wallet.privkey!(from_wallet)
+
+    state = Chain.State.new()
+    block = %Chain.Block{header: %Chain.Header{miner_pubkey: Wallet.pubkey!(miner)}}
+
+    # Creating simple transfer
+    ctx = %Transaction{
+      gasPrice: 0,
+      gasLimit: 1_000_000_000,
+      data: ABI.encode_call("send", ["address"], [Wallet.address!(to_wallet)]),
+      value: 2,
+      nonce: 1,
+      to: Wallet.address!(contract)
+    }
+
+    ctx = Transaction.sign(ctx, priv)
+
+    from_acc = %Chain.Account{
+      nonce: 1,
+      balance: 10
+    }
+
+    to_acc = %Chain.Account{
+      nonce: 1,
+      balance: 0
+    }
+
+    state = Chain.State.set_account(state, Wallet.address!(from_wallet), from_acc)
+    state = Chain.State.set_account(state, Wallet.address!(to_wallet), to_acc)
+
+    state =
+      Chain.State.set_account(state, Wallet.address!(contract), %Chain.Account{
+        code: transfer_contract()
+      })
+
+    # Checking initial balances
+    assert Chain.Account.balance(from_acc) == 10
+    assert Chain.Account.balance(to_acc) == 0
+
+    {:ok, state, %TransactionReceipt{msg: :ok, evmout: ""}} = Transaction.apply(ctx, block, state)
+
+    # Checking new balances
+    from_acc = Chain.State.account(state, Wallet.address!(from_wallet))
+    to_acc = Chain.State.account(state, Wallet.address!(to_wallet))
+
+    assert Chain.Account.balance(from_acc) == 8
+    assert Chain.Account.balance(to_acc) == 2
+  end
+
+  @doc """
+  pragma solidity >=0.4.22 <0.6.0;
+  contract Transfer {
+    function send(address payable to) public payable {
+      to.transfer(msg.value);
+    }
+  }
+  """
+  def transfer_contract() do
+    "0x608060405260043610603e5763ffffffff7c01000000000000000000000000000000000000000000000000000000006000350416633e58c58c81146043575b600080fd5b606273ffffffffffffffffffffffffffffffffffffffff600435166064565b005b60405173ffffffffffffffffffffffffffffffffffffffff8216903480156108fc02916000818181858888f1935050505015801560a5573d6000803e3d6000fd5b50505600a165627a7a723058209a6b75d82e1cabe2972f6f622acc6c5b45d6eb4f180941a1ffcaf3180df9a6f90029"
+    |> Base16.decode()
   end
 end

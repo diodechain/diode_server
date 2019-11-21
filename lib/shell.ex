@@ -59,11 +59,6 @@ defmodule Shell do
 
   def transaction(wallet, address, name, types, values, opts \\ [])
       when is_list(types) and is_list(values) do
-    # https://solidity.readthedocs.io/en/v0.4.24/abi-spec.html
-    fun = ABI.encode_spec(name, types)
-    args = ABI.encode_args(types, values)
-    callcode = fun <> args
-
     opts =
       opts
       |> Keyword.put_new(:gas, Chain.gasLimit())
@@ -72,6 +67,8 @@ defmodule Shell do
       |> Enum.map(fn {key, value} -> {Atom.to_string(key), value} end)
       |> Map.new()
 
+    # https://solidity.readthedocs.io/en/v0.4.24/abi-spec.html
+    callcode = ABI.encode_call(name, types, values)
     Network.Rpc.create_transaction(wallet, callcode, opts)
   end
 

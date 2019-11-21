@@ -65,6 +65,9 @@ defmodule Evm do
         :evmc_callcode ->
           do_call_contract(from, target, gas, value, call_data, from, state)
 
+        :evmc_call ->
+          do_call_contract(target, target, gas, value, call_data, from, state)
+
         _other ->
           do_call_contract(target, target, gas, value, call_data, from, state)
       end
@@ -101,15 +104,17 @@ defmodule Evm do
           |> Chain.State.set_account(tx.to, %{to_acc | balance: to_acc.balance + value})
         end
 
-      Evm.eval_internal(
+      evm =
         evm(%{
           state
           | tx: tx,
             chain_state: st1,
             code: code,
+            internal: true,
             from: from |> :binary.decode_unsigned()
         })
-      )
+
+      Evm.eval_internal(evm)
     end
 
     defp do_create(
@@ -256,17 +261,8 @@ defmodule Evm do
     State.evm(state)
   end
 
-  def log(format, args) do
-    :io.format(format, args)
-    # case Enum.at(args, 2) do
-    #   nil -> :ok
-    #   cmd -> :io.format("cmd: ~p~n", [cmd])
-    # end
-  end
-
   def eval(evm) do
     ret = eval_internal(evm)
-    # :io.format("debug.trace2: ~p~n", [ret])
 
     with {:ok, evm2} <- ret do
       # Checking for selfdestruct
@@ -349,7 +345,6 @@ defmodule Evm do
           {:ok, evm2}
 
         bin ->
-          # :io.format("deducting ~p of ~p~n", [byte_size(bin) * gas_cost(:GCODEDEPOSIT), evm2.gas])
           deposit = byte_size(bin) * gas_cost(:GCODEDEPOSIT)
 
           if evm2.gas > deposit do
@@ -453,6 +448,7 @@ defmodule Evm do
     other
   end
 
+  # finished code execution
   defp process_data(
          <<"ok", gas_left::signed-little-size(64), ret_code::signed-little-size(64),
            len::unsigned-little-size(64), rest::binary-size(len)>>,
@@ -631,7 +627,6 @@ defmodule Evm do
   end
 
   defp process_data(other, evm) do
-    :io.format("dump ~p ~0p~n", [binary_part(other, 0, 2), other])
     {:cont, evm}
   end
 
