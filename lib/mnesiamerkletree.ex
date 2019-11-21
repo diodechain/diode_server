@@ -41,9 +41,13 @@ defmodule MnesiaMerkleTree do
   end
 
   @spec root_hash(merkle()) :: hash_type()
-  def root_hash(merkle) do
-    root_hashes(merkle)
-    |> signature()
+  def root_hash({__MODULE__, _options, tree}) do
+    {:atomic, mnesia_key} =
+      :mnesia.transaction(fn ->
+        to_key(tree)
+      end)
+
+    mnesia_key
   end
 
   @spec root_hashes(merkle()) :: [hash_type()]
@@ -141,6 +145,10 @@ defmodule MnesiaMerkleTree do
   def init() do
     Store.create_table!(:mtree, [:hash, :node])
     Store.create_table!(:mtree_ref_count, [:hash, :count])
+  end
+
+  defp to_key(mnesia_key) when is_binary(mnesia_key) do
+    mnesia_key
   end
 
   defp to_key(tree) when is_tuple(tree) do

@@ -3,3 +3,7 @@
 # Licensed under the Diode License, Version 1.0
 evm/evm:
 	$(MAKE) -j -C evm
+
+.PHONY: clean
+clean:
+	$(MAKE) -C evm clean

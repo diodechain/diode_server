@@ -33,4 +33,4 @@ host.o: host.hpp
 
 .PHONY: clean
 clean:
-	rm $(DEPS)
+	-rm evm $(DEPS)

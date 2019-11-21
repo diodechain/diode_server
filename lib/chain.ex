@@ -227,7 +227,7 @@ defmodule Chain do
     block_hash = Block.hash(block)
 
     if block_by_hash(block_hash) != nil do
-      IO.puts("Chain.add_block: Skipping existing block")
+      IO.puts("Chain.add_block: Skipping existing block (2)")
       :added
     else
       number = Block.number(block)
@@ -250,7 +250,7 @@ defmodule Chain do
 
     call(fn state, _from ->
       if block_by_hash(block_hash) != nil do
-        IO.puts("Chain.add_block: Skipping existing block (2)")
+        IO.puts("Chain.add_block: Skipping existing block (3)")
         {:reply, :added, state}
       else
         peak = state.peak

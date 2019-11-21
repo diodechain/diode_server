@@ -58,25 +58,54 @@ defmodule Chain.Block do
             Enum.map(transactions(block), &Transaction.validate/1)
             |> Enum.reject(fn tx -> tx == true end)},
          {6, true} <- {6, Diode.hash(encode_transactions(transactions(block))) == txhash(block)},
-         {7, simBlock} <- {7, simulate(block)},
-         {8, true} <- {8, state_equal(simBlock, block)} do
-      %{block | receipts: simBlock.receipts}
+         {7, sim_block} <- {7, simulate(block)},
+         {8, true} <- {8, state_equal(sim_block, block)} do
+      %{block | receipts: sim_block.receipts}
     else
       {nr, error} -> {nr, error}
     end
   end
 
-  defp state_equal(simBlock, block) do
-    if state_hash(simBlock) != state_hash(block) do
+  defp state_equal(sim_block, block) do
+    if state_hash(sim_block) != state_hash(block) do
       # this is for evm_test::replay to produce debug output
       if Diode.dev_mode?() do
+        {:current_stacktrace, what} = :erlang.process_info(self(), :current_stacktrace)
+        :io.format("state_equal(sim_block, block) == false:~n~p~n", [what])
+
+        state = Chain.State.restore?(state_hash(block))
+
+        if state != nil do
+          IO.puts("Checking state...")
+          dup = MerkleTree.copy(state.store, HeapMerkleTree)
+
+          if MerkleTree.root_hash(dup) != MerkleTree.root_hash(state.store) do
+            IO.puts("Inconsistent")
+          else
+            IO.puts("State is consistent")
+          end
+
+          IO.puts("Checking accounts...")
+
+          Enum.each(Chain.State.accounts(state), fn {_addr, acc} ->
+            dup = MerkleTree.copy(acc.storage_root, HeapMerkleTree)
+
+            if MerkleTree.root_hash(dup) != MerkleTree.root_hash(acc.storage_root) do
+              IO.puts("Inconsistent Account")
+              :io.format("==> ~p~n==> ~p~n", [dup, acc.storage_root])
+            end
+          end)
+
+          send(Chain.Saver, :store)
+        end
+
         err = %{
           number: Block.number(block),
           parent: Block.parent(block),
           parent_hash: Block.parent_hash(block),
-          sim_state: state(simBlock),
-          block_state: state(block),
-          sim: simBlock,
+          sim_state: state(sim_block),
+          block_state: state,
+          sim: sim_block,
           block: block
         }
 

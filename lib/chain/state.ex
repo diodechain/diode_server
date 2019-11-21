@@ -20,6 +20,23 @@ defmodule Chain.State do
     %Chain.State{store: store}
   end
 
+  def difference(%Chain.State{store: a} = state_a, %Chain.State{store: b} = state_b) do
+    diff = MerkleTree.difference(a, b)
+
+    Enum.map(diff, fn {id, _} ->
+      acc_a = Chain.State.account(state_a, id)
+      acc_b = Chain.State.account(state_b, id)
+      {id, MerkleTree.difference(acc_a.storage_root, acc_b.storage_root)}
+    end)
+  end
+
+  def restore?(state_root) do
+    case MnesiaMerkleTree.restore(state_root) do
+      {:ok, store} -> %Chain.State{store: store}
+      {:error, _reason} -> nil
+    end
+  end
+
   def hash(%Chain.State{store: tree}) do
     MerkleTree.root_hash(tree)
   end

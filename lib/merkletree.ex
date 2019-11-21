@@ -12,10 +12,51 @@ defmodule MerkleTree do
   @type proof_type :: {proof_type, proof_type} | [any()]
   @type merkle :: {atom(), map(), any()}
 
+  # ========================================================
+  # Public Functions only in the facade
+  # ========================================================
   def new() do
     HeapMerkleTree.new()
   end
 
+  def copy({mod, _opts, _tree} = merkle) do
+    copy(merkle, mod)
+  end
+
+  def copy(merkle, mod) do
+    insert_items(mod.new(), to_list(merkle))
+  end
+
+  def difference(a, b) do
+    a_map = MapSet.new(to_list(a))
+    b_map = MapSet.new(to_list(b))
+    a_diff = MapSet.difference(a_map, b_map) |> MapSet.to_list()
+    b_diff = MapSet.difference(b_map, a_map) |> MapSet.to_list()
+
+    a_diffmap =
+      Enum.map(a_diff, fn {key, value} ->
+        {key, {value, nil}}
+      end)
+      |> Map.new()
+
+    Enum.reduce(b_diff, a_diffmap, fn {key, value}, set ->
+      Map.update(set, key, {nil, value}, fn {other, nil} -> {other, value} end)
+    end)
+  end
+
+  @spec insert(merkle(), key_type(), value_type()) :: merkle()
+  def insert(merkle, key, value) do
+    insert_items(merkle, [{key, value}])
+  end
+
+  @spec insert_item(merkle(), item()) :: merkle()
+  def insert_item(merkle, item) do
+    insert_items(merkle, [item])
+  end
+
+  # ========================================================
+  # Wrapper functions for the impls
+  # ========================================================
   @spec root_hash(merkle()) :: hash_type()
   def root_hash({mod, _opts, _tree} = merkle) do
     mod.root_hash(merkle)
@@ -59,16 +100,6 @@ defmodule MerkleTree do
   @spec member?(merkle(), key_type()) :: boolean()
   def member?({mod, _opts, _tree} = merkle, key) do
     mod.member?(merkle, key)
-  end
-
-  @spec insert(merkle(), key_type(), value_type()) :: merkle()
-  def insert(merkle, key, value) do
-    insert_items(merkle, [{key, value}])
-  end
-
-  @spec insert_item(merkle(), item()) :: merkle()
-  def insert_item(merkle, item) do
-    insert_items(merkle, [item])
   end
 
   @spec insert_items(merkle(), [item()]) :: merkle()

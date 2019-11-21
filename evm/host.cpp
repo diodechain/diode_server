@@ -24,6 +24,7 @@ static char* _hex(const uint8_t *p, size_t i) {
 void Host::reset()
 {
     m_storage_cache.clear();
+    m_storage_write_cache.clear();
 }
 
 bool Host::get_cache(const evmc::address& addr, const evmc::bytes32& key, evmc::bytes32& out) noexcept
