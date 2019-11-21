@@ -196,6 +196,30 @@ defmodule EvmTest do
     assert Chain.Account.balance(to_acc) == 2
   end
 
+  test "Peters transactions" do
+    # These were producing an error like this:
+    # Network.Rpc: ErlangError in <<"eth_sendRawTransaction">>: [{'Elixir.PreCompiles',ecrecover,[run,<<>>],[{file,"lib/precompiles.ex"},{line,14}]},{'Elixir.Evm',eval_internal_precompile,2,[{file,"lib/evm.ex"},{line,322}]},{'Elixir.Evm',eval,1,[{file,"lib/evm.ex"},{line,268}]},{'Elixir.Chain.Transaction',do_apply,6,[{file,"lib/chain/transaction.ex"},{line,200}]},{'Elixir.Network.Rpc',execute_std,2,[{file,"lib/network/rpc.ex"},{line,110}]},{'Elixir.Network.Rpc',execute,2,[{file,"lib/network/rpc.ex"},{line,64}]},{'Elixir.Network.Rpc',handle_jsonrpc,2,[{file,"lib/network/rpc.ex"},{line,38}]},{'Elixir.Network.RpcHttp','-do_match/4-fun-3-',2,[{file,"lib/network/rpc_http.ex"},{line,37}]}]
+    block = Chain.peakBlock()
+    state = Chain.Block.state(block)
+
+    from_peter()
+    |> Enum.reduce(state, fn tx, state ->
+      {:ok, state, %TransactionReceipt{msg: :ok, evmout: ""}} =
+        Transaction.apply(tx, block, state)
+
+      state
+    end)
+  end
+
+  defp from_peter() do
+    [
+      "0xf8c58080835b8d8094600000000000000000000000000000000000000080b864504f04b70000000000000000000000003ff2bc034713fcdf23e2627ebba2dd95829603f000000000000000000000000060157b911069847fa62a0c4b4187b76ab664288100000000000000000000000000000000000000000000000000000000000000011ca00dea8bd663a22f724f11cf8d7b6ac0b96c00add386a7df70eaa18170291c9bd5a0471c3e034a69d90fd12e4972f866faab8da8a01abd5266574b3a65653fc3ef44",
+      "0xf8a50180835b8d8094600000000000000000000000000000000000000080b8443c5f7d460000000000000000000000003ff2bc034713fcdf23e2627ebba2dd95829603f000000000000000000000000000000000000000000000000000000000000000011ca095aefc5299e7251f9574216d63d11c8b4b802a467dff848a54c43acf319074aaa005d7233abc957bb69be367297fb2008dffbcef90d35fb76c2bc0b04186430b24"
+    ]
+    |> Enum.map(&Base16.decode/1)
+    |> Enum.map(&Chain.Transaction.from_rlp/1)
+  end
+
   @doc """
   pragma solidity >=0.4.22 <0.6.0;
   contract Transfer {
