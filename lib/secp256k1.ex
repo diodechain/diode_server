@@ -26,9 +26,8 @@ defmodule Secp256k1 do
     # {compress_public(public), private}
   end
 
-  @spec generate_public_key(binary()) :: {:error, charlist()} | {:ok, binary()}
   def generate_public_key(private_key) do
-    :libsecp256k1.ec_pubkey_create(private_key, :compressed)
+    :libsecp256k1.ec_pubkey_create(private_key, :uncompressed)
   end
 
   @spec compress_public(public_key()) :: compressed_public_key()
@@ -52,28 +51,25 @@ defmodule Secp256k1 do
     public
   end
 
-  @spec der_encode_private(binary(), binary()) :: binary()
   def der_encode_private(private, public) do
-    :public_key.der_encode(
-      :ECPrivateKey,
-      Secp256k1.erl_encode_private(private, public)
-    )
+    :public_key.der_encode(:ECPrivateKey, erl_encode_private(private, public))
   end
 
-  @spec pem_encode_private(binary(), binary()) :: binary()
   def pem_encode_private(private, public) do
-    :public_key.pem_encode([{:ECPrivateKey, der_encode_private(private, public), :not_encrypted}])
+    :public_key.pem_encode([
+      {:ECPrivateKey, der_encode_private(private, public), :not_encrypted}
+    ])
   end
 
-  @spec erl_encode_private(binary(), binary()) ::
-          {:ECPrivateKey, 1, binary(), {:namedCurve, {1, 3, 132, 0, 10}}, binary()}
   def erl_encode_private(private, public) do
-    {:ECPrivateKey, 1, private, {:namedCurve, {1, 3, 132, 0, 10}}, public}
+    {:ECPrivateKey, 1, private, curve_params(), public}
   end
 
-  @spec selfsigned(binary(), binary()) :: binary()
   def selfsigned(private, public) do
-    :public_key.pkix_sign(erl_encode_cert(public), erl_encode_private(private, public))
+    :public_key.pkix_sign(
+      erl_encode_cert(public),
+      erl_encode_private(private, public)
+    )
   end
 
   @spec sign(private_key(), binary(), :sha | :kec) :: signature()
@@ -189,7 +185,7 @@ defmodule Secp256k1 do
         [{:AttributeTypeAndValue, {2, 5, 4, 10}, {:utf8String, "Company Name"}}],
         [{:AttributeTypeAndValue, {2, 5, 4, 11}, {:utf8String, "Org"}}],
         [{:AttributeTypeAndValue, {2, 5, 4, 3}, {:utf8String, "www.example.com"}}]
-      ]}, {:Validity, {:utcTime, '181113072916Z'}, {:utcTime, '191113072916Z'}},
+      ]}, {:Validity, {:utcTime, '181113072916Z'}, {:utcTime, '231113072916Z'}},
      {:rdnSequence,
       [
         [{:AttributeTypeAndValue, {2, 5, 4, 6}, 'US'}],
@@ -199,8 +195,7 @@ defmodule Secp256k1 do
         [{:AttributeTypeAndValue, {2, 5, 4, 11}, {:utf8String, "Org"}}],
         [{:AttributeTypeAndValue, {2, 5, 4, 3}, {:utf8String, "www.example.com"}}]
       ]},
-     {:OTPSubjectPublicKeyInfo,
-      {:PublicKeyAlgorithm, {1, 2, 840, 10045, 2, 1}, {:namedCurve, {1, 3, 132, 0, 10}}},
+     {:OTPSubjectPublicKeyInfo, {:PublicKeyAlgorithm, {1, 2, 840, 10045, 2, 1}, curve_params()},
       {:ECPoint, public}}, :asn1_NOVALUE, :asn1_NOVALUE,
      [
        # Identifier: Subject Key Identifier - 2.5.29.14
@@ -211,6 +206,8 @@ defmodule Secp256k1 do
        {:Extension, {2, 5, 29, 19}, true, {:BasicConstraints, true, :asn1_NOVALUE}}
      ]}
   end
+
+  defp curve_params(), do: {:namedCurve, {1, 3, 132, 0, 10}}
 
   defp hash(:none, <<msg::binary-size(32)>>) do
     msg

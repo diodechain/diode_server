@@ -4,7 +4,6 @@
 defmodule Chain.Header do
   import Wallet
 
-  # Removed nonce since there is already a salt in the miner_signature
   defstruct previous_block: nil,
             miner_signature: nil,
             miner_pubkey: nil,

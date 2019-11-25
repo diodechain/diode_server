@@ -105,7 +105,7 @@ defmodule Network.EdgeHandler do
   def do_init(state) do
     {:ok, peer} = :ssl.peername(state.socket)
     PubSub.subscribe({:edge, Wallet.address!(state.node_id)})
-    :io.format("Edgehandler:init #{Wallet.printable(state.node_id)} from ~200p~n", [peer])
+    # log(state, "do_init() from ~200p", [peer])
 
     state =
       Map.merge(state, %{
@@ -118,8 +118,21 @@ defmodule Network.EdgeHandler do
     {:noreply, state}
   end
 
-  def ssl_options() do
-    Network.Server.default_ssl_options()
+  # Special override to serve using testnet.diode.io certificate instead of miner key
+  def ssl_options(%{pki: %{keyfile: keyfile, certfile: certfile}}) do
+    [
+      mode: :binary,
+      packet: 2,
+      active: false,
+      reuseaddr: true
+    ]
+    |> Keyword.put(:keyfile, keyfile)
+    |> Keyword.put(:certfile, certfile)
+  end
+
+  # Default path, so miner key self signed certificate will be used
+  def ssl_options(extra) do
+    Network.Server.default_ssl_options(extra)
   end
 
   def handle_call(fun, from, state) when is_function(fun) do
@@ -274,11 +287,11 @@ defmodule Network.EdgeHandler do
           end
 
         nil ->
-          :io.format("~p:Unhandled message: ~p~n", [__MODULE__, truncate(msg)])
+          log(state, "Unhandled message: ~40s~n", [truncate(msg)])
           send!(state, ["error", 400, "that is not json"])
 
         _ ->
-          :io.format("~p:Unhandled message: ~40s~n", [__MODULE__, truncate(msg)])
+          log(state, "Unhandled message: ~40s~n", [truncate(msg)])
           send!(state, ["error", 401, "bad input"])
       end
 
@@ -291,17 +304,13 @@ defmodule Network.EdgeHandler do
   end
 
   def handle_info({:stop_unpaid, b0}, state = %{unpaid_bytes: b}) do
-    :io.format(
-      "Edgehandler connection to #{Wallet.printable(state.node_id)} closed because unpaid #{b0}(#{
-        b
-      }) bytes.~n"
-    )
+    log(state, "connection closed because unpaid #{b0}(#{b}) bytes.")
 
     {:stop, :normal, state}
   end
 
   def handle_info({:ssl_closed, _}, state) do
-    :io.format("Edgehandler connection to #{Wallet.printable(state.node_id)} closed by remote.~n")
+    log(state, "connection closed by remote.")
     {:stop, :normal, state}
   end
 
@@ -310,7 +319,7 @@ defmodule Network.EdgeHandler do
   end
 
   def handle_info(msg, state) do
-    :io.format("~p handle_info: ~p ~p~n", [__MODULE__, msg, state])
+    log(state, "Unhandled info: ~p", [msg])
     {:noreply, state}
   end
 
@@ -452,7 +461,7 @@ defmodule Network.EdgeHandler do
         end)
       catch
         kind, what ->
-          IO.puts("Remote port failed ack on portopen: #{inspect({kind, what})}")
+          log(state, "Remote port failed ack on portopen: #{inspect({kind, what})}")
           {:error, "#{inspect(kind)}"}
       end
 

@@ -26,12 +26,9 @@ defmodule Network.PeerHandler do
   def publish, do: @publish
 
   def do_init(state) do
-    {:ok, {address, _port}} = :ssl.peername(state.socket)
-
     state =
       Map.merge(state, %{
         calls: :queue.new(),
-        peer_address: address,
         blocks: [],
         # the oldest parent we have sent over
         oldest_parent: nil
@@ -40,14 +37,13 @@ defmodule Network.PeerHandler do
     {:noreply, state, {:continue, :send_hello}}
   end
 
-  def ssl_options() do
-    Network.Server.default_ssl_options()
+  def ssl_options(opts) do
+    Network.Server.default_ssl_options(opts)
     |> Keyword.put(:packet, 4)
   end
 
   def handle_cast({:rpc, call}, state) do
-    # :io.format("rpc(~p)~n", [call])
-    send!(state.socket, call)
+    send!(state, call)
     calls = :queue.in({call, nil}, state.calls)
     {:noreply, %{state | calls: calls}}
   end
@@ -57,8 +53,7 @@ defmodule Network.PeerHandler do
   end
 
   def handle_call({:rpc, call}, from, state) do
-    # :io.format("rpc(~p)~n", [call])
-    send!(state.socket, call)
+    send!(state, call)
     calls = :queue.in({call, from}, state.calls)
     {:noreply, %{state | calls: calls}}
   end
@@ -74,7 +69,7 @@ defmodule Network.PeerHandler do
   def handle_continue(:send_hello, state) do
     hello = Diode.self()
 
-    send!(state.socket, [@hello, Object.encode!(hello), Chain.genesis_hash()])
+    send!(state, [@hello, Object.encode!(hello), Chain.genesis_hash()])
 
     receive do
       {:ssl, _socket, msg} ->
@@ -85,39 +80,36 @@ defmodule Network.PeerHandler do
             handle_msg(msg, state)
 
           _ ->
-            :io.format("PeerHandler expected hello message, but got ~p~n", [msg])
+            log(state, "expected hello message, but got ~p", [msg])
             {:stop, :normal, state}
         end
     after
       3_000 ->
-        :io.format("PeerHandler expected hello message, timeout~n")
+        log(state, "expected hello message, timeout")
         {:stop, :normal, state}
     end
   end
 
-  def handle_info({:ssl, socket, omsg}, state) do
+  def handle_info({:ssl, _socket, omsg}, state) do
     msg = decode(omsg)
-    # :io.format("msg from ~p~n", [peer(state)])
 
     case handle_msg(msg, state) do
       {reply, state} when not is_atom(reply) ->
-        # :io.format("PeerMsg: #{inspect(msg)} => #{inspect(reply)}~n")
-        send!(socket, reply)
+        send!(state, reply)
         {:noreply, state}
 
       other ->
-        # :io.format("PeerMsg: #{inspect(msg)}~n")
         other
     end
   end
 
   def handle_info({:ssl_closed, _}, state) do
-    :io.format("PeerHandler connection to ~p closed by remote.~n", [peer(state)])
+    log(state, "connection closed by remote.")
     {:stop, :normal, state}
   end
 
   def handle_info(msg, state) do
-    :io.format("PeerHandler unhandled info: ~180p~n", [msg])
+    log(state, "unhandled info: ~180p", [msg])
     {:noreply, state}
   end
 
@@ -125,14 +117,17 @@ defmodule Network.PeerHandler do
     genesis = Chain.genesis_hash()
 
     if genesis != genesis_hash do
-      :io.format("Hello wrong genesis: ~p ~p~n", [
+      log(state, "wrong genesis: ~p ~p", [
         Base16.encode(genesis),
         Base16.encode(genesis_hash)
       ])
 
       {:stop, :normal, state}
     else
-      GenServer.cast(self(), {:rpc, [Network.PeerHandler.publish(), Chain.peakBlock()]})
+      GenServer.cast(
+        self(),
+        {:rpc, [Network.PeerHandler.publish(), filter_block(Chain.peakBlock())]}
+      )
 
       if Map.has_key?(state, :peer_port) do
         {:noreply, state}
@@ -143,7 +138,7 @@ defmodule Network.PeerHandler do
 
         port = Server.server_port(server)
 
-        IO.puts("Received hello from: #{Wallet.printable(state.node_id)}")
+        log(state, "hello from: #{Wallet.printable(state.node_id)}")
         state = Map.put(state, :peer_port, port)
         GenServer.cast(Kademlia, {:register_node, state.node_id, server})
         {:noreply, state}
@@ -193,7 +188,7 @@ defmodule Network.PeerHandler do
   defp handle_msg([@publish, blocks], state) when is_list(blocks) do
     # For better resource usage we only let one process sync at full
     # throttle
-    throttle_sync()
+    throttle_sync(state)
 
     # Actual syncing
     {msg, state} =
@@ -234,7 +229,7 @@ defmodule Network.PeerHandler do
                   blocks ++ [block]
                 else
                   # this could now be considered an error case
-                  :io.format("ignoring wrong ordered block from: ~p~n", [peer(state)])
+                  log(state, "ignoring wrong ordered block from")
                   blocks
                 end
               end
@@ -252,11 +247,11 @@ defmodule Network.PeerHandler do
               with %Chain.Block{} <- Block.parent(oldblock),
                    block_hash <- Block.hash(oldblock) do
                 if Chain.block_by_hash(block_hash) != nil do
-                  IO.puts("Chain.add_block: Skipping existing block")
+                  log(state, "Chain.add_block: Skipping existing block")
                 else
                   case Block.validate(oldblock) do
                     %Chain.Block{} = block ->
-                      throttle_sync(true)
+                      throttle_sync(state, true)
                       Chain.add_block(block, false)
 
                     _ ->
@@ -292,7 +287,7 @@ defmodule Network.PeerHandler do
     # if there is a missing parent we're batching 65k blocks at once
     parents =
       Enum.reduce_while(Chain.blocks(parent_hash), [], fn block, blocks ->
-        next = [%{block | receipts: []} | blocks]
+        next = [filter_block(block) | blocks]
 
         if byte_size(:erlang.term_to_binary(next)) > 260_000 do
           {:halt, next}
@@ -307,7 +302,7 @@ defmodule Network.PeerHandler do
         respond(state, "missing_parent")
 
       _other ->
-        send!(state.socket, [@publish, parents])
+        send!(state, [@publish, parents])
         {:noreply, %{state | oldest_parent: List.last(parents)}}
     end
   end
@@ -321,11 +316,15 @@ defmodule Network.PeerHandler do
   end
 
   defp handle_msg(msg, state) do
-    IO.puts("Unhandled: #{inspect(msg)}")
+    log(state, "Unhandled: #{inspect(msg)}")
     {:noreply, state}
   end
 
-  defp throttle_sync(register \\ false) do
+  defp filter_block(%Chain.Block{} = block) do
+    %Chain.Block{block | receipts: []}
+  end
+
+  defp throttle_sync(state, register \\ false) do
     # For better resource usage we only let one process sync at full
     # throttle
     case Process.whereis(:active_sync) do
@@ -335,25 +334,21 @@ defmodule Network.PeerHandler do
           PubSub.publish(:rpc, {:rpc, :syncing, true})
         end
 
-        :io.format("Syncing ...~n")
+        log(state, "Syncing ...")
 
       pid ->
         if pid != self() do
-          :io.format("Syncing slow ...~n")
+          log(state, "Syncing slow ...")
           Process.sleep(1000)
         else
-          :io.format("Syncing ...~n")
+          log(state, "Syncing ...")
         end
     end
   end
 
-  defp peer(state) do
-    {state.peer_address, Map.get(state, :peer_port)}
-  end
-
   defp respond(state, msg) do
     {{:value, {_call, from}}, calls} = :queue.out(state.calls)
-    # :io.format("respond: ~p,#{inspect(msg)}~n", [{call, from}])
+
     if from != nil do
       :ok = GenServer.reply(from, msg)
     end
@@ -361,7 +356,8 @@ defmodule Network.PeerHandler do
     {:noreply, %{state | calls: calls}}
   end
 
-  defp send!(socket, data) do
+  defp send!(%{socket: socket}, data) do
+    # log(state, "send ~p", [data])
     :ok = :ssl.send(socket, encode(data))
   end
 

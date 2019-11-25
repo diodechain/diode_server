@@ -20,7 +20,7 @@ defmodule Store do
   def init(:ok) do
     create_table!(:keyValue, Keyword.keys(keyValue(keyValue())))
     ensure_identity()
-    IO.puts("==== Mining Node ====")
+    IO.puts("====== Coinbase ======")
     IO.puts("#{Wallet.printable(Store.wallet())}")
     IO.puts("")
 

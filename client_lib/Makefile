@@ -8,4 +8,3 @@ device_certificate.pem: secp256k1_params.pem
 
 secp256k1_params.pem:
 	openssl ecparam -name secp256k1 -out secp256k1_params.pem
-

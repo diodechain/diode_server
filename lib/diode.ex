@@ -27,7 +27,7 @@ defmodule Diode do
     import Supervisor.Spec, warn: false
 
     if travis_mode?() do
-      IO.puts("====== TRAVIS DETECTED ======")
+      IO.puts("++++++ TRAVIS DETECTED ++++++")
       :io.format("~0p~n", [:inet.getifaddrs()])
       :io.format("~0p~n", [:inet.get_rc()])
       :io.format("~0p~n", [:inet.getaddr('localhost', :inet)])
@@ -48,7 +48,7 @@ defmodule Diode do
       keys = Enum.map(wallets, fn w -> Base16.encode(Wallet.privkey!(w)) end)
       System.put_env("WALLETS", Enum.join(keys, " "))
 
-      IO.puts("====== DEV Accounts ======")
+      IO.puts("====== DEV Accounts ==")
 
       for w <- wallets do
         IO.puts("#{Wallet.printable(w)} priv #{Base16.encode(Wallet.privkey!(w))}")
@@ -74,10 +74,8 @@ defmodule Diode do
 
     network_children = [
       # Starting External Interfaces
-      Supervisor.child_spec({Network.Server, {edgePort(), Network.EdgeHandler}}, id: EdgeServer),
-      Supervisor.child_spec({Network.Server, {kademliaPort(), Network.PeerHandler}},
-        id: KademliaServer
-      ),
+      Network.Server.child(edgePort(), Network.EdgeHandler),
+      Network.Server.child(kademliaPort(), Network.PeerHandler),
       worker(Kademlia, [args]),
       cowboy(:http, port: rpcPort())
     ]
@@ -85,7 +83,10 @@ defmodule Diode do
     base_children =
       case File.read("priv/privkey.pem") do
         {:ok, _} ->
-          IO.puts("====== Enabling SSL")
+          IO.puts("++++++  SSL ON  ++++++")
+          IO.puts("RPC  SSL Port: #{rpcsPort()}")
+          IO.puts("Edge SSL Port: #{edgePort() + 1}")
+          IO.puts("")
 
           https =
             cowboy(:https,
@@ -95,7 +96,16 @@ defmodule Diode do
               otp_app: Diode
             )
 
-          base_children ++ [https]
+          edge =
+            Network.Server.child(edgePort() + 1, Network.EdgeHandler,
+              name: EdgeHandlerS,
+              pki: %{
+                keyfile: "priv/privkey.pem",
+                certfile: "priv/cert.pem"
+              }
+            )
+
+          base_children ++ [https, edge]
 
         _ ->
           base_children
@@ -255,7 +265,7 @@ defmodule Diode do
     get_env(
       "SEED",
       "diode://0xa3f06917a9a4846d44d39ae71ddbd69b4c0b1a1a@seed-alpha.diode.io:51053 " <>
-        "diode://0x0ffc572a936a1e0ebf9c43aacb145d08847f0a1d@seed-beta.diode.io:51053 " <>
+        "diode://0x937c492a77ae90de971986d003ffbc5f8bb2232c@seed-beta.diode.io:51053 " <>
         "diode://0x0ffc572a936a1e0ebf9c43aacb145d08847f0aee@seed-gamma.diode.io:51053"
     )
     |> String.split(" ", trim: true)

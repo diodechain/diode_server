@@ -15,21 +15,34 @@ defmodule Network.Server do
 
   @type sslsocket() :: any()
 
-  defstruct socket: nil, clients: %{}, protocol: nil, port: nil
-  @type t :: %Network.Server{socket: sslsocket, clients: Map.t(), protocol: atom()}
+  defstruct socket: nil, clients: %{}, protocol: nil, port: nil, opts: []
 
-  @spec start_link({integer(), atom()}) :: {:error, any()} | {:ok, pid()}
-  def start_link({port, protcolHandler}) do
-    GenServer.start_link(__MODULE__, {port, protcolHandler}, name: protcolHandler)
+  @type t :: %Network.Server{
+          socket: sslsocket,
+          clients: Map.t(),
+          protocol: atom(),
+          port: integer(),
+          opts: %{}
+        }
+
+  def start_link({port, protocolHandler, opts}) do
+    GenServer.start_link(__MODULE__, {port, protocolHandler, opts}, name: opts.name)
   end
 
-  @spec init({integer(), atom()}) :: {:ok, Network.Server.t(), {:continue, :accept}}
-  def init({port, protocolHandler}) do
+  def child(port, protocolHandler, opts \\ []) do
+    opts =
+      %{name: protocolHandler}
+      |> Map.merge(Map.new(opts))
+
+    Supervisor.child_spec({__MODULE__, {port, protocolHandler, opts}}, id: opts.name)
+  end
+
+  @spec init({integer(), atom(), %{}}) :: {:ok, Network.Server.t(), {:continue, :accept}}
+  def init({port, protocolHandler, opts}) do
     :erlang.process_flag(:trap_exit, true)
+    {:ok, socket} = :ssl.listen(port, protocolHandler.ssl_options(opts))
 
-    {:ok, socket} = :ssl.listen(port, protocolHandler.ssl_options())
-
-    {:ok, %Network.Server{socket: socket, protocol: protocolHandler, port: port},
+    {:ok, %Network.Server{socket: socket, protocol: protocolHandler, port: port, opts: opts},
      {:continue, :accept}}
   end
 
@@ -60,7 +73,11 @@ defmodule Network.Server do
         {:noreply, state}
 
       {[], _clients} ->
-        :io.format("~0p Connection failed (~0p)~n", [state.protocol, {pid, reason}])
+        :io.format("~0p Connection setup failed before register (~0p)~n", [
+          state.protocol,
+          {pid, reason}
+        ])
+
         {:noreply, state}
     end
   end
@@ -116,7 +133,6 @@ defmodule Network.Server do
               end
 
               worker = start_worker!(state, [:init, newSocket2])
-              set_keepalive(newSocket2)
               :ok = :ssl.controlling_process(newSocket2, worker)
               %Network.Server{state | clients: Map.put(state.clients, node_id, worker)}
 
@@ -131,54 +147,21 @@ defmodule Network.Server do
   end
 
   defp start_worker!(state, cmd) do
-    {:ok, worker} = GenServer.start_link(state.protocol, cmd, hibernate_after: 5_000)
+    worker_state = %{
+      server_pid: self(),
+      ssl_opts: state.opts
+    }
+
+    {:ok, worker} =
+      GenServer.start_link(state.protocol, {worker_state, cmd},
+        hibernate_after: 5_000,
+        timeout: 4_000
+      )
+
     worker
   end
 
-  # 4.2. The setsockopt function call
-  #
-  #   All you need to enable keepalive for a specific socket is to set the specific socket option on the socket itself.
-  #   The prototype of the function is as follows:
-  #
-  #   int setsockopt(int s, int level, int optname,
-  #                   const void *optval, socklen_t optlen)
-  #
-  #   The first parameter is the socket, previously created with the socket(2); the second one must be
-  #   SOL_SOCKET, and the third must be SO_KEEPALIVE . The fourth parameter must be a boolean integer value, indicating
-  #   that we want to enable the option, while the last is the size of the value passed before.
-  #
-  #   According to the manpage, 0 is returned upon success, and -1 is returned on error (and errno is properly set).
-  #
-  #   There are also three other socket options you can set for keepalive when you write your application. They all use
-  #   the SOL_TCP level instead of SOL_SOCKET, and they override system-wide variables only for the current socket. If
-  #   you read without writing first, the current system-wide parameters will be returned.
-  #
-  #   TCP_KEEPCNT: the number of unacknowledged probes to send before considering the connection dead and notifying the
-  #   application layer
-  #
-  #   TCP_KEEPIDLE: the interval between the last data packet sent (simple ACKs are not considered data) and the first
-  #   keepalive probe; after the connection is marked to need keepalive, this counter is not used any further
-  #
-  #   TCP_KEEPINTVL: the interval between subsequential keepalive probes, regardless of what the connection has
-  #   exchanged in the meantime
-  defp set_keepalive(socket) do
-    tcp_keepcnt = 6
-    tcp_keepidle = 4
-    tcp_keepintvl = 5
-
-    :ok = :ssl.setopts(socket, [{:keepalive, true}])
-    :ok = set_tcpopt(socket, tcp_keepcnt, 5)
-    :ok = set_tcpopt(socket, tcp_keepidle, 360)
-    :ok = set_tcpopt(socket, tcp_keepintvl, 60)
-    :ok
-  end
-
-  defp set_tcpopt(socket, opt, value) do
-    ipproto_tcp = 6
-    :ssl.setopts(socket, [{:raw, ipproto_tcp, opt, <<value::unsigned-size(32)>>}])
-  end
-
-  def default_ssl_options() do
+  def default_ssl_options(_opts) do
     w = Store.wallet()
     public = Wallet.pubkey_long!(w)
     private = Wallet.privkey!(w)

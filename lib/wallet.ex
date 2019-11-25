@@ -32,6 +32,7 @@ defmodule Wallet do
 
   def from_privkey(privkey = <<_::256>>) do
     {:ok, pubkey} = Secp256k1.generate_public_key(privkey)
+    pubkey = Secp256k1.compress_public(pubkey)
     wallet(from_pubkey(pubkey), privkey: privkey)
   end
 
@@ -72,7 +73,16 @@ defmodule Wallet do
   def printable(nil), do: "nil"
 
   def printable(wallet),
-    do: "#{String.pad_trailing(words(wallet), 16)} (#{Base16.encode(address!(wallet))})"
+    do: "#{String.pad_trailing(words(wallet), 16)} (#{base16(wallet)})"
+
+  def nick(nil), do: "nil"
+
+  def nick(wallet),
+    do: "#{words(wallet)} (#{String.slice(base16(wallet), 0..5)})"
+
+  def base16(wallet) do
+    Base16.encode(address!(wallet))
+  end
 
   def words(nil), do: "nil"
   def words(wallet), do: Words.encode(address!(wallet))
