@@ -5,7 +5,7 @@ defmodule Evm do
   @moduledoc """
   EVM Interface using an extern C application based on EVMC (currently Aleth)
   """
-  alias Chain.Transaction
+  alias Chain.{Transaction, Account}
 
   defstruct port: nil,
             chain_state: nil,
@@ -38,7 +38,8 @@ defmodule Evm do
 
     @spec store(Evm.State.t()) :: MerkleTree.merkle()
     def store(%State{chain_state: st} = state) do
-      Chain.State.ensure_account(st, address(state)).storage_root
+      Chain.State.ensure_account(st, address(state))
+      |> Account.root()
     end
 
     def code(%State{code: code}), do: code
@@ -132,7 +133,7 @@ defmodule Evm do
         |> Hash.to_address()
 
       account = %{account | nonce: account.nonce + 1, balance: account.balance - value}
-      to_account = Chain.Account.new(nonce: 1, balance: value)
+      to_account = Account.new(nonce: 1, balance: value)
 
       st =
         st
@@ -271,7 +272,7 @@ defmodule Evm do
       st =
         Enum.reduce(state.selfdestructs, state.chain_state, fn {to, benefector}, st ->
           # Fetching balance and deleting the account
-          balance = Chain.Account.balance(Chain.State.ensure_account(st, to))
+          balance = Account.balance(Chain.State.ensure_account(st, to))
           st = Chain.State.delete_account(st, to)
 
           # Sending balance to destination contract
@@ -470,7 +471,7 @@ defmodule Evm do
        ) do
     value =
       Chain.State.ensure_account(state(evm), addr)
-      |> Chain.Account.storageValue(key)
+      |> Account.storageValue(key)
 
     true = Port.command(evm.port, value)
     {:cont, evm}
@@ -483,7 +484,7 @@ defmodule Evm do
     state =
       Enum.reduce(updates, state(evm), fn {addr, kvs}, state ->
         acc = Chain.State.ensure_account(state, addr)
-        store = MerkleTree.insert_items(acc.storage_root, Map.to_list(kvs))
+        store = MerkleTree.insert_items(Account.root(acc), Map.to_list(kvs))
         acc = %{acc | storage_root: store}
         Chain.State.set_account(state, addr, acc)
       end)
@@ -498,7 +499,7 @@ defmodule Evm do
     ret =
       case Chain.State.account(state, addr) do
         nil -> 0
-        %Chain.Account{} -> 1
+        %Account{} -> 1
       end
 
     true = Port.command(evm.port, <<ret::unsigned-little-size(64)>>)
@@ -509,7 +510,7 @@ defmodule Evm do
   defp process_data(<<"gb", addr::binary-size(20)>>, evm) do
     value =
       Chain.State.ensure_account(state(evm), addr)
-      |> Chain.Account.balance()
+      |> Account.balance()
 
     true = Port.command(evm.port, <<value::unsigned-size(256)>>)
     {:cont, evm}
@@ -519,7 +520,7 @@ defmodule Evm do
   defp process_data(<<"gc", addr::binary-size(20)>>, evm) do
     size =
       Chain.State.ensure_account(state(evm), addr)
-      |> Chain.Account.code()
+      |> Account.code()
       |> byte_size()
 
     true = Port.command(evm.port, <<size::unsigned-little-size(64)>>)
@@ -530,7 +531,7 @@ defmodule Evm do
   defp process_data(<<"gd", addr::binary-size(20)>>, evm) do
     hash =
       Chain.State.ensure_account(state(evm), addr)
-      |> Chain.Account.codehash()
+      |> Account.codehash()
 
     true = Port.command(evm.port, <<hash::binary-size(32)>>)
     {:cont, evm}
@@ -544,7 +545,7 @@ defmodule Evm do
        ) do
     code =
       Chain.State.ensure_account(state(evm), addr)
-      |> Chain.Account.code()
+      |> Account.code()
 
     length = min(size, byte_size(code) - offset)
     code = binary_part(code, offset, length)

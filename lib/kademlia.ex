@@ -335,6 +335,10 @@ defmodule Kademlia do
       _error ->
         IO.puts("Failed to get a result from #{Wallet.printable(node_id)}")
         []
+    catch
+      _any, _what ->
+        IO.puts("Failed(2) to get a result from #{Wallet.printable(node_id)}")
+        []
     end
   end
 

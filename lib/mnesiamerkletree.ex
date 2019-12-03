@@ -33,6 +33,15 @@ defmodule MnesiaMerkleTree do
     ret
   end
 
+  @doc """
+  null() returns the default empty tree for comparison
+  """
+  def null() do
+    {MnesiaMerkleTree, %{},
+     <<67, 138, 144, 64, 93, 170, 135, 101, 57, 8, 44, 208, 186, 246, 205, 218, 163, 191, 136, 15,
+       28, 138, 240, 192, 56, 31, 0, 66, 219, 147, 8, 138>>}
+  end
+
   def restore(mnesia_key) do
     case :mnesia.dirty_read(:mtree, mnesia_key) do
       [{:mtree, ^mnesia_key, tree}] -> {:ok, {__MODULE__, %{}, tree}}
@@ -145,6 +154,7 @@ defmodule MnesiaMerkleTree do
   def init() do
     Store.create_table!(:mtree, [:hash, :node])
     Store.create_table!(:mtree_ref_count, [:hash, :count])
+    MnesiaMerkleTree.new()
   end
 
   defp to_key(mnesia_key) when is_binary(mnesia_key) do

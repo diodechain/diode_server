@@ -4,7 +4,7 @@
 defmodule Network.EdgeHandler do
   use Network.Handler
   alias Object.Ticket, as: Ticket
-  import Ticket
+  import Ticket, only: :macros
 
   defmodule PortClient do
     defstruct pid: nil, mon: nil, ref: nil, write: true
@@ -96,20 +96,17 @@ defmodule Network.EdgeHandler do
   @type state :: %{
           socket: any(),
           node_id: Wallet.t(),
-          peer: tuple(),
+          node_address: :inet.ip_address(),
           ports: PortCollection.t(),
           unpaid_bytes: integer(),
           unpaid_rx_bytes: integer()
         }
 
   def do_init(state) do
-    {:ok, peer} = :ssl.peername(state.socket)
-    PubSub.subscribe({:edge, Wallet.address!(state.node_id)})
-    # log(state, "do_init() from ~200p", [peer])
+    PubSub.subscribe({:edge, device_address(state)})
 
     state =
       Map.merge(state, %{
-        peer: peer,
         ports: %PortCollection{},
         unpaid_bytes: 0,
         unpaid_rx_bytes: 0
@@ -143,158 +140,161 @@ defmodule Network.EdgeHandler do
     fun.(state)
   end
 
-  def handle_info({:ssl, _socket, raw_msg}, state) do
-    msg = decode(raw_msg)
-    state = account_incoming(state, raw_msg)
+  def handle_msg(msg, state) do
+    case msg do
+      ["ticket" | rest = [_block, _fc, _tc, _tb, _la, _ds]] ->
+        handle_ticket(rest, state)
 
-    state =
-      case msg do
-        ["ticket" | rest = [_block, _fc, _tc, _tb, _la, _ds]] ->
-          handle_ticket(rest, state)
+      ["ping"] ->
+        send!(state, ["response", "ping", "pong"])
 
-        ["ping"] ->
-          send!(state, ["response", "ping", "pong"])
+      ["bytes"] ->
+        send!(state, ["response", "bytes", state.unpaid_bytes])
 
-        ["bytes"] ->
-          send!(state, ["response", "bytes", state.unpaid_bytes])
-
-        ["getobject", key] ->
-          value =
-            case Kademlia.find_value(key) do
-              nil -> nil
-              binary -> Object.encode_list!(Object.decode!(binary))
-            end
-
-          send!(state, ["response", "getobject", value])
-
-        ["getnode", node] ->
-          ret =
-            case Kademlia.find_node(node) do
-              nil -> nil
-              item -> Object.encode_list!(KBuckets.object(item))
-            end
-
-          send!(state, ["response", "getnode", ret])
-
-        ["getblockpeak"] ->
-          send!(state, ["response", "getblockpeak", Chain.peak()])
-
-        ["getblock", index] when is_integer(index) ->
-          send!(state, ["response", "getblock", Chain.block(index)])
-
-        ["getblockheader", index] when is_integer(index) ->
-          send!(state, ["response", "getblockheader", Chain.block(index).header])
-
-        ["getstateroots", index] ->
-          merkel = Chain.state(index).store
-          send!(state, ["response", "getstateroots", MerkleTree.root_hashes(merkel)])
-
-        ["getaccount", index, id] ->
-          mstate = Chain.state(index)
-
-          case Chain.State.account(mstate, id) do
-            nil ->
-              send!(state, ["error", "getaccount", "account does not exist"])
-
-            account = %Chain.Account{} ->
-              proof = MerkleTree.get_proofs(mstate.store, id)
-
-              send!(state, [
-                "response",
-                "getaccount",
-                %{
-                  nonce: account.nonce,
-                  balance: account.balance,
-                  storage_root: MerkleTree.root_hash(account.storage_root),
-                  code: Chain.Account.codehash(account)
-                },
-                proof
-              ])
+      ["getobject", key] ->
+        value =
+          case Kademlia.find_value(key) do
+            nil -> nil
+            binary -> Object.encode_list!(Object.decode!(binary))
           end
 
-        ["getaccountroots", index, id] ->
-          mstate = Chain.state(index)
+        send!(state, ["response", "getobject", value])
 
-          case Chain.State.account(mstate, id) do
-            nil ->
-              send!(state, ["error", "getaccountroots", "account does not exist"])
-
-            %Chain.Account{storage_root: storage_root} ->
-              send!(state, [
-                "response",
-                "getaccountroots",
-                MerkleTree.root_hashes(storage_root)
-              ])
+      ["getnode", node] ->
+        ret =
+          case Kademlia.find_node(node) do
+            nil -> nil
+            item -> Object.encode_list!(KBuckets.object(item))
           end
 
-        ["getaccountvalue", index, id, key] ->
-          mstate = Chain.state(index)
+        send!(state, ["response", "getnode", ret])
 
-          case Chain.State.account(mstate, id) do
-            nil ->
-              send!(state, ["error", "getaccountvalue", "account does not exist"])
+      ["getblockpeak"] ->
+        send!(state, ["response", "getblockpeak", Chain.peak()])
 
-            %Chain.Account{storage_root: storage_root} ->
-              send!(state, [
-                "response",
-                "getaccountvalue",
-                MerkleTree.get_proofs(storage_root, key)
-              ])
-          end
+      ["getblock", index] when is_integer(index) ->
+        send!(state, ["response", "getblock", Chain.block(index)])
 
-        ["portopen", device_id, port, flags] ->
-          portopen(state, device_id, port, flags)
+      ["getblockheader", index] when is_integer(index) ->
+        send!(state, ["response", "getblockheader", Chain.block(index).header])
 
-        ["portopen", device_id, port] ->
-          portopen(state, device_id, port)
+      ["getstateroots", index] ->
+        merkel = Chain.state(index).store
+        send!(state, ["response", "getstateroots", MerkleTree.root_hashes(merkel)])
 
-        ["response", "portopen", ref, "ok"] ->
-          port = %Port{state: :pre_open} = PortCollection.get(state.ports, ref)
-          GenServer.reply(port.from, {:ok, ref})
-          ports = PortCollection.put(state.ports, %Port{port | state: :open, from: nil})
-          send!(%{state | ports: ports})
+      ["getaccount", index, id] ->
+        mstate = Chain.state(index)
 
-        ["error", "portopen", ref, reason] ->
-          port = %Port{state: :pre_open} = PortCollection.get(state.ports, ref)
-          GenServer.reply(port.from, {:error, reason})
-          portclose(state, port, false)
+        case Chain.State.account(mstate, id) do
+          nil ->
+            send!(state, ["error", "getaccount", "account does not exist"])
 
-        ["portsend", ref, data] ->
-          case PortCollection.get(state.ports, ref) do
-            nil ->
-              send!(state, ["error", "portsend", "port does not exist"])
+          account = %Chain.Account{} ->
+            proof = MerkleTree.get_proofs(mstate.store, id)
 
-            %Port{state: :open, clients: clients} ->
-              for client <- clients do
-                if client.write do
-                  GenServer.cast(client.pid, fn cstate ->
-                    {:noreply, send!(cstate, ["portsend", client.ref, data])}
-                  end)
-                end
+            send!(state, [
+              "response",
+              "getaccount",
+              %{
+                nonce: account.nonce,
+                balance: account.balance,
+                storage_root: MerkleTree.root_hash(Chain.Account.root(account)),
+                code: Chain.Account.codehash(account)
+              },
+              proof
+            ])
+        end
+
+      ["getaccountroots", index, id] ->
+        mstate = Chain.state(index)
+
+        case Chain.State.account(mstate, id) do
+          nil ->
+            send!(state, ["error", "getaccountroots", "account does not exist"])
+
+          acc ->
+            send!(state, [
+              "response",
+              "getaccountroots",
+              MerkleTree.root_hashes(Chain.Account.root(acc))
+            ])
+        end
+
+      ["getaccountvalue", index, id, key] ->
+        mstate = Chain.state(index)
+
+        case Chain.State.account(mstate, id) do
+          nil ->
+            send!(state, ["error", "getaccountvalue", "account does not exist"])
+
+          acc ->
+            send!(state, [
+              "response",
+              "getaccountvalue",
+              MerkleTree.get_proofs(Chain.Account.root(acc), key)
+            ])
+        end
+
+      ["portopen", device_id, port, flags] ->
+        portopen(state, device_id, port, flags)
+
+      ["portopen", device_id, port] ->
+        portopen(state, device_id, port)
+
+      ["response", "portopen", ref, "ok"] ->
+        port = %Port{state: :pre_open} = PortCollection.get(state.ports, ref)
+        GenServer.reply(port.from, {:ok, ref})
+        ports = PortCollection.put(state.ports, %Port{port | state: :open, from: nil})
+        send!(%{state | ports: ports})
+
+      ["error", "portopen", ref, reason] ->
+        port = %Port{state: :pre_open} = PortCollection.get(state.ports, ref)
+        GenServer.reply(port.from, {:error, reason})
+        portclose(state, port, false)
+
+      ["portsend", ref, data] ->
+        case PortCollection.get(state.ports, ref) do
+          nil ->
+            send!(state, ["error", "portsend", "port does not exist"])
+
+          %Port{state: :open, clients: clients} ->
+            for client <- clients do
+              if client.write do
+                GenServer.cast(client.pid, fn cstate ->
+                  {:noreply, send!(cstate, ["portsend", client.ref, data])}
+                end)
               end
+            end
 
-              send!(state, ["response", "portsend", "ok"])
-          end
+            send!(state, ["response", "portsend", "ok"])
+        end
 
-        ["portclose", ref] ->
-          case PortCollection.get(state.ports, ref) do
-            nil ->
-              send!(state, ["error", "portsend", "port does not exit"])
+      ["portclose", ref] ->
+        case PortCollection.get(state.ports, ref) do
+          nil ->
+            send!(state, ["error", "portsend", "port does not exit"])
 
-            port = %Port{state: :open} ->
-              send!(state, ["response", "portclose", "ok"])
-              |> portclose(port, false)
-          end
+          port = %Port{state: :open} ->
+            send!(state, ["response", "portclose", "ok"])
+            |> portclose(port, false)
+        end
 
-        nil ->
-          log(state, "Unhandled message: ~40s~n", [truncate(msg)])
-          send!(state, ["error", 400, "that is not json"])
+      nil ->
+        log(state, "Unhandled message: ~40s~n", [truncate(msg)])
+        send!(state, ["error", 400, "that is not json"])
 
-        _ ->
-          log(state, "Unhandled message: ~40s~n", [truncate(msg)])
-          send!(state, ["error", 401, "bad input"])
-      end
+      _ ->
+        log(state, "Unhandled message: ~40s~n", [truncate(msg)])
+        send!(state, ["error", 401, "bad input"])
+    end
+  end
 
+  def handle_info({:ssl, _socket, raw_msg}, state) do
+    state = account_incoming(state, raw_msg)
+    msg = decode(raw_msg)
+
+    # log(state, "handle: ~0p", [msg])
+    state = handle_msg(msg, state)
     {:noreply, state}
   end
 
@@ -338,10 +338,11 @@ defmodule Network.EdgeHandler do
         device_signature: device_signature
       )
 
-    if Ticket.device_verify(dl, nodeid(state)) do
+    if Ticket.device_verify(dl, device_id(state)) do
+      dl = Ticket.server_sign(dl, Wallet.privkey!(Store.wallet()))
+
       case TicketStore.add(dl) do
         {:ok, bytes} ->
-          dl = Ticket.server_sign(dl, Wallet.privkey!(Store.wallet()))
           Kademlia.store(Object.key(dl), Object.encode!(dl))
 
           %{state | unpaid_bytes: state.unpaid_bytes - bytes}
@@ -383,7 +384,7 @@ defmodule Network.EdgeHandler do
 
   defp portopen(state, device_id, portname, flags \\ "rw") do
     cond do
-      device_id == Wallet.address!(state.node_id) ->
+      device_id == Wallet.address!(device_id(state)) ->
         send!(state, ["error", "portopen", "can't connect to yourself"])
 
       validate_flags(flags) == false ->
@@ -443,8 +444,7 @@ defmodule Network.EdgeHandler do
 
               case PortCollection.find_sharedport(state2.ports, port) do
                 nil ->
-                  state2 =
-                    send!(state2, ["portopen", portname, ref, Wallet.address!(state.node_id)])
+                  state2 = send!(state2, ["portopen", portname, ref, device_address(state)])
 
                   ports = PortCollection.put(state2.ports, port)
                   {:noreply, %{state2 | ports: ports}}
@@ -551,6 +551,8 @@ defmodule Network.EdgeHandler do
   end
 
   defp send!(state = %{unpaid_bytes: b, unpaid_rx_bytes: rx}, data \\ nil) do
+    log(state, "send: ~p", [data])
+
     msg =
       if b > Diode.ticket_grace() do
         send(self(), {:stop_unpaid, b})
@@ -563,8 +565,9 @@ defmodule Network.EdgeHandler do
     %{state | unpaid_bytes: b + byte_size(msg) + rx, unpaid_rx_bytes: 0}
   end
 
-  @spec nodeid(state()) :: Wallet.t()
-  def nodeid(%{node_id: id}), do: id
+  @spec device_id(state()) :: Wallet.t()
+  def device_id(%{node_id: id}), do: id
+  def device_address(%{node_id: id}), do: Wallet.address!(id)
 
   defp account_incoming(state = %{unpaid_rx_bytes: b}, msg) do
     %{state | unpaid_rx_bytes: b + byte_size(msg)}

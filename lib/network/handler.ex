@@ -58,14 +58,15 @@ defmodule Network.Handler do
       end
 
       defp enter_loop(state = %{socket: socket, server_pid: server}) do
-        remote_id = Wallet.from_pubkey(Certs.extract(socket))
-
-        case :ssl.peername(socket) do
+        case :ssl.connection_information(socket) do
           {:error, reason} ->
             log({nil, nil}, "Connection gone away ~p", [reason])
             {:stop, :normal, state}
 
-          {:ok, {address, _port}} ->
+          {:ok, info} ->
+            {:ok, {address, _port}} = :ssl.peername(socket)
+            remote_id = Wallet.from_pubkey(Certs.extract(socket))
+
             state = %{
               socket: socket,
               node_id: remote_id,

@@ -2,7 +2,7 @@
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
 defmodule Chain.Block do
-  alias Chain.{Block, BlockCache, State, Transaction, Header}
+  alias Chain.{Account, Block, BlockCache, State, Transaction, Header}
 
   defstruct transactions: [], header: %Chain.Header{}, receipts: []
 
@@ -88,11 +88,11 @@ defmodule Chain.Block do
           IO.puts("Checking accounts...")
 
           Enum.each(Chain.State.accounts(state), fn {_addr, acc} ->
-            dup = MerkleTree.copy(acc.storage_root, HeapMerkleTree)
+            dup = MerkleTree.copy(Account.root(acc), HeapMerkleTree)
 
-            if MerkleTree.root_hash(dup) != MerkleTree.root_hash(acc.storage_root) do
+            if MerkleTree.root_hash(dup) != MerkleTree.root_hash(Account.root(acc)) do
               IO.puts("Inconsistent Account")
-              :io.format("==> ~p~n==> ~p~n", [dup, acc.storage_root])
+              :io.format("==> ~p~n==> ~p~n", [dup, Account.root(acc)])
             end
           end)
 

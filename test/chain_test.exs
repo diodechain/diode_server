@@ -35,7 +35,7 @@ defmodule ChainTest do
          code: Rlp.bin2addr(state["code"]),
          nonce: Rlp.bin2num(state["nonce"]),
          storage_root:
-           Enum.reduce(state["storage"], MerkleTree.new(), fn {key, value}, tree ->
+           Enum.reduce(state["storage"], HeapMerkleTree.new(), fn {key, value}, tree ->
              MerkleTree.insert(tree, Rlp.hex2num(key), Rlp.bin2num(value))
            end)
        }}
@@ -237,7 +237,7 @@ defmodule ChainTest do
     reference_accounts = map_accounts(test["postState"])
 
     :io.format("GOT: ~p~n", [
-      State.accounts(state) |> Enum.map(fn {w, acc} -> {w, to_list(acc.storage_root)} end)
+      State.accounts(state) |> Enum.map(fn {w, acc} -> {w, to_list(Account.root(acc))} end)
     ])
 
     for {wallet, account} <- reference_accounts do
@@ -267,7 +267,7 @@ defmodule ChainTest do
         # for {key, value} <- to_list(result.storage_root) do
         #   assert {key, value} == {key, Account.storageInteger(account, key)}
         # end
-        assert to_list(result.storage_root) == to_list(account.storage_root)
+        assert to_list(Account.root(result)) == to_list(Account.root(account))
       end
     end
 

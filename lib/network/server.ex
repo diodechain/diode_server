@@ -118,6 +118,11 @@ defmodule Network.Server do
           # This timeout is to yield to standard gen_server behaviour
           state
 
+        {:error, :closed} ->
+          # Connection abort before handshake
+          IO.puts("Accept anomaly - Connection closed before TLS handshake")
+          state
+
         {:ok, newSocket} ->
           case :ssl.handshake(newSocket) do
             {:ok, newSocket2} ->

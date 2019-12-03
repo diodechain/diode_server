@@ -263,7 +263,8 @@ defmodule Network.Rpc do
         |> result()
 
       "eth_getStorage" ->
-        get_account(params).storage_root
+        get_account(params)
+        |> Chain.Account.root()
         |> MerkleTree.to_list()
         |> result()
 

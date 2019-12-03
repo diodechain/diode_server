@@ -77,7 +77,7 @@ defmodule Diode do
       Network.Server.child(edgePort(), Network.EdgeHandler),
       Network.Server.child(kademliaPort(), Network.PeerHandler),
       worker(Kademlia, [args]),
-      cowboy(:http, port: rpcPort())
+      rpc_api(:http, port: rpcPort())
     ]
 
     base_children =
@@ -89,13 +89,15 @@ defmodule Diode do
           IO.puts("")
 
           https =
-            cowboy(:https,
+            rpc_api(:https,
               keyfile: "priv/privkey.pem",
               certfile: "priv/cert.pem",
               port: rpcsPort(),
               otp_app: Diode
             )
 
+          # This is not using selfsigned certs. Temporary solution until
+          # Firefox can handle secp256k1 certs.
           edge =
             Network.Server.child(edgePort() + 1, Network.EdgeHandler,
               name: EdgeHandlerS,
@@ -123,7 +125,7 @@ defmodule Diode do
     Supervisor.start_link(children, strategy: :one_for_one, name: Diode.Supervisor)
   end
 
-  defp cowboy(scheme, opts) do
+  defp rpc_api(scheme, opts) do
     Plug.Cowboy.child_spec(
       scheme: scheme,
       plug: Network.RpcHttp,

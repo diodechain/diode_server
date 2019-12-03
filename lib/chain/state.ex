@@ -3,6 +3,7 @@
 # Licensed under the Diode License, Version 1.0
 defmodule Chain.State do
   import Wallet
+  alias Chain.Account
 
   @enforce_keys [:store]
   defstruct store: nil
@@ -26,7 +27,7 @@ defmodule Chain.State do
     Enum.map(diff, fn {id, _} ->
       acc_a = Chain.State.account(state_a, id)
       acc_b = Chain.State.account(state_b, id)
-      {id, MerkleTree.difference(acc_a.storage_root, acc_b.storage_root)}
+      {id, MerkleTree.difference(Account.root(acc_a), Account.root(acc_b))}
     end)
   end
 
@@ -71,6 +72,7 @@ defmodule Chain.State do
 
   @spec set_account(Chain.State.t(), binary(), Chain.Account.t()) :: Chain.State.t()
   def set_account(state = %Chain.State{store: store}, id = <<_::160>>, account) do
+    account = Chain.Account.normalize(account)
     hash = Chain.Account.hash(account)
     store = MerkleTree.insert(store, id, hash)
 
@@ -94,6 +96,37 @@ defmodule Chain.State do
   # ========================================================
   # Internal Mnesia Specific
   # ========================================================
+  def rewrite_all() do
+    :mnesia.dirty_all_keys(:state_accounts)
+    |> Enum.chunk_every(5)
+    |> Enum.map(fn batch ->
+      :mnesia.transaction(fn ->
+        Enum.map(batch, fn id ->
+          account = Chain.Account.normalize(from_key(id))
+          hash = Chain.Account.hash(account)
+          :mnesia.write({:state_accounts, hash, account})
+        end)
+
+        # IO.puts("Rewrote batch")
+      end)
+    end)
+  end
+
+  def garbage_collect() do
+    known =
+      Enum.reduce(Chain.blocks(), MapSet.new(), fn block, set ->
+        Chain.Block.state(block)
+        |> Chain.State.accounts()
+        |> Enum.map(fn {_, account} -> Chain.Account.hash(account) end)
+        |> MapSet.new()
+        |> MapSet.union(set)
+      end)
+
+    keys = MapSet.new(:mnesia.dirty_all_keys(:state_accounts))
+    garbage = MapSet.difference(keys, known)
+    garbage
+  end
+
   defp from_key(nil), do: nil
 
   defp from_key(mnesia_key) when is_binary(mnesia_key) do

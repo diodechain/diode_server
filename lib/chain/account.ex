@@ -2,7 +2,6 @@
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
 defmodule Chain.Account do
-  @enforce_keys [:storage_root]
   defstruct nonce: 0, balance: 0, storage_root: nil, code: nil
 
   @type t :: %Chain.Account{
@@ -13,7 +12,7 @@ defmodule Chain.Account do
         }
 
   def new(props \\ []) do
-    acc = %Chain.Account{storage_root: MnesiaMerkleTree.new()}
+    acc = %Chain.Account{}
 
     Enum.reduce(props, acc, fn {key, value}, acc ->
       Map.put(acc, key, value)
@@ -25,12 +24,20 @@ defmodule Chain.Account do
   def nonce(%Chain.Account{nonce: nonce}), do: nonce
   def balance(%Chain.Account{balance: balance}), do: balance
 
-  def storageSetValue(
-        %Chain.Account{storage_root: store} = acc,
-        key = <<_k::256>>,
-        value = <<_v::256>>
-      ) do
-    store = MerkleTree.insert(store, key, value)
+  @spec root(Chain.Account.t()) :: MnesiaMerkleTree.t()
+  def root(%Chain.Account{storage_root: nil}), do: MnesiaMerkleTree.null()
+  def root(%Chain.Account{storage_root: root}), do: root
+
+  def normalize(acc) do
+    if root(acc) == MnesiaMerkleTree.null() do
+      %{acc | storage_root: nil}
+    else
+      acc
+    end
+  end
+
+  def storageSetValue(acc, key = <<_k::256>>, value = <<_v::256>>) do
+    store = MerkleTree.insert(root(acc), key, value)
     %Chain.Account{acc | storage_root: store}
   end
 
@@ -47,8 +54,8 @@ defmodule Chain.Account do
     storageValue(acc, <<key::unsigned-size(256)>>)
   end
 
-  def storageValue(%Chain.Account{storage_root: store}, key) when is_binary(key) do
-    case MerkleTree.get(store, key) do
+  def storageValue(%Chain.Account{} = acc, key) when is_binary(key) do
+    case MerkleTree.get(root(acc), key) do
       nil -> <<0::unsigned-size(256)>>
       bin -> bin
     end
@@ -67,7 +74,7 @@ defmodule Chain.Account do
     [
       account.nonce,
       account.balance,
-      MerkleTree.root_hash(account.storage_root),
+      MerkleTree.root_hash(root(account)),
       codehash(account)
     ]
   end

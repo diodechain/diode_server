@@ -2,7 +2,7 @@
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
 defmodule Chain.Transaction do
-  alias Chain.TransactionReceipt
+  alias Chain.{TransactionReceipt, Account}
 
   defstruct nonce: 1,
             gasPrice: 0,
@@ -194,7 +194,7 @@ defmodule Chain.Transaction do
       |> Chain.State.set_account(from, from_acc)
       |> Chain.State.set_account(to(tx), acc)
 
-    evm = Evm.init(tx, new_state, env, acc.storage_root, code, trace?)
+    evm = Evm.init(tx, new_state, env, Account.root(acc), code, trace?)
     ret = Evm.eval(evm)
 
     case ret do
