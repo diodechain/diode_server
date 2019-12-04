@@ -23,14 +23,39 @@ static char* _hex(const uint8_t *p, size_t i) {
 
 void Host::reset()
 {
+    m_complete_accounts.clear();
     m_storage_cache.clear();
     m_storage_write_cache.clear();
+}
+
+bool Host::complete_account(const evmc::address& addr) noexcept
+{
+    auto ptr = m_complete_accounts.find(addr);
+    if (ptr == m_complete_accounts.end()) {
+        return false;
+    } else {
+        return ptr->second;
+    }
+}
+
+void Host::set_complete_account(const evmc::address& addr) noexcept
+{
+    m_complete_accounts[addr] = true;
+}
+
+void Host::set_cache(const evmc::address& addr, const evmc::bytes32& key, const evmc::bytes32& value) noexcept
+{
+    m_storage_cache[std::make_pair(addr, key)] = value;
 }
 
 bool Host::get_cache(const evmc::address& addr, const evmc::bytes32& key, evmc::bytes32& out) noexcept
 {
     auto ptr = m_storage_cache.find(std::make_pair(addr, key));
     if (ptr == m_storage_cache.end()) {
+        if (complete_account(addr)) {
+            memset(out.bytes, 0, sizeof(out.bytes));
+            return true;
+        }
         return false;
     } else {
         out = ptr->second;
@@ -70,7 +95,7 @@ evmc::bytes32 Host::get_storage(const evmc::address& addr, const evmc::bytes32& 
     nread();
     fread(ret.bytes, sizeof(ret.bytes));
 
-    m_storage_cache[std::make_pair(addr, key)] = ret;
+    set_cache(addr, key, ret);
     return ret;
 }
 
@@ -79,7 +104,7 @@ evmc_storage_status Host::set_storage(const evmc::address& addr,
                                 const evmc::bytes32& value) noexcept
 {
     evmc::bytes32 prev_value = get_storage(addr, key);
-    m_storage_cache[std::make_pair(addr, key)] = value;
+    set_cache(addr, key, value);
     m_storage_write_cache[std::make_pair(addr, key)] = value;
     return (prev_value == value) ? EVMC_STORAGE_UNCHANGED : EVMC_STORAGE_MODIFIED;
 }

@@ -18,12 +18,12 @@ ifneq ($(OS),Windows_NT)
 	endif
 endif
 
-all: $(DEPS) main.o host.o
+evm: $(DEPS) main.o host.o
 	g++ $^ $(LDFLAGS) -o evm
 
 
-main.o: host.hpp
-host.o: host.hpp
+main.o: host.hpp main.cpp
+host.o: host.hpp host.cpp
 
 %.o : %.cpp
 	g++ -c $(CXXFLAGS) $< -o $@

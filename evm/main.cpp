@@ -16,7 +16,7 @@ int main() {
     while(!feof(stdin) && run) {
         nread();
         char cmd = getc(stdin);
-        if (cmd == 'c') {
+        if (cmd == 'c') { // 'c' ==> Create context
             host.reset();
             // evmc_uint256be tx_gas_price;     /**< The transaction gas price. */
             bread(host.tx_context.tx_gas_price);
@@ -34,7 +34,22 @@ int main() {
             bread(host.tx_context.block_difficulty);
             // evmc_uint256be chain_id;         /**< The blockchain's ChainID. */
             bread(host.tx_context.chain_id);
-        } else if (cmd == 'r') {
+        } else if (cmd == 'p') { // 'p' ==> Pre-Seed cache data
+            auto count = iread<uint32_t>();
+            evmc_address address;
+            bread(address);
+
+            for (uint32_t i = 0; i < count; i++) {
+                evmc_bytes32 key;
+                evmc_bytes32 value;
+
+                bread(key);
+                bread(value);
+                host.set_cache(address, key, value);
+            }
+            host.set_complete_account(address);
+
+        } else if (cmd == 'r') { // 'r' ==> Run context
             struct evmc_message msg{};
             msg.kind = EVMC_CALL;
 

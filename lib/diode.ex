@@ -274,9 +274,9 @@ defmodule Diode do
   def seeds() do
     get_env(
       "SEED",
-      "diode://0xa3f06917a9a4846d44d39ae71ddbd69b4c0b1a1a@seed-alpha.diode.io:51053 " <>
+      "diode://0x68e0bafdda9ef323f692fc080d612718c941d120@seed-alpha.diode.io:51053 " <>
         "diode://0x937c492a77ae90de971986d003ffbc5f8bb2232c@seed-beta.diode.io:51053 " <>
-        "diode://0x0ffc572a936a1e0ebf9c43aacb145d08847f0aee@seed-gamma.diode.io:51053"
+        "diode://0xceca2f8cf1983b4cf0c1ba51fd382c2bc37aba58@seed-gamma.diode.io:51053"
     )
     |> String.split(" ", trim: true)
   end

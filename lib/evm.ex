@@ -414,6 +414,8 @@ defmodule Evm do
     code = code(evm)
     code_len = byte_size(code)
 
+    cache_account(state(evm), evm.port, to)
+
     message = <<
       "r",
       evm.chain_state.from::unsigned-size(160),
@@ -430,6 +432,21 @@ defmodule Evm do
 
     Port.command(evm.port, message)
     loop({:cont, evm})
+  end
+
+  defp cache_account(state, port, address) do
+    values =
+      Chain.State.ensure_account(state, address)
+      |> Chain.Account.root()
+      |> MerkleTree.to_list()
+      |> Enum.map(fn {k, v} -> [k, v] end)
+
+    cache = [
+      <<"p", length(values)::unsigned-little-size(32), address::unsigned-size(160)>>,
+      values
+    ]
+
+    true = Port.command(port, cache)
   end
 
   defp loop({:cont, evm}) do
@@ -471,9 +488,17 @@ defmodule Evm do
        ) do
     value =
       Chain.State.ensure_account(state(evm), addr)
-      |> Account.storageValue(key)
+      |> Chain.Account.root()
+      |> MerkleTree.get(key)
 
-    true = Port.command(evm.port, value)
+    if value == nil do
+      # IO.puts("gs #{Base16.encode(key)} = nil")
+      Port.command(evm.port, <<0::unsigned-size(256)>>)
+    else
+      # IO.puts("gs #{Base16.encode(key)} = #{Base16.encode(value)}")
+      Port.command(evm.port, value)
+    end
+
     {:cont, evm}
   end
 
