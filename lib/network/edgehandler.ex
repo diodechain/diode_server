@@ -272,7 +272,7 @@ defmodule Network.EdgeHandler do
       ["portclose", ref] ->
         case PortCollection.get(state.ports, ref) do
           nil ->
-            send!(state, ["error", "portsend", "port does not exit"])
+            send!(state, ["error", "portclose", "port does not exit"])
 
           port = %Port{state: :open} ->
             send!(state, ["response", "portclose", "ok"])
