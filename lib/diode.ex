@@ -80,38 +80,7 @@ defmodule Diode do
       rpc_api(:http, port: rpcPort())
     ]
 
-    base_children =
-      case File.read("priv/privkey.pem") do
-        {:ok, _} ->
-          IO.puts("++++++  SSL ON  ++++++")
-          IO.puts("RPC  SSL Port: #{rpcsPort()}")
-          IO.puts("Edge SSL Port: #{edgePort() + 1}")
-          IO.puts("")
-
-          https =
-            rpc_api(:https,
-              keyfile: "priv/privkey.pem",
-              certfile: "priv/cert.pem",
-              port: rpcsPort(),
-              otp_app: Diode
-            )
-
-          # This is not using selfsigned certs. Temporary solution until
-          # Firefox can handle secp256k1 certs.
-          edge =
-            Network.Server.child(edgePort() + 1, Network.EdgeHandler,
-              name: EdgeHandlerS,
-              pki: %{
-                keyfile: "priv/privkey.pem",
-                certfile: "priv/cert.pem"
-              }
-            )
-
-          base_children ++ [https, edge]
-
-        _ ->
-          base_children
-      end
+    base_children = if not dev_mode?(), do: base_children ++ start_ssl(), else: base_children
 
     children =
       if Mix.env() == :benchmark do
@@ -142,6 +111,40 @@ defmodule Diode do
           ]
         ] ++ opts
     )
+  end
+
+  defp start_ssl() do
+    case File.read("priv/privkey.pem") do
+      {:ok, _} ->
+        IO.puts("++++++  SSL ON  ++++++")
+        IO.puts("RPC  SSL Port: #{rpcsPort()}")
+        IO.puts("Edge SSL Port: #{edgesPort()}")
+        IO.puts("")
+
+        https =
+          rpc_api(:https,
+            keyfile: "priv/privkey.pem",
+            certfile: "priv/cert.pem",
+            port: rpcsPort(),
+            otp_app: Diode
+          )
+
+        # This is not using selfsigned certs. Temporary solution until
+        # Firefox can handle secp256k1 certs.
+        edge =
+          Network.Server.child(edgesPort(), Network.EdgeHandler,
+            name: EdgeHandlerS,
+            pki: %{
+              keyfile: "priv/privkey.pem",
+              certfile: "priv/cert.pem"
+            }
+          )
+
+        [https, edge]
+
+      _ ->
+        []
+    end
   end
 
   @spec env :: :prod | :test | :dev
@@ -251,6 +254,11 @@ defmodule Diode do
   @spec edgePort() :: integer()
   def edgePort() do
     get_env_int("EDGE_PORT", 41043)
+  end
+
+  @spec edgesPort() :: integer()
+  def edgesPort() do
+    get_env_int("EDGES_PORT", 41044)
   end
 
   @spec kademliaPort() :: integer()

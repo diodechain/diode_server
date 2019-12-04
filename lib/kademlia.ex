@@ -5,6 +5,7 @@ defmodule Kademlia do
   use GenServer
   alias Network.PeerHandler, as: Client
   alias Object.Server, as: Server
+  @replication_factor 3
 
   # 2^256
   @max_oid 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF + 1
@@ -30,14 +31,14 @@ defmodule Kademlia do
   # end
 
   @doc """
-    store() stores the given key-value pair in the single node that
-    is closest to the key
+    store() stores the given key-value pair in the @replication_factor nodes
+    that are closest to the key
   """
   @spec store(binary(), any()) :: any()
   def store(key, value) do
     key = KBuckets.hash(key)
     nodes = find_nodes(key)
-    [nearest] = KBuckets.nearest_n(nodes, key, 1)
+    nearest = KBuckets.nearest_n(nodes, key, @replication_factor)
     rpc(nearest, [Client.store(), key, value])
   end
 
@@ -304,6 +305,23 @@ defmodule Kademlia do
     end)
   end
 
+  def rpc(nodes, call) when is_list(nodes) do
+    me = self()
+    ref = make_ref()
+
+    Enum.map(nodes, fn node ->
+      spawn_link(fn ->
+        send(me, {ref, rpc(node, call)})
+      end)
+    end)
+    |> Enum.map(fn _pid ->
+      receive do
+        {^ref, ret} ->
+          ret
+      end
+    end)
+  end
+
   def rpc(%KBuckets.Item{object: :self}, call) do
     find_node_cmd = Client.find_node()
     find_value_cmd = Client.find_value()
@@ -325,12 +343,10 @@ defmodule Kademlia do
   end
 
   def rpc(%KBuckets.Item{node_id: node_id} = node, call) do
-    # :io.format("RPC: ~0p ~0p~n", [call, Wallet.printable(node_id)])
-    # :io.format("BT ~0p", [:erlang.process_info(self(), :current_stacktrace)])
     pid = ensure_node_connection(node)
 
     try do
-      GenServer.call(pid, {:rpc, call}, 500)
+      GenServer.call(pid, {:rpc, call}, 2000)
     rescue
       _error ->
         IO.puts("Failed to get a result from #{Wallet.printable(node_id)}")

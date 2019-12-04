@@ -103,14 +103,25 @@ defmodule KBuckets do
     do_to_list(zero) ++ do_to_list(one)
   end
 
-  @spec nearest_n(kbuckets() | [item()], item() | item_id(), pos_integer()) :: [item()]
-  def nearest_n({:kbucket, self, tree}, item, n) do
+  @doc """
+    nearer_n finds the n nodes nearer or equal to the current node to the provided item.
+  """
+  @spec nearer_n(kbuckets() | [item()], item() | item_id(), pos_integer()) :: [item()]
+  def nearer_n({:kbucket, self, _tree} = kbuckets, item, n) do
     min_dist = distance(hash(self), item)
 
+    nearest_n(kbuckets, item, n)
+    |> Enum.filter(fn a -> distance(a, item) <= min_dist end)
+  end
+
+  @doc """
+    nearest_n finds the n nodes nearer or equal to the current node to the provided item.
+  """
+  @spec nearest_n(kbuckets() | [item()], item() | item_id(), pos_integer()) :: [item()]
+  def nearest_n({:kbucket, _self, tree}, item, n) do
     do_nearest_n(tree, key(item), n)
     # Selecting down to nearest items
     |> nearest_n(item, n)
-    |> Enum.filter(fn a -> distance(a, item) <= min_dist end)
   end
 
   def nearest_n(list, item, n) when is_list(list) do

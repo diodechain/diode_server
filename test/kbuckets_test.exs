@@ -60,7 +60,7 @@ defmodule KBucketsTest do
     assert KBuckets.size(kb) == 63
 
     # Should only return self as nearest result
-    near = KBuckets.nearest_n(kb, KBuckets.self(kb), KBuckets.k())
+    near = KBuckets.nearer_n(kb, KBuckets.self(kb), KBuckets.k())
     assert Enum.member?(near, KBuckets.self(kb))
     assert length(near) == 1
 

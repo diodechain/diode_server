@@ -551,7 +551,7 @@ defmodule Network.EdgeHandler do
   end
 
   defp send!(state = %{unpaid_bytes: b, unpaid_rx_bytes: rx}, data \\ nil) do
-    log(state, "send: ~p", [data])
+    # log(state, "send: ~p", [data])
 
     msg =
       if b > Diode.ticket_grace() do
