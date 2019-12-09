@@ -38,6 +38,10 @@ defmodule Chain.State do
     end
   end
 
+  def store(state = %Chain.State{store: tree}) do
+    %{state | store: MnesiaMerkleTree.store(tree)}
+  end
+
   def hash(%Chain.State{store: tree}) do
     MerkleTree.root_hash(tree)
   end

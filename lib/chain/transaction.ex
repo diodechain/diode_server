@@ -138,13 +138,13 @@ defmodule Chain.Transaction do
     |> Rlp.encode!()
   end
 
-  @spec apply(Chain.Transaction.t(), Chain.Block.t(), Chain.State.t(), false | true) ::
+  @spec apply(Chain.Transaction.t(), Chain.Block.t(), Chain.State.t(), Keyword.t()) ::
           {:error, atom()} | {:ok, Chain.State.t(), Chain.Receipt.t()}
   def apply(
         tx = %Chain.Transaction{nonce: nonce},
         env = %Chain.Block{},
         state = %Chain.State{},
-        trace? \\ false
+        opts \\ []
       ) do
     # :io.format("tx origin: ~p~n", [origin(tx)])
 
@@ -164,7 +164,7 @@ defmodule Chain.Transaction do
         if from_acc.balance < 0 do
           {:error, :not_enough_balance}
         else
-          do_apply(tx, env, state, from, from_acc, trace?)
+          do_apply(tx, env, state, from, from_acc, opts)
         end
 
       %Chain.Account{nonce: low} when low < nonce ->
@@ -175,7 +175,7 @@ defmodule Chain.Transaction do
     end
   end
 
-  defp do_apply(tx, env, state, from, from_acc, trace?) do
+  defp do_apply(tx, env, state, from, from_acc, opts) do
     # Creating / finding destination account
     {acc, code} =
       if contract_creation?(tx) do
@@ -194,7 +194,7 @@ defmodule Chain.Transaction do
       |> Chain.State.set_account(from, from_acc)
       |> Chain.State.set_account(to(tx), acc)
 
-    evm = Evm.init(tx, new_state, env, Account.root(acc), code, trace?)
+    evm = Evm.init(tx, new_state, env, Account.root(acc), code, opts)
     ret = Evm.eval(evm)
 
     case ret do

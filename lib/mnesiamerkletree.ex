@@ -20,24 +20,32 @@ defmodule MnesiaMerkleTree do
   @type tree_leaf :: {:leaf, hash_count() | nil, binary(), map()}
   @type tree_node :: {:node, hash_count() | nil, binary(), tree(), tree()}
   @type tree :: tree_leaf() | tree_node() | mnesia_key()
-  @type merkle :: {__MODULE__, %{}, mnesia_key()}
+  @type merkle :: {__MODULE__, %{}, mnesia_key() | tree()}
 
   @spec new() :: merkle()
   def new() do
-    {:atomic, ret} =
-      :mnesia.transaction(fn ->
-        tree = update_merkle_hash_count({:leaf, nil, "", %{}})
-        {__MODULE__, %{}, to_key(tree)}
-      end)
+    store({__MODULE__, %{}, {:leaf, nil, "", %{}}})
+  end
 
-    ret
+  @spec normalize(merkle()) :: merkle()
+  def normalize(merkle) do
+    {__MODULE__, %{}, normalized_tree(merkle)}
+  end
+
+  @spec store(merkle()) :: merkle()
+  def store(merkle) do
+    tree =
+      normalized_tree(merkle)
+      |> mnesia_store()
+
+    {__MODULE__, %{}, tree}
   end
 
   @doc """
   null() returns the default empty tree for comparison
   """
   def null() do
-    {MnesiaMerkleTree, %{},
+    {__MODULE__, %{},
      <<67, 138, 144, 64, 93, 170, 135, 101, 57, 8, 44, 208, 186, 246, 205, 218, 163, 191, 136, 15,
        28, 138, 240, 192, 56, 31, 0, 66, 219, 147, 8, 138>>}
   end
@@ -50,25 +58,21 @@ defmodule MnesiaMerkleTree do
   end
 
   @spec root_hash(merkle()) :: hash_type()
-  def root_hash({__MODULE__, _options, tree}) do
-    {:atomic, mnesia_key} =
-      :mnesia.transaction(fn ->
-        to_key(tree)
-      end)
-
-    mnesia_key
+  def root_hash(merkle) do
+    root_hashes(merkle)
+    |> signature()
   end
 
   @spec root_hashes(merkle()) :: [hash_type()]
-  def root_hashes({__MODULE__, _options, tree}) do
-    update_merkle_hash_count(tree)
+  def root_hashes(merkle) do
+    normalized_tree(merkle)
     |> merkle_hashes()
   end
 
   @spec get_proofs(merkle(), key_type()) :: proof_type()
-  def get_proofs({__MODULE__, _options, tree}, key) do
+  def get_proofs(merkle, key) do
     bkey = to_binary(key)
-    do_get_proofs(tree, bkey, hash(bkey))
+    do_get_proofs(normalized_tree(merkle), bkey, hash(bkey))
   end
 
   @spec get(merkle(), key_type()) :: value_type()
@@ -83,8 +87,8 @@ defmodule MnesiaMerkleTree do
   end
 
   @spec bucket_count(merkle()) :: pos_integer()
-  def bucket_count({__MODULE__, _options, tree}) do
-    do_bucket_count(tree)
+  def bucket_count(merkle) do
+    do_bucket_count(normalized_tree(merkle))
   end
 
   @spec to_list(merkle()) :: [item()]
@@ -96,13 +100,9 @@ defmodule MnesiaMerkleTree do
   def delete({__MODULE__, options, tree}, key) do
     bkey = to_binary(key)
 
-    {:atomic, tree} =
-      :mnesia.transaction(fn ->
-        update_bucket(tree, hash(bkey), fn {:leaf, _hash_count, prefix, bucket} ->
-          {:leaf, nil, prefix, Map.delete(bucket, bkey)}
-        end)
-        |> update_merkle_hash_count()
-        |> to_key()
+    tree =
+      update_bucket(tree, hash(bkey), fn {:leaf, _hash_count, prefix, bucket} ->
+        {:leaf, nil, prefix, Map.delete(bucket, bkey)}
       end)
 
     {__MODULE__, options, tree}
@@ -125,23 +125,19 @@ defmodule MnesiaMerkleTree do
 
   @spec insert_items(merkle(), [item()]) :: merkle()
   def insert_items({__MODULE__, options, tree}, items) do
-    {:atomic, tree} =
-      :mnesia.transaction(fn ->
-        Enum.reduce(items, tree, fn {key, value}, acc ->
-          bkey = to_binary(key)
+    tree =
+      Enum.reduce(items, tree, fn {key, value}, acc ->
+        bkey = to_binary(key)
 
-          update_bucket(acc, hash(bkey), fn {:leaf, _hash_count, prefix, bucket} ->
-            bucket =
-              case to_binary(value) do
-                <<0::unsigned-size(256)>> -> Map.delete(bucket, bkey)
-                value -> Map.put(bucket, bkey, value)
-              end
+        update_bucket(acc, hash(bkey), fn {:leaf, _hash_count, prefix, bucket} ->
+          bucket =
+            case to_binary(value) do
+              <<0::unsigned-size(256)>> -> Map.delete(bucket, bkey)
+              value -> Map.put(bucket, bkey, value)
+            end
 
-            {:leaf, nil, prefix, bucket}
-          end)
+          {:leaf, nil, prefix, bucket}
         end)
-        |> update_merkle_hash_count()
-        |> to_key()
       end)
 
     {__MODULE__, options, tree}
@@ -157,22 +153,63 @@ defmodule MnesiaMerkleTree do
     MnesiaMerkleTree.new()
   end
 
-  defp to_key(mnesia_key) when is_binary(mnesia_key) do
+  defp normalized_tree({__MODULE__, _options, tree}) do
+    {:atomic, tree} = :mnesia.transaction(fn -> update_merkle_hash_count(tree) end)
+    tree
+  end
+
+  defp mnesia_key(tree) do
+    signature(merkle_hashes(tree))
+  end
+
+  defp mnesia_store(mnesia_key) when is_binary(mnesia_key) do
     mnesia_key
   end
 
-  defp to_key(tree) when is_tuple(tree) do
+  # mnesia_store does the actual mnesia_storage
+  defp mnesia_store(tree) when is_tuple(tree) do
     tree = update_merkle_hash_count(tree)
-    mnesia_key = signature(merkle_hashes(tree))
+    {:atomic, mnesia_key} = :mnesia.transaction(fn -> do_mnesia_store(tree) end)
+    mnesia_key
+  end
 
-    :ok =
-      case :mnesia.read(:mtree, mnesia_key) do
-        [{:mtree, ^mnesia_key, ^tree}] -> :ok
-        [] -> :mnesia.write({:mtree, mnesia_key, tree})
+  defp mnesia_exists(mnesia_key) do
+    case :mnesia.read(:mtree, mnesia_key) do
+      [] -> false
+      [{:mtree, ^mnesia_key, _tree}] -> true
+    end
+  end
+
+  defp do_mnesia_store(mnesia_key) when is_binary(mnesia_key) do
+    mnesia_key
+  end
+
+  defp do_mnesia_store(tree) do
+    mnesia_key = mnesia_key(tree)
+
+    if not mnesia_exists(mnesia_key) do
+      :ok = do_mnesia_store(mnesia_key, tree)
+    end
+
+    mnesia_key
+  end
+
+  defp do_mnesia_store(mnesia_key, {:leaf, _hash_count, prefix, bucket}) do
+    :mnesia.write({:mtree, mnesia_key, {:leaf, nil, prefix, bucket}})
+  end
+
+  defp do_mnesia_store(mnesia_key, {:node, hashcount = {_hash, count}, prefix, left, right}) do
+    hashcount =
+      if count > 16 do
+        hashcount
+      else
+        nil
       end
 
-    incr_key(mnesia_key)
-    mnesia_key
+    :mnesia.write(
+      {:mtree, mnesia_key,
+       {:node, hashcount, prefix, do_mnesia_store(left), do_mnesia_store(right)}}
+    )
   end
 
   defp from_key(mnesia_key) when is_binary(mnesia_key) do
@@ -183,15 +220,7 @@ defmodule MnesiaMerkleTree do
         :mnesia.dirty_read(:mtree, mnesia_key)
       end
 
-    tree
-  end
-
-  defp incr_key(_mnesia_key) do
-    # :mnesia.dirty_update_counter(:mtree_ref_count, mnesia_key, 1)
-  end
-
-  defp decr_key(_mnesia_key) do
-    # :mnesia.dirty_update_counter(:mtree_ref_count, mnesia_key, -1)
+    update_merkle_hash_count(tree)
   end
 
   # ========================================================
@@ -241,8 +270,12 @@ defmodule MnesiaMerkleTree do
     map_size(bucket)
   end
 
-  defp do_size({:node, _hash_count, _prefix, left, right}) do
+  defp do_size({:node, nil, _prefix, left, right}) do
     do_size(left) + do_size(right)
+  end
+
+  defp do_size({:node, {_hashes, count}, _prefix, _left, _right}) do
+    count
   end
 
   defp do_bucket_count(mnesia_key) when is_binary(mnesia_key) do
@@ -306,16 +339,11 @@ defmodule MnesiaMerkleTree do
   end
 
   defp update_bucket(mnesia_key, key, fun) when is_binary(mnesia_key) do
-    decr_key(mnesia_key)
     update_bucket(from_key(mnesia_key), key, fun)
   end
 
   defp merkle_hash_count(tree) when is_tuple(tree) do
-    :erlang.element(2, tree)
-  end
-
-  defp merkle_hash_count(mnesia_key) when is_binary(mnesia_key) do
-    merkle_hash_count(from_key(mnesia_key))
+    elem(tree, 1)
   end
 
   defp merkle_hashes(tree) when is_tuple(tree) do
@@ -362,7 +390,7 @@ defmodule MnesiaMerkleTree do
           hashesr
         )
 
-      {:node, {hashes, count}, prefix, to_key(left), to_key(right)}
+      {:node, {hashes, count}, prefix, left, right}
     end
   end
 
@@ -384,6 +412,7 @@ defmodule MnesiaMerkleTree do
     end
   end
 
+  # Loading reduced nodes (where hash_count = nil because it was skipped during storage)
   defp update_merkle_hash_count(mnesia_key) when is_binary(mnesia_key) do
     update_merkle_hash_count(from_key(mnesia_key))
   end

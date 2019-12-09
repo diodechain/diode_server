@@ -103,8 +103,8 @@ defmodule Network.PeerHandler do
     end
   end
 
-  def handle_info({:ssl_closed, _}, state) do
-    log(state, "connection closed by remote.")
+  def handle_info({:ssl_closed, info}, state) do
+    log(state, "connection closed by remote. ~p", [info])
     {:stop, :normal, state}
   end
 
@@ -240,7 +240,7 @@ defmodule Network.PeerHandler do
       %Chain.Block{} ->
         case Block.validate(block) do
           %Chain.Block{} = block ->
-            Chain.add_block(block)
+            Chain.add_block(block, false)
 
             # replay block backup list
             Enum.each(state.blocks, fn oldblock ->

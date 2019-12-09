@@ -83,7 +83,7 @@ defmodule Network.Server do
   end
 
   def handle_info(msg, state) do
-    :io.format("~p unhandled info: ~180p~n", [__MODULE__, msg])
+    :io.format("~p unhandled info: ~0p~n", [state.protocol, msg])
     {:noreply, state}
   end
 
@@ -103,8 +103,21 @@ defmodule Network.Server do
   end
 
   def handle_call({:register, node_id}, {pid, _}, state) do
-    state = %Network.Server{state | clients: Map.put(state.clients, node_id, pid)}
-    {:reply, {:ok, state.port}, state}
+    case Map.get(state.clients, node_id) do
+      nil ->
+        :ok
+
+      oldpid ->
+        :io.format(
+          "~p Handshake anomaly(2): #{Wallet.printable(node_id)} was already connected~n",
+          [state.protocol]
+        )
+
+        Process.exit(oldpid, :disconnect)
+    end
+
+    clients = Map.put(state.clients, node_id, pid)
+    {:reply, {:ok, state.port}, %{state | clients: clients}}
   end
 
   def handle_continue(:accept, state) do
@@ -112,43 +125,29 @@ defmodule Network.Server do
   end
 
   defp do_accept(state) do
-    state2 =
-      case :ssl.transport_accept(state.socket, 100) do
-        {:error, :timeout} ->
-          # This timeout is to yield to standard gen_server behaviour
-          state
+    case :ssl.transport_accept(state.socket, 100) do
+      {:error, :timeout} ->
+        # This timeout is to yield to standard gen_server behaviour
+        :ok
 
-        {:error, :closed} ->
-          # Connection abort before handshake
-          IO.puts("Accept anomaly - Connection closed before TLS handshake")
-          state
+      {:error, :closed} ->
+        # Connection abort before handshake
+        :io.format("~p Anomaly - Connection closed before TLS handshake~n", [state.protocol])
 
-        {:ok, newSocket} ->
-          case :ssl.handshake(newSocket) do
-            {:ok, newSocket2} ->
-              node_id = Wallet.from_pubkey(Certs.extract(newSocket2))
+      {:ok, newSocket} ->
+        case :ssl.handshake(newSocket) do
+          {:ok, newSocket2} ->
+            worker = start_worker!(state, :init)
+            :ok = :ssl.controlling_process(newSocket2, worker)
+            send(worker, {:init, newSocket2})
 
-              case Map.get(state.clients, node_id) do
-                nil ->
-                  false
-
-                pid ->
-                  IO.puts("Handshake anomaly: #{Wallet.printable(node_id)} was already connected")
-                  Process.exit(pid, :disconnect)
-              end
-
-              worker = start_worker!(state, [:init, newSocket2])
-              :ok = :ssl.controlling_process(newSocket2, worker)
-              %Network.Server{state | clients: Map.put(state.clients, node_id, worker)}
-
-            {:error, error} ->
-              IO.puts("handshake error: #{inspect(error)}")
-              state
-          end
-      end
+          {:error, error} ->
+            :io.format("~p Handshake error: ~0p~n", [state.protocol, error])
+        end
+    end
 
     send(self(), :accept)
-    {:noreply, state2}
+    {:noreply, state}
   end
 
   defp start_worker!(state, cmd) do

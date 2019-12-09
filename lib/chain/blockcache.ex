@@ -98,6 +98,7 @@ defmodule Chain.BlockCache do
   defdelegate gasLimit(block), to: Block
   defdelegate gas_price(block), to: Block
   defdelegate gasUsed(block), to: Block
+  defdelegate has_state?(block), to: Block
   defdelegate hash(block), to: Block
   defdelegate hash_in_target?(block, hash), to: Block
   defdelegate hash_target(block), to: Block

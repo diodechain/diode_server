@@ -23,6 +23,7 @@ defmodule Evm do
 
   defmodule State do
     defstruct chain_state: nil,
+              static: false,
               from: nil,
               origin: nil,
               tx: nil,
@@ -241,14 +242,15 @@ defmodule Evm do
         block = %Chain.Block{},
         _store,
         code,
-        trace? \\ false
+        opts \\ []
       ) do
     from = :binary.decode_unsigned(Transaction.from(tx))
 
     state = %State{
       chain_state: state,
       code: code,
-      trace: trace? or Diode.trace?(),
+      trace: Keyword.get(opts, :trace, false) or Diode.trace?(),
+      static: Keyword.get(opts, :static, false),
       tx: tx,
       from: from,
       origin: from,
@@ -502,10 +504,15 @@ defmodule Evm do
     {:cont, evm}
   end
 
-  # set_storage(addr, key, value) -> old_value
+  # storage_update(addr, [{key, value}])
+  # static calls don't change the state
+  defp process_data(<<"su", _rest::binary>>, %{chain_state: %{static: true}} = evm) do
+    {:cont, evm}
+  end
+
   defp process_data(<<"su", rest::binary>>, evm) do
     updates = parse_map(rest, %{})
-    # :io.format("dump_parse: ~p~n", [updates])
+
     state =
       Enum.reduce(updates, state(evm), fn {addr, kvs}, state ->
         acc = Chain.State.ensure_account(state, addr)

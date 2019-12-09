@@ -225,6 +225,7 @@ defmodule Chain do
   @spec add_block(any()) :: :added | :stored
   def add_block(block, relay \\ true) do
     block_hash = Block.hash(block)
+    true = Block.has_state?(block)
 
     if block_by_hash(block_hash) != nil do
       IO.puts("Chain.add_block: Skipping existing block (2)")
@@ -247,6 +248,9 @@ defmodule Chain do
       Block.hash(block)
       |> binary_part(0, 5)
       |> Base16.encode(false)
+
+    # Ensure the block state is on disk
+    block = Chain.Block.store(block)
 
     call(fn state, _from ->
       if block_by_hash(block_hash) != nil do

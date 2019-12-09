@@ -29,7 +29,7 @@ defmodule Chain.Header do
     BertExt.encode!([
       header.previous_block,
       header.miner_pubkey,
-      header.state_hash,
+      state_hash(header),
       header.transaction_hash,
       header.timestamp,
       header.nonce
@@ -41,7 +41,7 @@ defmodule Chain.Header do
     BertExt.encode!([
       header.previous_block,
       header.miner_pubkey,
-      header.state_hash,
+      state_hash(header),
       header.transaction_hash,
       header.timestamp,
       header.nonce,
@@ -58,6 +58,9 @@ defmodule Chain.Header do
   def sign(%Chain.Header{} = header, wallet() = miner) do
     %{header | miner_signature: Secp256k1.sign(Wallet.privkey!(miner), encode_egg(header))}
   end
+
+  def state_hash(%Chain.Header{state_hash: %Chain.State{} = state}), do: Chain.State.hash(state)
+  def state_hash(%Chain.Header{state_hash: state_hash}), do: state_hash
 
   @spec miner(Chain.Header.t()) :: Wallet.t()
   def miner(header) do

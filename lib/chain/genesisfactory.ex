@@ -112,6 +112,7 @@ defmodule Chain.GenesisFactory do
     Enum.reduce(accounts, Chain.State.new(), fn {wallet, user_account}, state ->
       Chain.State.set_account(state, Wallet.address!(wallet), user_account)
     end)
+    |> Chain.State.store()
   end
 
   @spec genesis(any(), [Chain.Transaction.t()], Wallet.t()) :: Chain.Block.t()

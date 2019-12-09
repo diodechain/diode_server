@@ -40,7 +40,7 @@ defmodule Shell do
   def call_tx(tx, blockRef) do
     block = Network.Rpc.get_block(blockRef)
     state = Chain.Block.state(block)
-    {:ok, _state, rcpt} = Chain.Transaction.apply(tx, block, state)
+    {:ok, _state, rcpt} = Chain.Transaction.apply(tx, block, state, static: true)
 
     ret =
       case rcpt.msg do

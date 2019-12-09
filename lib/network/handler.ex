@@ -11,8 +11,8 @@ defmodule Network.Handler do
     quote do
       use GenServer
 
-      def init({state, [:init, socket]}) do
-        {:ok, state, {:continue, [:init, socket]}}
+      def init({state, :init}) do
+        {:ok, state, {:continue, :init}}
       end
 
       def init({state, [:connect, node_id, address, port]}) do
@@ -20,7 +20,17 @@ defmodule Network.Handler do
         {:ok, state, {:continue, [:connect, node_id, address, port]}}
       end
 
-      def handle_continue([:init, socket], state) do
+      def handle_continue(:init, state) do
+        socket =
+          receive do
+            {:init, socket} ->
+              socket
+          after
+            5000 ->
+              log({nil, nil}, "Socket continue timeout")
+              {:stop, :normal, state}
+          end
+
         enter_loop(Map.put(state, :socket, socket))
       end
 
@@ -81,13 +91,18 @@ defmodule Network.Handler do
               # register ensure this process is stored under the correct remote_id
               # and also ensure setops(active:true) is not sent before server.ex
               # finished the handshake
-              {:ok, server_port} = GenServer.call(server, {:register, remote_id})
+              case GenServer.call(server, {:register, remote_id}) do
+                {:deny, _server_port} ->
+                  log(state, "Server: Rejecting double-connection~n")
+                  {:stop, :normal, state}
 
-              :ssl.setopts(socket, active: true)
-              set_keepalive(socket)
+                {:ok, server_port} ->
+                  set_keepalive(socket)
+                  :ssl.setopts(socket, active: true)
 
-              state = Map.put(state, :server_port, server_port)
-              do_init(state)
+                  state = Map.put(state, :server_port, server_port)
+                  do_init(state)
+              end
             end
         end
       end

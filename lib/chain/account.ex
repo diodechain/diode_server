@@ -29,6 +29,8 @@ defmodule Chain.Account do
   def root(%Chain.Account{storage_root: root}), do: root
 
   def normalize(acc) do
+    acc = %{acc | storage_root: MnesiaMerkleTree.normalize(root(acc))}
+
     if root(acc) == MnesiaMerkleTree.null() do
       %{acc | storage_root: nil}
     else

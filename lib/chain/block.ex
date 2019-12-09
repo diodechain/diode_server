@@ -23,9 +23,7 @@ defmodule Chain.Block do
   def parent_hash(%Block{header: header}), do: header.previous_block
   def nonce(%Block{header: header}), do: header.nonce
   def miner(%Block{header: header}), do: Header.miner(header)
-  @spec state(Chain.Block.t()) :: Chain.State.t()
-  def state(%Block{} = block), do: Chain.State.restore(state_hash(block))
-  def state_hash(%Block{header: header}), do: header.state_hash
+  def state_hash(%Block{header: header}), do: Chain.Header.state_hash(header)
   @spec hash(Chain.Block.t()) :: binary()
   # Fix for creating a signature of a non-exisiting block in registry_test.ex
   def hash(nil), do: nil
@@ -35,6 +33,29 @@ defmodule Chain.Block do
   @spec timestamp(Chain.Block.t()) :: non_neg_integer()
   def timestamp(%Block{header: header}), do: header.timestamp
   def receipts(%Block{receipts: receipts}), do: receipts
+
+  def has_state?(%Block{header: %{state_hash: %Chain.State{}}}) do
+    true
+  end
+
+  def has_state?(_block) do
+    false
+  end
+
+  @spec state(Chain.Block.t()) :: Chain.State.t()
+  def state(%Block{} = block) do
+    if has_state?(block) do
+      # This is actually a full %Chain.State{} object when has_state?() == true
+      block.header.state_hash
+    else
+      Chain.State.restore(state_hash(block))
+    end
+  end
+
+  def store(%Chain.Block{} = block) do
+    Chain.State.store(state(block))
+    %{block | header: %{block.header | state_hash: state_hash(block)}}
+  end
 
   @spec valid?(any()) :: boolean()
   def valid?(block) do
@@ -60,7 +81,7 @@ defmodule Chain.Block do
          {6, true} <- {6, Diode.hash(encode_transactions(transactions(block))) == txhash(block)},
          {7, sim_block} <- {7, simulate(block)},
          {8, true} <- {8, state_equal(sim_block, block)} do
-      %{block | receipts: sim_block.receipts}
+      %{sim_block | header: %{block.header | state_hash: sim_block.header.state_hash}}
     else
       {nr, error} -> {nr, error}
     end
@@ -183,7 +204,7 @@ defmodule Chain.Block do
     {nstate, transactions, receipts} =
       Enum.reduce(transactions, {state(parent), [], []}, fn %Transaction{} = tx,
                                                             {%State{} = state, txs, rcpts} ->
-        case Transaction.apply(tx, block, state, trace?) do
+        case Transaction.apply(tx, block, state, trace: trace?) do
           {:ok, state, rcpt} ->
             {state, txs ++ [tx], rcpts ++ [rcpt]}
 
@@ -204,11 +225,9 @@ defmodule Chain.Block do
       )
     end
 
-    state_hash = State.hash(nstate)
-
     header = %Header{
       header
-      | state_hash: state_hash,
+      | state_hash: nstate,
         transaction_hash: Diode.hash(encode_transactions(transactions))
     }
 
