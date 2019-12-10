@@ -341,7 +341,7 @@ defmodule Chain.Block do
   end
 
   def epoch(%Block{} = block) do
-    rem(number(block), Chain.epoch_length())
+    div(number(block), Chain.epoch_length())
     # Contract.Registry.epoch(block)
   end
 
