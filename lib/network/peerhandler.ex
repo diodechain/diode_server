@@ -67,7 +67,8 @@ defmodule Network.PeerHandler do
   end
 
   def handle_continue(:send_hello, state) do
-    hello = Diode.self()
+    {:ok, {addr, _port}} = :ssl.sockname(state.socket)
+    hello = Diode.self(:erlang.list_to_binary(:inet.ntoa(addr)))
 
     send!(state, [@hello, Object.encode!(hello), Chain.genesis_hash()])
 

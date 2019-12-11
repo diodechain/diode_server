@@ -290,8 +290,10 @@ defmodule Diode do
     end
   end
 
-  def self() do
-    Object.Server.new(host(), kademliaPort(), edgePort())
+  def self(), do: self(host())
+
+  def self(hostname) do
+    Object.Server.new(hostname, kademliaPort(), edgePort())
     |> Object.Server.sign(Wallet.privkey!(Store.wallet()))
   end
 
