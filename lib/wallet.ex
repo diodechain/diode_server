@@ -114,6 +114,14 @@ defmodule Wallet do
     Wallet.address!(a) == Wallet.address!(b)
   end
 
+  def equal?(a = <<_::160>>, b) do
+    equal?(Wallet.from_address(a), b)
+  end
+
+  def equal?(a, b = <<_::160>>) do
+    equal?(a, Wallet.from_address(b))
+  end
+
   def equal?(_, _) do
     false
   end

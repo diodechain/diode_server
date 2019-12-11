@@ -50,9 +50,8 @@ defmodule Object.Ticket do
     ticket(tck, device_signature: Secp256k1.sign(private, device_blob(tck)))
   end
 
-  @spec device_verify(Object.Ticket.ticket(), Secp256k1.public_key() | Wallet.t()) :: boolean()
   def device_verify(tck = ticket(), id) do
-    Secp256k1.verify(id, device_blob(tck), device_signature(tck))
+    Wallet.equal?(device_address(tck), id)
   end
 
   def server_sign(tck = ticket(), private) do
