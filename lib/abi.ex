@@ -37,10 +37,12 @@ defmodule ABI do
   end
 
   def do_encode_data(type, value) do
-    if String.ends_with?(type, "[]") do
-      subtype = binary_part(type, 0, byte_size(type) - 2)
-      ret = encode_data(List.duplicate(subtype, length(value)), value)
-      {"", [encode("uint", length(value)), ret]}
+    subtype = subtype(type)
+
+    if subtype != nil do
+      {types, values, len} = dynamic(type, value)
+      ret = encode_data(types, values)
+      {"", [encode("uint", len), ret]}
     else
       {encode(type, value), ""}
     end
@@ -63,6 +65,35 @@ defmodule ABI do
       end)
 
     [head, body]
+  end
+
+  @doc """
+  subtype returns the individual element type of an dynamic/array
+  """
+  @spec subtype(binary) :: false | binary
+  def subtype(type) do
+    cond do
+      String.ends_with?(type, "[]") -> binary_part(type, 0, byte_size(type) - 2)
+      type == "bytes" -> "uint8"
+      type == "string" -> "uint8"
+      true -> nil
+    end
+  end
+
+  def dynamic(type, values) when is_list(values) do
+    {List.duplicate(subtype(type), length(values)), values, length(values)}
+  end
+
+  def dynamic(_type, value) when is_binary(value) do
+    values = value <> <<0::unsigned-size(248)>>
+
+    values =
+      binary_part(values, 0, div(byte_size(values), 32) * 32)
+      |> :erlang.binary_to_list()
+      |> Enum.chunk_every(32)
+      |> Enum.map(&:erlang.iolist_to_binary/1)
+
+    {List.duplicate("bytes32", length(values)), values, byte_size(value)}
   end
 
   # uint<M>: unsigned integer type of M bits, 0 < M <= 256, M % 8 == 0. e.g. uint32, uint8, uint256.
