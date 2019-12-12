@@ -36,7 +36,7 @@ defmodule Json do
     Enum.map(list, &do_encode(&1, bigX))
   end
 
-  defp do_encode({:raw, num}, _bigX) when is_integer(num) do
+  defp do_encode({:raw, num}, _bigX) do
     num
   end
 

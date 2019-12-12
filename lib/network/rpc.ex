@@ -37,27 +37,26 @@ defmodule Network.Rpc do
       try do
         execute_rpc(method, params, opts)
       rescue
-        ErlangError ->
-          :io.format("Network.Rpc: ErlangError in ~p: ~0p~n", [method, __STACKTRACE__])
+        e in ErlangError ->
+          :io.format("Network.Rpc: ErlangError ~p in ~p: ~0p~n", [e, method, __STACKTRACE__])
           {nil, 400, %{"message" => "Bad Request"}}
       catch
         :notfound -> {nil, 404, %{"message" => "Not found"}}
       end
 
-    envelope = %{
-      "id" => id,
-      "jsonrpc" => "2.0",
-      "result" => Json.prepare!(result, false)
-    }
+    {ret, code} =
+      if error == nil do
+        {%{"result" => result}, code}
+      else
+        {error, 400}
+      end
 
-    if error == nil do
-      # :io.format("handle_jsonrpc = ~p~n", [envelope])
-      {code, envelope}
-    else
-      envelope = Map.put(envelope, "error", Json.prepare!(error, false))
-      # :io.format("handle_jsonrpc: = ~p~n", [envelope])
-      {code, envelope}
-    end
+    envelope =
+      %{"id" => {:raw, id}, "jsonrpc" => "2.0"}
+      |> Map.merge(ret)
+      |> Json.prepare!(false)
+
+    {code, envelope}
   end
 
   defp execute([{true, {mod, fun}} | rest], args) do
@@ -106,27 +105,7 @@ defmodule Network.Rpc do
         peak = Chain.peakBlock()
         state = Block.state(peak)
 
-        err =
-          case Chain.Transaction.apply(tx, peak, state) do
-            {:ok, _state, %{msg: :ok}} ->
-              nil
-
-            {:ok, _state, rcpt} ->
-              %{
-                "messsage" => "VM Exception while processing transaction: #{rcpt.msg}",
-                "code" => if(rcpt.msg == :evmc_revert, do: -32000, else: -31000),
-                "data" => rcpt.evmout
-              }
-
-            # Adding a too high nonce still to the pool
-            {:error, :nonce_too_high} ->
-              nil
-
-            {:error, reason} ->
-              %{
-                "messsage" => "Transaction error #{reason}"
-              }
-          end
+        {_res, _code, err} = apply_transaction(tx, peak, state)
 
         # Adding transacton
         if err == nil do
@@ -275,7 +254,7 @@ defmodule Network.Rpc do
       "eth_call" ->
         [%{} = opts, ref] = params
 
-        opts = decode_opts(opts)
+        opts = Map.put_new(opts, "gasPrice", "0x0") |> decode_opts()
         data = opts["data"]
 
         wallet =
@@ -288,25 +267,9 @@ defmodule Network.Rpc do
           end
 
         tx = create_transaction(wallet, data, opts)
-
         block = get_block(ref)
         state = Block.state(block)
-        {:ok, _state, rcpt} = Chain.Transaction.apply(tx, block, state)
-
-        res = rcpt.evmout
-
-        err =
-          if rcpt.msg == :ok do
-            nil
-          else
-            %{
-              "messsage" => "VM Exception while processing transaction: #{rcpt.msg}",
-              "code" => if(rcpt.msg == :evmc_revert, do: -32000, else: -31000),
-              "data" => rcpt.evmout
-            }
-          end
-
-        result(res, 200, err)
+        apply_transaction(tx, block, state)
 
       "eth_getTransactionReceipt" ->
         # TODO
@@ -677,5 +640,25 @@ defmodule Network.Rpc do
       "r" => r,
       "s" => s
     }
+  end
+
+  defp apply_transaction(tx, block, state) do
+    case Chain.Transaction.apply(tx, block, state) do
+      {:ok, _state, rcpt = %{msg: :ok}} ->
+        result(rcpt.evmout, 200)
+
+      {:ok, _state, rcpt} ->
+        result(rcpt.evmout, 200, %{
+          "message" => "VM Exception while processing transaction: #{rcpt.msg}",
+          "code" => if(rcpt.msg == :evmc_revert, do: -32000, else: -31000),
+          "data" => rcpt.evmout
+        })
+
+      {:error, reason} ->
+        result(nil, 200, %{
+          "message" => "Transaction failed: #{inspect(reason)}",
+          "code" => -33000
+        })
+    end
   end
 end
