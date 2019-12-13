@@ -26,15 +26,14 @@ defmodule Network.PeerHandler do
   def publish, do: @publish
 
   def do_init(state) do
-    state =
+    send_hello(
       Map.merge(state, %{
         calls: :queue.new(),
         blocks: [],
         # the oldest parent we have sent over
         oldest_parent: nil
       })
-
-    {:noreply, state, {:continue, :send_hello}}
+    )
   end
 
   def ssl_options(opts) do
@@ -66,7 +65,7 @@ defmodule Network.PeerHandler do
     BertInt.decode!(msg)
   end
 
-  def handle_continue(:send_hello, state) do
+  defp send_hello(state) do
     {:ok, {addr, _port}} = :ssl.sockname(state.socket)
     hello = Diode.self(:erlang.list_to_binary(:inet.ntoa(addr)))
 
@@ -93,6 +92,7 @@ defmodule Network.PeerHandler do
 
   def handle_info({:ssl, _socket, omsg}, state) do
     msg = decode(omsg)
+    # log(state, "received ~p bytes: ~p", [byte_size(omsg), msg])
 
     case handle_msg(msg, state) do
       {reply, state} when not is_atom(reply) ->
@@ -105,7 +105,7 @@ defmodule Network.PeerHandler do
   end
 
   def handle_info({:ssl_closed, info}, state) do
-    log(state, "connection closed by remote. ~p", [info])
+    log(state, "connection closed by remote. info: ~0p", [info])
     {:stop, :normal, state}
   end
 
@@ -322,7 +322,11 @@ defmodule Network.PeerHandler do
   end
 
   defp filter_block(%Chain.Block{} = block) do
-    %Chain.Block{block | receipts: []}
+    %Chain.Block{
+      block
+      | receipts: [],
+        header: %{block.header | state_hash: Chain.Block.state_hash(block)}
+    }
   end
 
   defp throttle_sync(state, register \\ false) do
@@ -358,8 +362,9 @@ defmodule Network.PeerHandler do
   end
 
   defp send!(%{socket: socket}, data) do
-    # log(state, "send ~p", [data])
-    :ok = :ssl.send(socket, encode(data))
+    raw = encode(data)
+    # log(state, "send ~p bytes: ~p", [byte_size(raw), data])
+    :ok = :ssl.send(socket, raw)
   end
 
   def on_exit(node) do

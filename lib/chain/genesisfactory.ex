@@ -127,6 +127,7 @@ defmodule Chain.GenesisFactory do
       |> Chain.Header.update_hash()
 
     %{block | header: header}
+    |> Chain.Block.store()
   end
 
   defp ether(x) do
