@@ -21,7 +21,7 @@ defmodule RpcTest do
   test "eth_getBlockByNumber" do
     {200, %{"result" => _ret}} = rpc("eth_getBlockByNumber", [0, false])
     {200, %{"result" => _ret}} = rpc("eth_getBlockByNumber", [1, false])
-    {404, %{"result" => _ret}} = rpc("eth_getBlockByNumber", [150, false])
+    {404, %{"message" => _ret}} = rpc("eth_getBlockByNumber", [150, false])
     {200, %{"result" => _ret}} = rpc("eth_getBlockByNumber", ["earliest", false])
     {200, %{"result" => _ret}} = rpc("eth_getBlockByNumber", ["latest", false])
   end
@@ -53,7 +53,8 @@ defmodule RpcTest do
     txs = [tx2, tx1, tx3]
 
     Enum.each(txs, fn tx ->
-      rpc("eth_sendRawTransaction", [to_rlp(tx)])
+      {200, %{"result" => txhash}} = rpc("eth_sendRawTransaction", [to_rlp(tx)])
+      assert txhash == Base16.encode(Transaction.hash(tx))
     end)
 
     Worker.set_mode(:poll)
@@ -64,6 +65,7 @@ defmodule RpcTest do
     from_acc2 = State.ensure_account(result, from)
     to_acc2 = State.ensure_account(result, to)
 
+    assert Chain.Pool.proposal() == []
     assert Account.nonce(from_acc2) == nonce + length(txs)
     assert Account.balance(from_acc) - Account.balance(from_acc2) == 1000 * length(txs)
     assert Account.balance(to_acc2) - Account.balance(to_acc) == 1000 * length(txs)

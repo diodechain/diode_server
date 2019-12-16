@@ -48,7 +48,8 @@ defmodule Network.Rpc do
       if error == nil do
         {%{"result" => result}, code}
       else
-        {error, 400}
+        code = if code == 200, do: 400, else: code
+        {error, code}
       end
 
     envelope =
@@ -105,19 +106,21 @@ defmodule Network.Rpc do
         peak = Chain.peakBlock()
         state = Block.state(peak)
 
-        {_res, _code, err} = apply_transaction(tx, peak, state)
+        {res, code, err} = apply_transaction(tx, peak, state)
 
-        # Adding transacton
-        if err == nil do
+        # Adding transacton, also when :nonce_too_high
+        if err == nil or err["code"] == -32001 do
           Chain.Pool.add_transaction(tx, true)
-        end
 
-        if Diode.dev_mode?() do
-          Chain.Worker.work()
-        end
+          if Diode.dev_mode?() do
+            Chain.Worker.work()
+          end
 
-        res = Base16.encode(Chain.Transaction.hash(tx))
-        result(res, 200, err)
+          res = Base16.encode(Chain.Transaction.hash(tx))
+          result(res, 200)
+        else
+          {res, code, err}
+        end
 
       "parity_pendingTransactions" ->
         # todo
@@ -648,14 +651,20 @@ defmodule Network.Rpc do
         result(rcpt.evmout, 200)
 
       {:ok, _state, rcpt} ->
-        result(rcpt.evmout, 200, %{
+        result(rcpt.evmout, 400, %{
           "message" => "VM Exception while processing transaction: #{rcpt.msg}",
           "code" => if(rcpt.msg == :evmc_revert, do: -32000, else: -31000),
           "data" => rcpt.evmout
         })
 
+      {:error, :nonce_too_high} ->
+        result(nil, 400, %{
+          "message" => "Transaction failed, nonce too high",
+          "code" => -32001
+        })
+
       {:error, reason} ->
-        result(nil, 200, %{
+        result(nil, 400, %{
           "message" => "Transaction failed: #{inspect(reason)}",
           "code" => -33000
         })
