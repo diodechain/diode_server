@@ -31,7 +31,8 @@ defmodule Network.PeerHandler do
         calls: :queue.new(),
         blocks: [],
         # the oldest parent we have sent over
-        oldest_parent: nil
+        oldest_parent: nil,
+        random_blocks: 0
       })
     )
   end
@@ -216,27 +217,37 @@ defmodule Network.PeerHandler do
       # Block is based on unknown predecessor
       # keep block in block backup list
       nil ->
-        blocks =
+        {random_blocks, blocks} =
           case state.blocks do
             [] ->
-              [block]
+              {0, [block]}
 
             blocks ->
               if Block.parent_hash(hd(blocks)) == Block.hash(block) do
-                [block | blocks]
+                {0, [block | blocks]}
               else
                 # this happens when there is a new top block created on the remote side
                 if Block.parent_hash(block) == Block.hash(List.last(blocks)) do
-                  blocks ++ [block]
+                  {0, blocks ++ [block]}
                 else
-                  # this could now be considered an error case
-                  log(state, "ignoring wrong ordered block from")
-                  blocks
+                  # is this a randomly broadcasted block or a chain re-org?
+                  # assuming reorg after three blocks
+                  if state.random_blocks < 2 do
+                    log(state, "ignoring wrong ordered block [~p]", [state.random_blocks + 1])
+                    {state.random_blocks + 1, blocks}
+                  else
+                    log(state, "restarting sync because of random blocks [~p]", [
+                      state.random_blocks + 1
+                    ])
+
+                    {0, [block]}
+                  end
                 end
               end
           end
 
-        {[@response, @publish, "missing_parent"], %{state | blocks: blocks}}
+        {[@response, @publish, "missing_parent"],
+         %{state | blocks: blocks, random_blocks: random_blocks}}
 
       %Chain.Block{} ->
         case Block.validate(block) do
