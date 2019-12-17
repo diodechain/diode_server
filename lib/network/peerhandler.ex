@@ -30,8 +30,6 @@ defmodule Network.PeerHandler do
       Map.merge(state, %{
         calls: :queue.new(),
         blocks: [],
-        # the oldest parent we have sent over
-        oldest_parent: nil,
         random_blocks: 0
       })
     )
@@ -193,21 +191,15 @@ defmodule Network.PeerHandler do
     throttle_sync(state)
 
     # Actual syncing
-    {msg, state} =
-      Enum.reduce_while(blocks, {"ok", state}, fn block, {_, state} ->
-        case handle_msg([@publish, block], state) do
-          {[@response, @publish, "missing_parent"], state} ->
-            {:cont, {"missing_parent", state}}
+    Enum.reduce_while(blocks, {"ok", state}, fn block, {_, state} ->
+      case handle_msg([@publish, block], state) do
+        ret = {[@response, @publish, "missing_parent", _hash], _state} ->
+          {:cont, ret}
 
-          {[@response, @publish, "error"], state} ->
-            {:halt, {"error", state}}
-
-          {[@response, @publish, "ok"], state} ->
-            {:halt, {"ok", state}}
-        end
-      end)
-
-    {[@response, @publish, msg], state}
+        other ->
+          {:halt, other}
+      end
+    end)
   end
 
   defp handle_msg([@publish, %Chain.Block{} = block], state) do
@@ -246,7 +238,7 @@ defmodule Network.PeerHandler do
               end
           end
 
-        {[@response, @publish, "missing_parent"],
+        {[@response, @publish, "missing_parent", Block.parent_hash(block)],
          %{state | blocks: blocks, random_blocks: random_blocks}}
 
       %Chain.Block{} ->
@@ -273,10 +265,7 @@ defmodule Network.PeerHandler do
               end
             end)
 
-            if Process.whereis(:active_sync) == self() do
-              Process.unregister(:active_sync)
-              PubSub.publish(:rpc, {:rpc, :syncing, false})
-            end
+            finish_sync(state)
 
             # delete backup list on first successfull block
             {[@response, @publish, "ok"], %{state | blocks: []}}
@@ -288,14 +277,7 @@ defmodule Network.PeerHandler do
     end
   end
 
-  defp handle_msg(msg = [@response, @publish, "missing_parent"], state = %{oldest_parent: nil}) do
-    {:value, {[@publish, %Chain.Block{} = block], _from}} = :queue.peek(state.calls)
-    handle_msg(msg, %{state | oldest_parent: block})
-  end
-
-  defp handle_msg([@response, @publish, "missing_parent"], state = %{oldest_parent: block}) do
-    parent_hash = Block.parent_hash(block)
-
+  defp handle_msg([@response, @publish, "missing_parent", parent_hash], state) do
     # if there is a missing parent we're batching 65k blocks at once
     parents =
       Enum.reduce_while(Chain.blocks(parent_hash), [], fn block, blocks ->
@@ -311,11 +293,19 @@ defmodule Network.PeerHandler do
 
     case parents do
       [] ->
-        respond(state, "missing_parent")
+        # Responding to initial call, removing it from the stack
+        # e.g. from kademlia.ex `GenServer.cast(pid, {:rpc, msg})`
+        err = :io_lib.format("missing_parent ~p but there is no such parent", [parent_hash])
+        :io.format(err)
+        respond(state, err)
 
       _other ->
+        # Creating a second round to finish this, need to
+        # retop the last call
+        {{:value, call}, calls} = :queue.out(state.calls)
+        calls = :queue.in(call, calls)
         send!(state, [@publish, parents])
-        {:noreply, %{state | oldest_parent: List.last(parents)}}
+        {:noreply, %{state | calls: calls}}
     end
   end
 
@@ -338,6 +328,14 @@ defmodule Network.PeerHandler do
       | receipts: [],
         header: %{block.header | state_hash: Chain.Block.state_hash(block)}
     }
+  end
+
+  defp finish_sync(state) do
+    if Process.whereis(:active_sync) == self() do
+      Process.unregister(:active_sync)
+      PubSub.publish(:rpc, {:rpc, :syncing, false})
+      log(state, "Finished syncing!")
+    end
   end
 
   defp throttle_sync(state, register \\ false) do
