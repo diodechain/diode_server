@@ -143,7 +143,7 @@ defmodule Network.Rpc do
             result(transaction_result(tx, block))
 
           nil ->
-            result(nil, 404, "Not found")
+            result(nil, 404)
         end
 
       # Network.Rpc.handle_jsonrpc(%{"id" => 0, "method" => "eth_getBlockByNumber", "params" => ["0x0", false]})
