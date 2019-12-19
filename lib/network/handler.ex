@@ -4,7 +4,7 @@
 defmodule Network.Handler do
   @callback ssl_options([]) :: []
   @callback do_init() :: any()
-  @callback on_exit(any()) :: :ok
+  @callback on_nodeid(any()) :: any()
 
   @doc false
   defmacro __using__(_opts) do
@@ -31,10 +31,13 @@ defmodule Network.Handler do
               {:stop, :normal, state}
           end
 
+        on_nodeid(Wallet.from_pubkey(Certs.extract(socket)))
         enter_loop(Map.put(state, :socket, socket))
       end
 
       def handle_continue([:connect, node_id, address, port], state) do
+        on_nodeid(node_id)
+
         address =
           case address do
             bin when is_binary(bin) -> :erlang.binary_to_list(address)
@@ -52,6 +55,8 @@ defmodule Network.Handler do
                   Wallet.printable(remote_id)
                 }"
               )
+
+              on_nodeid(remote_id)
             end
 
             enter_loop(Map.put(state, :socket, socket))
@@ -161,7 +166,7 @@ defmodule Network.Handler do
       def log(state, format, args \\ []) do
         line = :io_lib.format(format, args)
         mod = List.last(Module.split(__MODULE__))
-        :io.format("~s: ~s: ~s~n", [mod, name(state), line])
+        :io.format("~p ~s: ~s: ~s~n", [self(), mod, name(state), line])
       end
     end
   end

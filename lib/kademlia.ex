@@ -208,8 +208,6 @@ defmodule Kademlia do
 
   # Private call used by PeerHandler when connections fail
   def handle_cast({:failed_node, node}, state) do
-    :io.format("Connection failed to ~p~n", [Wallet.printable(node)])
-
     case KBuckets.item(state.network, node) do
       nil ->
         {:noreply, state}

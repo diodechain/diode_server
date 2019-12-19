@@ -67,9 +67,8 @@ defmodule Network.Server do
 
   def handle_info({:EXIT, pid, reason}, state) do
     case Enum.split_with(state.clients, fn {_node_id, node_pid} -> node_pid == pid end) do
-      {[{failed_node, _pid}], clients} ->
+      {[{_failed_node, _pid}], clients} ->
         state = %Network.Server{state | clients: Map.new(clients)}
-        state.protocol.on_exit(failed_node)
         {:noreply, state}
 
       {[], _clients} ->
@@ -87,15 +86,21 @@ defmodule Network.Server do
     {:noreply, state}
   end
 
+  defp to_key(wallet) do
+    Wallet.address!(wallet)
+  end
+
   def handle_call(:get_connections, _from, state) do
     {:reply, state.clients, state}
   end
 
+  # This function is reall PeerHandler specific, and should be moved
+  # We can't create EdgeHandler connections in the same way at all.
   def handle_call({:ensure_node_connection, node_id, address, port}, _from, state) do
-    case Map.get(state.clients, node_id) do
+    case Map.get(state.clients, to_key(node_id)) do
       nil ->
         worker = start_worker!(state, [:connect, node_id, address, port])
-        {:reply, worker, state}
+        {:reply, worker, %{state | clients: Map.put(state.clients, to_key(node_id), worker)}}
 
       client ->
         {:reply, client, state}
@@ -103,20 +108,31 @@ defmodule Network.Server do
   end
 
   def handle_call({:register, node_id}, {pid, _}, state) do
-    case Map.get(state.clients, node_id) do
+    case Map.get(state.clients, to_key(node_id)) do
       nil ->
         :ok
 
-      oldpid ->
+      ^pid ->
+        :ok
+
+      other_pid ->
         :io.format(
-          "~p Handshake anomaly(2): #{Wallet.printable(node_id)} was already connected~n",
-          [state.protocol]
+          "~p Handshake anomaly(~p): #{Wallet.printable(node_id)} was already connected: ~180p~n",
+          [state.protocol, pid, {other_pid, Process.alive?(other_pid)}]
         )
 
-        Process.exit(oldpid, :disconnect)
+        Process.exit(other_pid, :disconnect)
+
+        receive do
+          {:EXIT, ^other_pid, :disconnect} ->
+            :ok
+        after
+          500 ->
+            throw(:inconsistent_process)
+        end
     end
 
-    clients = Map.put(state.clients, node_id, pid)
+    clients = Map.put(state.clients, to_key(node_id), pid)
     {:reply, {:ok, state.port}, %{state | clients: clients}}
   end
 

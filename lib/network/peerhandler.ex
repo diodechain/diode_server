@@ -376,7 +376,10 @@ defmodule Network.PeerHandler do
     :ok = :ssl.send(socket, raw)
   end
 
-  def on_exit(node) do
-    GenServer.cast(Kademlia, {:failed_node, node})
+  def on_nodeid(node) do
+    OnCrash.call(fn reason ->
+      :io.format("Node ~p down for: ~180p~n", [Wallet.printable(node), reason])
+      GenServer.cast(Kademlia, {:failed_node, node})
+    end)
   end
 end
