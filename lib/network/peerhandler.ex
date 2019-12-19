@@ -209,7 +209,7 @@ defmodule Network.PeerHandler do
       # Block is based on unknown predecessor
       # keep block in block backup list
       nil ->
-        {random_blocks, blocks} =
+        ret =
           case state.blocks do
             [] ->
               {0, [block]}
@@ -224,7 +224,7 @@ defmodule Network.PeerHandler do
                 else
                   # is this a randomly broadcasted block or a chain re-org?
                   # assuming reorg after three blocks
-                  if state.random_blocks < 2 do
+                  if state.random_blocks < 5 do
                     log(state, "ignoring wrong ordered block [~p]", [state.random_blocks + 1])
                     {state.random_blocks + 1, blocks}
                   else
@@ -232,14 +232,20 @@ defmodule Network.PeerHandler do
                       state.random_blocks + 1
                     ])
 
-                    {0, [block]}
+                    {:error, :too_many_random_blocks}
                   end
                 end
               end
           end
 
-        {[@response, @publish, "missing_parent", Block.parent_hash(block)],
-         %{state | blocks: blocks, random_blocks: random_blocks}}
+        case ret do
+          {:error, reason} ->
+            {:stop, {:sync_error, reason}}
+
+          {random_blocks, blocks} ->
+            {[@response, @publish, "missing_parent", Block.parent_hash(block)],
+             %{state | blocks: blocks, random_blocks: random_blocks}}
+        end
 
       %Chain.Block{} ->
         case Block.validate(block) do
