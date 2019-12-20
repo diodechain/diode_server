@@ -73,12 +73,13 @@ defmodule Network.Rpc do
 
   defp execute([], [method, params]) do
     :io.format("Unhandled: ~p ~p~n", [method, params])
-    {422, "what method?"}
+    result(422, "what method?")
   end
 
   def execute_rpc(method, params, opts) do
     apis = [
       {true, {__MODULE__, :execute_std}},
+      {true, {__MODULE__, :execute_dio}},
       {Diode.dev_mode?(), {__MODULE__, :execute_dev}},
       {opts[:private], {__MODULE__, :execute_private}},
       {is_tuple(opts[:extra]), opts[:extra]}
@@ -370,72 +371,71 @@ defmodule Network.Rpc do
           Block.simulate(block, false)
           |> Block.receipts()
 
-        traces =
-          Enum.zip(txs, traces)
-          |> Enum.map(fn {tx, rcpt} ->
-            %{
-              "output" => rcpt.evmout,
-              "stateDiff" => nil,
-              "trace" => [
-                %{
-                  "action" => %{
-                    "callType" => Atom.to_string(Transaction.type(tx)),
-                    "from" => Transaction.from(tx),
-                    "gas" => Transaction.gas_limit(tx),
-                    "init" => Transaction.payload(tx),
-                    "to" => Transaction.to(tx),
-                    "value" => Transaction.value(tx)
-                  },
-                  "result" => %{
-                    "gasUsed" => rcpt.gas_used,
-                    "output" => rcpt.evmout
-                  },
-                  "subtraces" => {:raw, 0},
-                  "traceAddress" => [],
-                  "transactionHash" => Transaction.hash(tx),
-                  "transactionPosition" => {:raw, Block.transactionIndex(block, tx)},
-                  "blockNumber" => {:raw, Block.number(block)},
-                  "type" =>
-                    if Transaction.contract_creation?(tx) do
-                      "create"
-                    else
-                      "call"
-                    end
-                }
-              ],
-              "vmTrace" => nil
-            }
-          end)
+        Enum.zip(txs, traces)
+        |> Enum.map(fn {tx, rcpt} ->
+          %{
+            "output" => rcpt.evmout,
+            "stateDiff" => nil,
+            "trace" => [
+              %{
+                "action" => %{
+                  "callType" => Atom.to_string(Transaction.type(tx)),
+                  "from" => Transaction.from(tx),
+                  "gas" => Transaction.gas_limit(tx),
+                  "init" => Transaction.payload(tx),
+                  "to" => Transaction.to(tx),
+                  "value" => Transaction.value(tx)
+                },
+                "result" => %{
+                  "gasUsed" => rcpt.gas_used,
+                  "output" => rcpt.evmout
+                },
+                "subtraces" => {:raw, 0},
+                "traceAddress" => [],
+                "transactionHash" => Transaction.hash(tx),
+                "transactionPosition" => {:raw, Block.transactionIndex(block, tx)},
+                "blockNumber" => {:raw, Block.number(block)},
+                "type" =>
+                  if Transaction.contract_creation?(tx) do
+                    "create"
+                  else
+                    "call"
+                  end
+              }
+            ],
+            "vmTrace" => nil
+          }
+        end)
+        |> result()
 
-        # {
-        #   "id": 1,
-        #   "jsonrpc": "2.0",
-        #   "result": [
-        #     {
-        #       "output": "0x",
-        #       "stateDiff": null,
-        #       "trace": [{
-        #         "action": { ... },
-        #         "result": {
-        #           "gasUsed": "0x0",
-        #           "output": "0x"
-        #         },
-        #         "subtraces": 0,
-        #         "traceAddress": [],
-        #         "type": "call"
-        #       }],
-        #       "vmTrace": null
-        #     },
-        #     { ... }
-        #   ]
-        # }
-        result(traces)
+      # {
+      #   "id": 1,
+      #   "jsonrpc": "2.0",
+      #   "result": [
+      #     {
+      #       "output": "0x",
+      #       "stateDiff": null,
+      #       "trace": [{
+      #         "action": { ... },
+      #         "result": {
+      #           "gasUsed": "0x0",
+      #           "output": "0x"
+      #         },
+      #         "subtraces": 0,
+      #         "traceAddress": [],
+      #         "type": "call"
+      #       }],
+      #       "vmTrace": null
+      #     },
+      #     { ... }
+      #   ]
+      # }
 
       "trace_block" ->
         [ref] = params
         block = get_block(ref)
 
-        ret = [
+        result([
           %{
             "action" => %{
               "author" => Wallet.address!(Block.miner(block)),
@@ -448,9 +448,30 @@ defmodule Network.Rpc do
             "traceAddress" => [],
             "type" => "reward"
           }
-        ]
+        ])
 
-        result(ret)
+      _ ->
+        nil
+    end
+  end
+
+  def execute_dio(method, params) do
+    case method do
+      "dio_getObject" ->
+        key = Base16.decode(hd(params))
+
+        case Kademlia.find_value(key) do
+          nil -> result(nil, 404)
+          binary -> result(Object.encode_list!(Object.decode!(binary)))
+        end
+
+      "dio_getNode" ->
+        node = Base16.decode(hd(params))
+
+        case Kademlia.find_node(node) do
+          nil -> result(nil, 404)
+          item -> result(Object.encode_list!(KBuckets.object(item)))
+        end
 
       _ ->
         nil

@@ -57,7 +57,7 @@ defmodule Network.RpcWs do
         {ret, 200, nil}
 
       _ ->
-        false
+        nil
     end
   end
 
