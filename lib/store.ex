@@ -128,7 +128,7 @@ defmodule Store do
       {:aborted, {:already_exists, _}} -> :ok
     end
 
-    :ok = :mnesia.wait_for_tables([table], 10000)
+    :ok = :mnesia.wait_for_tables([table], 100_000)
   end
 
   def handle_info({:nodeup, node}, state) do
