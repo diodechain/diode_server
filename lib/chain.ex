@@ -17,7 +17,7 @@ defmodule Chain do
 
   @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
   def start_link(_opts) do
-    GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
+    GenServer.start_link(__MODULE__, :ok, name: __MODULE__, hibernate_after: 5_000)
   end
 
   @spec init(any()) :: {:ok, Chain.t()}

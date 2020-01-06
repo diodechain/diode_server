@@ -14,7 +14,7 @@ defmodule Kademlia do
   @type t :: %Kademlia{tasks: Map.t(), network: KBuckets.t(), cache: Lru.t()}
 
   def start_link(_opts) do
-    GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
+    GenServer.start_link(__MODULE__, :ok, name: __MODULE__, hibernate_after: 5_000)
   end
 
   def ping(node_id) do
