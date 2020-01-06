@@ -99,7 +99,8 @@ defmodule Network.EdgeHandler do
           node_address: :inet.ip_address(),
           ports: PortCollection.t(),
           unpaid_bytes: integer(),
-          unpaid_rx_bytes: integer()
+          unpaid_rx_bytes: integer(),
+          last_ticket: integer()
         }
 
   def do_init(state) do
@@ -109,9 +110,11 @@ defmodule Network.EdgeHandler do
       Map.merge(state, %{
         ports: %PortCollection{},
         unpaid_bytes: 0,
-        unpaid_rx_bytes: 0
+        unpaid_rx_bytes: 0,
+        last_ticket: nil
       })
 
+    Process.send_after(self(), :must_have_ticket, 20_000)
     {:noreply, state}
   end
 
@@ -309,6 +312,15 @@ defmodule Network.EdgeHandler do
     {:stop, :normal, state}
   end
 
+  def handle_info(:must_have_ticket, state = %{last_ticket: timestamp}) do
+    if timestamp == nil do
+      log(state, "connection closed because no valid ticket sent within time limit.")
+      {:stop, :normal, state}
+    else
+      {:noreply, state}
+    end
+  end
+
   def handle_info({:ssl_closed, _}, state) do
     log(state, "connection closed by remote.")
     {:stop, :normal, state}
@@ -345,7 +357,7 @@ defmodule Network.EdgeHandler do
         {:ok, bytes} ->
           Kademlia.store(Object.key(dl), Object.encode!(dl))
 
-          %{state | unpaid_bytes: state.unpaid_bytes - bytes}
+          %{state | unpaid_bytes: state.unpaid_bytes - bytes, last_ticket: Time.utc_now()}
           |> send!(["response", "ticket", "thanks!", bytes])
 
         {:too_old, min} ->
