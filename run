@@ -6,5 +6,5 @@ export ERL_CRASH_DUMP_BYTES=5000000000
 export ERL_EPMD_ADDRESS=127.0.0.1
 export MIX_ENV=prod
 mix deps.get
-export ELIXIR_ERL_OPTIONS='-noinput -noshell -sname diode'
+export ELIXIR_ERL_OPTIONS='+sbwt none -noinput -noshell -sname diode'
 exec elixir -S mix run --no-halt
