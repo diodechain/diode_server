@@ -371,7 +371,7 @@ defmodule Network.EdgeHandler do
             Ticket.block_hash(last),
             Ticket.total_connections(last),
             Ticket.total_bytes(last),
-            Ticket.local_address(last),
+            Ticket.local_address(last) |> Base16.encode(),
             Ticket.device_signature(last)
           ])
       end

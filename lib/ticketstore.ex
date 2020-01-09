@@ -55,7 +55,7 @@ defmodule TicketStore do
         tickets
         |> Enum.map(fn tck ->
           :mnesia.delete(
-            {:tickets, key(Ticket.device_address(tck), Ticket.fleet_contract(tck), epoch - 1)}
+            {:tickets, id(Ticket.device_address(tck), Ticket.fleet_contract(tck), epoch - 1)}
           )
         end)
       end
@@ -72,17 +72,17 @@ defmodule TicketStore do
     epoch = Chain.epoch()
 
     if epoch - 1 < tepoch do
-      key = key(Ticket.device_address(tck), Ticket.fleet_contract(tck), tepoch)
+      key = id(Ticket.device_address(tck), Ticket.fleet_contract(tck), tepoch)
 
       case find(key) do
         nil ->
-          write(key, tck)
+          write(tck)
           {:ok, Ticket.total_bytes(tck)}
 
         last ->
           if Ticket.total_connections(last) < Ticket.total_connections(tck) or
                Ticket.total_bytes(last) < Ticket.total_bytes(tck) do
-            write(key, tck)
+            write(tck)
             {:ok, max(0, Ticket.total_bytes(tck) - Ticket.total_bytes(last))}
           else
             {:too_low, last}
@@ -95,11 +95,15 @@ defmodule TicketStore do
 
   @spec find(<<_::160>>, <<_::160>>, integer) :: any
   def find(device, fleet, epoch) do
-    find(key(device, fleet, epoch))
+    find(id(device, fleet, epoch))
   end
 
-  defp key(device = <<_::160>>, fleet = <<__::160>>, epoch) when is_integer(epoch) do
-    :erlang.phash2({:tck, device, fleet, epoch})
+  def id(tck) do
+    id(Ticket.device_address(tck), Ticket.fleet_contract(tck), Ticket.epoch(tck))
+  end
+
+  def id(device = <<_::160>>, fleet = <<__::160>>, epoch) when is_integer(epoch) do
+    {device, fleet, epoch}
   end
 
   defp find(key) do
@@ -114,10 +118,10 @@ defmodule TicketStore do
     value
   end
 
-  defp write(key, ticket) do
+  defp write(ticket) do
     {:atomic, :ok} =
       :mnesia.transaction(fn ->
-        :mnesia.write({:tickets, key, Ticket.epoch(ticket), ticket})
+        :mnesia.write({:tickets, id(ticket), Ticket.epoch(ticket), ticket})
       end)
 
     :ok

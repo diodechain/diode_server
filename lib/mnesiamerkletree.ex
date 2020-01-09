@@ -52,7 +52,7 @@ defmodule MnesiaMerkleTree do
 
   def restore(mnesia_key) do
     case :mnesia.dirty_read(:mtree, mnesia_key) do
-      [{:mtree, ^mnesia_key, tree}] -> {:ok, {__MODULE__, %{}, tree}}
+      [{:mtree, ^mnesia_key, tree}] -> {:ok, {__MODULE__, %{}, mnesia_decode(tree)}}
       [] -> {:error, :not_found}
     end
   end
@@ -195,7 +195,7 @@ defmodule MnesiaMerkleTree do
   end
 
   defp do_mnesia_store(mnesia_key, {:leaf, _hash_count, prefix, bucket}) do
-    :mnesia.write({:mtree, mnesia_key, {:leaf, nil, prefix, bucket}})
+    mnesia_write(mnesia_key, {:leaf, nil, prefix, bucket})
   end
 
   defp do_mnesia_store(mnesia_key, {:node, hashcount = {_hash, count}, prefix, left, right}) do
@@ -206,10 +206,18 @@ defmodule MnesiaMerkleTree do
         nil
       end
 
-    :mnesia.write(
-      {:mtree, mnesia_key,
-       {:node, hashcount, prefix, do_mnesia_store(left), do_mnesia_store(right)}}
+    mnesia_write(
+      mnesia_key,
+      {:node, hashcount, prefix, do_mnesia_store(left), do_mnesia_store(right)}
     )
+  end
+
+  defp mnesia_write(key, val) do
+    :mnesia.write({:mtree, key, :erlang.term_to_binary(val, [:compressed])})
+  end
+
+  defp mnesia_decode(val) do
+    :erlang.binary_to_term(val)
   end
 
   defp from_key(mnesia_key) when is_binary(mnesia_key) do
@@ -220,7 +228,7 @@ defmodule MnesiaMerkleTree do
         :mnesia.dirty_read(:mtree, mnesia_key)
       end
 
-    update_merkle_hash_count(tree)
+    update_merkle_hash_count(mnesia_decode(tree))
   end
 
   # ========================================================
