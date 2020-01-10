@@ -193,9 +193,15 @@ defmodule Network.PeerHandler do
     # Actual syncing
     Enum.reduce_while(blocks, {"ok", state}, fn block, {_, state} ->
       case handle_msg([@publish, block], state) do
-        ret = {[@response, @publish, "missing_parent", _hash], _state} ->
-          {:cont, ret}
+        {response, state} ->
+          if state.random_blocks == 0 do
+            {:cont, {response, state}}
+          else
+            # If we receive a batch that contains a random block, we skip the batch
+            {:halt, {[@response, @publish, "ok"], state}}
+          end
 
+        # Any kind of other errors
         other ->
           {:halt, other}
       end
@@ -223,7 +229,7 @@ defmodule Network.PeerHandler do
                   {0, blocks ++ [block]}
                 else
                   # is this a randomly broadcasted block or a chain re-org?
-                  # assuming reorg after three blocks
+                  # assuming reorg after n blocks
                   if state.random_blocks < 5 do
                     log(state, "ignoring wrong ordered block [~p]", [state.random_blocks + 1])
                     {state.random_blocks + 1, blocks}
@@ -240,10 +246,10 @@ defmodule Network.PeerHandler do
 
         case ret do
           {:error, reason} ->
-            {:stop, {:sync_error, reason}}
+            {:stop, {:sync_error, reason}, state}
 
           {random_blocks, blocks} ->
-            {[@response, @publish, "missing_parent", Block.parent_hash(block)],
+            {[@response, @publish, "missing_parent", Block.parent_hash(hd(blocks))],
              %{state | blocks: blocks, random_blocks: random_blocks}}
         end
 
@@ -278,7 +284,7 @@ defmodule Network.PeerHandler do
 
           _ ->
             err = "sync failed: #{inspect(Block.validate(block))}"
-            {:stop, {:validation_error, err}}
+            {:stop, {:validation_error, err}, state}
         end
     end
   end
