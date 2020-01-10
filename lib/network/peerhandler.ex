@@ -89,9 +89,9 @@ defmodule Network.PeerHandler do
     end
   end
 
-  def handle_info({:ssl, _socket, omsg}, state) do
+  def handle_info({:ssl, _sock, omsg}, state) do
     msg = decode(omsg)
-    # log(state, "received ~p bytes: ~p", [byte_size(omsg), msg])
+    # log(state, format("Received ~p bytes on ~p: ~180p", [byte_size(omsg), _sock, msg]))
 
     case handle_msg(msg, state) do
       {reply, state} when not is_atom(reply) ->
@@ -104,7 +104,7 @@ defmodule Network.PeerHandler do
   end
 
   def handle_info({:ssl_closed, info}, state) do
-    log(state, "connection closed by remote. info: ~0p", [info])
+    log(state, "Connection closed by remote. info: ~0p", [info])
     {:stop, :normal, state}
   end
 
@@ -384,7 +384,7 @@ defmodule Network.PeerHandler do
 
   defp send!(%{socket: socket}, data) do
     raw = encode(data)
-    # log(state, "send ~p bytes: ~p", [byte_size(raw), data])
+    # log(state, format("Sending ~p bytes: ~p", [byte_size(raw), data]))
     :ok = :ssl.send(socket, raw)
   end
 

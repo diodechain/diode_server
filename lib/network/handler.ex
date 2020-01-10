@@ -164,9 +164,18 @@ defmodule Network.Handler do
       end
 
       def log(state, format, args \\ []) do
-        line = :io_lib.format(format, args)
         mod = List.last(Module.split(__MODULE__))
-        :io.format("~p ~s: ~s: ~s~n", [self(), mod, name(state), line])
+        :io.format("~p ~s: ~s: ~s~n", [self(), mod, name(state), format(format, args)])
+      end
+
+      defp format(format, vars) do
+        string = :io_lib.format(format, vars) |> :erlang.iolist_to_binary()
+
+        if byte_size(string) > 180 do
+          binary_part(string, 0, 180)
+        else
+          string
+        end
       end
     end
   end
