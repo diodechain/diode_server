@@ -94,8 +94,6 @@ defmodule Network.Server do
     {:reply, state.clients, state}
   end
 
-  # This function is reall PeerHandler specific, and should be moved
-  # We can't create EdgeHandler connections in the same way at all.
   def handle_call({:ensure_node_connection, node_id, address, port}, _from, state) do
     case Map.get(state.clients, to_key(node_id)) do
       nil ->

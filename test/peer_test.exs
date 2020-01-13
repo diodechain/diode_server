@@ -44,7 +44,7 @@ defmodule PeerTest do
     assert Chain.peak() == 11
 
     # Creating peer connection
-    pid = Server.ensure_node_connection(PeerHandler, nil, "localhost", kademliaPort(1))
+    pid = Server.ensure_node_connection(PeerHandler, Wallet.new(), "localhost", kademliaPort(1))
     assert GenServer.call(pid, :ping) == :pong
 
     # Waiting for the connection to settle

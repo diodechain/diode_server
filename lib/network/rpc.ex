@@ -55,7 +55,7 @@ defmodule Network.Rpc do
     envelope =
       %{"id" => {:raw, id}, "jsonrpc" => "2.0"}
       |> Map.merge(ret)
-      |> Json.prepare!(false)
+      |> Json.prepare!(big_x: false)
 
     {code, envelope}
   end

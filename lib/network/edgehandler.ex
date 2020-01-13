@@ -158,7 +158,7 @@ defmodule Network.EdgeHandler do
         value =
           case Kademlia.find_value(key) do
             nil -> nil
-            binary -> Object.encode_list!(Object.decode!(binary))
+            binary -> Json.prepare!(Object.encode_list!(Object.decode!(binary)), all_hex: true)
           end
 
         send!(state, ["response", "getobject", value])

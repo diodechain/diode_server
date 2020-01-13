@@ -278,7 +278,7 @@ defmodule Kademlia do
 
       id =
         case node_id do
-          nil -> nil
+          nil -> Wallet.new()
           str -> Wallet.from_address(Base16.decode(str))
         end
 
