@@ -175,6 +175,17 @@ defmodule EdgeTest do
     node = Object.decode_list!(node)
     assert(Object.key(node) == id)
 
+    # Testing ticket integrity
+    # For live testing: test = :mnesia.dirty_all_keys(:tickets) |> Enum.map(fn(k) -> :mnesia.dirty_read(:tickets, k) end) |> Enum.map(fn([{:tickets, {dev, fleet, epoch}, epoch2, tck}]) -> {Object.Ticket.device_address(tck) == dev} end)
+    :mnesia.dirty_all_keys(:tickets)
+    |> Enum.map(&:mnesia.dirty_read(:tickets, &1))
+    |> Enum.each(fn [{:tickets, {dev, fleet, epoch}, epoch2, tck}] ->
+      assert Object.Ticket.device_address(tck) == dev
+      assert Object.Ticket.epoch(tck) == epoch
+      assert Object.Ticket.fleet_contract(tck) == fleet
+      assert epoch == epoch2
+    end)
+
     # Testing disconnect
     ["error", 401, "bad input"] = rpc(:client_1, ["garbage", String.pad_leading("", 1024 * 3)])
 

@@ -67,15 +67,15 @@ defmodule Network.Server do
 
   def handle_info({:EXIT, pid, reason}, state) do
     case Enum.split_with(state.clients, fn {_node_id, node_pid} -> node_pid == pid end) do
-      {[{_failed_node, _pid}], clients} ->
-        state = %Network.Server{state | clients: Map.new(clients)}
-        {:noreply, state}
-
       {[], _clients} ->
         :io.format("~0p Connection setup failed before register (~0p)~n", [
           state.protocol,
           {pid, reason}
         ])
+
+      {_failed, clients} ->
+        state = %Network.Server{state | clients: Map.new(clients)}
+        {:noreply, state}
 
         {:noreply, state}
     end
