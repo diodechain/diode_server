@@ -219,7 +219,7 @@ defmodule Chain.Block do
 
     if diff > 50 and header.previous_block != nil do
       IO.puts(
-        "Block slow blog #{length(transactions)}txs: #{diff}ms parent:(#{
+        "Slow block #{length(transactions)}txs: #{diff}ms parent:(#{
           Base16.encode(header.previous_block)
         })"
       )

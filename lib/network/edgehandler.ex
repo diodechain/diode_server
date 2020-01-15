@@ -378,6 +378,7 @@ defmodule Network.EdgeHandler do
           ])
       end
     else
+      log(state, "Received invalid ticket!")
       send!(state, ["error", "ticket", "signature mismatch"])
     end
   end
