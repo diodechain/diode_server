@@ -355,7 +355,9 @@ defmodule Network.EdgeHandler do
 
       case TicketStore.add(dl) do
         {:ok, bytes} ->
-          Kademlia.store(Object.key(dl), Object.encode!(dl))
+          Debounce.apply(Object.key(dl), fn ->
+            Kademlia.store(Object.key(dl), Object.encode!(dl))
+          end)
 
           %{state | unpaid_bytes: state.unpaid_bytes - bytes, last_ticket: Time.utc_now()}
           |> send!(["response", "ticket", "thanks!", bytes])
