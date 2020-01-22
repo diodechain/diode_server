@@ -97,6 +97,35 @@ defmodule Chain.State do
   end
 
   # ========================================================
+  # File Import / Export
+  # ========================================================
+  @spec to_binary(Chain.State.t()) :: binary
+  def to_binary(state) do
+    Enum.reduce(accounts(state), Map.new(), fn {id, acc}, map ->
+      Map.put(map, id, %{
+        nonce: acc.nonce,
+        balance: acc.balance,
+        data: Account.root(acc) |> MerkleTree.to_list(),
+        code: acc.code
+      })
+    end)
+    |> BertInt.encode!()
+  end
+
+  def from_binary(bin) do
+    map = BertInt.decode!(bin)
+
+    Enum.reduce(map, new(), fn {id, acc}, state ->
+      set_account(state, id, %Chain.Account{
+        nonce: acc.nonce,
+        balance: acc.balance,
+        storage_root: MnesiaMerkleTree.new() |> MerkleTree.insert_items(acc.data),
+        code: acc.code
+      })
+    end)
+  end
+
+  # ========================================================
   # Internal Mnesia Specific
   # ========================================================
   def rewrite_all() do
