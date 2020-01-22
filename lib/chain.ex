@@ -35,7 +35,7 @@ defmodule Chain do
     Process.send_after(self(), :tick, 5000)
     store = saver_loop_wait(false)
 
-    if store do
+    if store and not Diode.syncing?() do
       store_file(Diode.dataDir(@cache), state(), true)
       Chain.BlockCache.save()
     end
