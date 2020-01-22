@@ -158,7 +158,7 @@ options = [
 ]
 
 :ssl.start()
-{:ok, socket} = :ssl.connect('localhost', 41043, options, 5000)
+{:ok, socket} = :ssl.connect('localhost', 41045, options, 5000)
 
 :persistent_term.put(:no_tickets, false)
 

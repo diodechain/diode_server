@@ -209,83 +209,16 @@ defmodule Network.PeerHandler do
   end
 
   defp handle_msg([@publish, %Chain.Block{} = block], state) do
-    block = %{block | receipts: []}
+    block = filter_block(block)
 
-    case Block.parent(block) do
-      # Block is based on unknown predecessor
-      # keep block in block backup list
+    case Chain.block_by_hash(Chain.Block.hash(block)) do
       nil ->
-        ret =
-          case state.blocks do
-            [] ->
-              {0, [block]}
+        handle_block(Block.parent(block), block, state)
 
-            blocks ->
-              if Block.parent_hash(hd(blocks)) == Block.hash(block) do
-                {0, [block | blocks]}
-              else
-                # this happens when there is a new top block created on the remote side
-                if Block.parent_hash(block) == Block.hash(List.last(blocks)) do
-                  {0, blocks ++ [block]}
-                else
-                  # is this a randomly broadcasted block or a chain re-org?
-                  # assuming reorg after n blocks
-                  if state.random_blocks < 5 do
-                    log(state, "ignoring wrong ordered block [~p]", [state.random_blocks + 1])
-                    {state.random_blocks + 1, blocks}
-                  else
-                    log(state, "restarting sync because of random blocks [~p]", [
-                      state.random_blocks + 1
-                    ])
-
-                    {:error, :too_many_random_blocks}
-                  end
-                end
-              end
-          end
-
-        case ret do
-          {:error, reason} ->
-            {:stop, {:sync_error, reason}, state}
-
-          {random_blocks, blocks} ->
-            {[@response, @publish, "missing_parent", Block.parent_hash(hd(blocks))],
-             %{state | blocks: blocks, random_blocks: random_blocks}}
-        end
-
-      %Chain.Block{} ->
-        case Block.validate(block) do
-          %Chain.Block{} = block ->
-            Chain.add_block(block, false)
-
-            # replay block backup list
-            Enum.each(state.blocks, fn oldblock ->
-              with %Chain.Block{} <- Block.parent(oldblock),
-                   block_hash <- Block.hash(oldblock) do
-                if Chain.block_by_hash(block_hash) != nil do
-                  log(state, "Chain.add_block: Skipping existing block")
-                else
-                  case Block.validate(oldblock) do
-                    %Chain.Block{} = block ->
-                      throttle_sync(state, true)
-                      Chain.add_block(block, false)
-
-                    _ ->
-                      :ok
-                  end
-                end
-              end
-            end)
-
-            finish_sync(state)
-
-            # delete backup list on first successfull block
-            {[@response, @publish, "ok"], %{state | blocks: []}}
-
-          _ ->
-            err = "sync failed: #{inspect(Block.validate(block))}"
-            {:stop, {:validation_error, err}, state}
-        end
+      _ ->
+        log(state, "Chain.add_block: Skipping existing block")
+        # delete backup list on first successfull block
+        {[@response, @publish, "ok"], %{state | blocks: []}}
     end
   end
 
@@ -334,10 +267,88 @@ defmodule Network.PeerHandler do
     {:noreply, state}
   end
 
+  # Block is based on unknown predecessor
+  # keep block in block backup list
+  defp handle_block(nil, block = %Chain.Block{}, state) do
+    ret =
+      case state.blocks do
+        [] ->
+          {0, [block]}
+
+        blocks ->
+          if Block.parent_hash(hd(blocks)) == Chain.Block.hash(block) do
+            {0, [block | blocks]}
+          else
+            # this happens when there is a new top block created on the remote side
+            if Block.parent_hash(block) == Block.hash(List.last(blocks)) do
+              {0, blocks ++ [block]}
+            else
+              # is this a randomly broadcasted block or a chain re-org?
+              # assuming reorg after n blocks
+              if state.random_blocks < 5 do
+                log(state, "ignoring wrong ordered block [~p]", [state.random_blocks + 1])
+                {state.random_blocks + 1, blocks}
+              else
+                log(state, "restarting sync because of random blocks [~p]", [
+                  state.random_blocks + 1
+                ])
+
+                {:error, :too_many_random_blocks}
+              end
+            end
+          end
+      end
+
+    case ret do
+      {:error, reason} ->
+        {:stop, {:sync_error, reason}, state}
+
+      {random_blocks, blocks} ->
+        {[@response, @publish, "missing_parent", Block.parent_hash(hd(blocks))],
+         %{state | blocks: blocks, random_blocks: random_blocks}}
+    end
+  end
+
+  defp handle_block(_parent, block, state) do
+    case Block.validate(block) do
+      %Chain.Block{} = block ->
+        Chain.add_block(block, false)
+
+        # replay block backup list
+        Enum.each(state.blocks, fn oldblock ->
+          with %Chain.Block{} <- Block.parent(oldblock),
+               block_hash <- Block.hash(oldblock) do
+            if Chain.block_by_hash(block_hash) != nil do
+              log(state, "Chain.add_block: Skipping existing block")
+            else
+              case Block.validate(oldblock) do
+                %Chain.Block{} = block ->
+                  throttle_sync(state, true)
+                  Chain.add_block(block, false)
+
+                _ ->
+                  :ok
+              end
+            end
+          end
+        end)
+
+        finish_sync(state)
+
+        # delete backup list on first successfull block
+        {[@response, @publish, "ok"], %{state | blocks: []}}
+
+      _ ->
+        err = "sync failed: #{inspect(Block.validate(block))}"
+        {:stop, {:validation_error, err}, state}
+    end
+  end
+
   defp filter_block(%Chain.Block{} = block) do
     %Chain.Block{
       block
-      | receipts: [],
+      | coinbase: nil,
+        receipts: [],
         header: %{block.header | state_hash: Chain.Block.state_hash(block)}
     }
   end

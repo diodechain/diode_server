@@ -17,6 +17,7 @@ defmodule TestHelper do
     Kademlia.reset()
     wait(0)
     Supervisor.restart_child(Diode.Supervisor, Chain.Worker)
+    Chain.Worker.work()
     wait(1)
   end
 
@@ -26,7 +27,7 @@ defmodule TestHelper do
         :ok
 
       _other ->
-        :io.format("Waiting for block ~p~n", [n])
+        :io.format("Waiting for block ~p/~p~n", [n, Chain.peak()])
         Process.sleep(100)
         wait(n)
     end
@@ -34,10 +35,6 @@ defmodule TestHelper do
 
   def edgePort(num) do
     10000 + num * @max_ports
-  end
-
-  def edgesPort(num) do
-    10004 + num * @max_ports
   end
 
   def kademliaPort(num) do
@@ -72,13 +69,13 @@ defmodule TestHelper do
           "iex",
           ["--cookie", @cookie, "-S", "mix", "run"],
           env: [
+            {"MIX_ENV", "test"},
             {"DATA_DIR", clonedir},
             {"RPC_PORT", "#{rpcPort(num)}"},
             {"RPCS_PORT", "#{rpcsPort(num)}"},
             {"EDGE_PORT", "#{edgePort(num)}"},
-            {"EDGES_PORT", "#{edgesPort(num)}"},
             {"KADEMLIA_PORT", "#{kademliaPort(num)}"},
-            {"SEED", "diode://localhost:#{kademliaPort(num)}"}
+            {"SEED", "none"}
           ],
           stderr_to_stdout: true,
           into: file

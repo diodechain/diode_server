@@ -4,12 +4,14 @@
 defmodule Chain.Block do
   alias Chain.{Account, Block, BlockCache, State, Transaction, Header}
 
-  defstruct transactions: [], header: %Chain.Header{}, receipts: []
+  @enforce_keys [:coinbase]
+  defstruct transactions: [], header: %Chain.Header{}, receipts: [], coinbase: nil
 
   @type t :: %Chain.Block{
           transactions: [Chain.Transaction.t()],
           header: Chain.Header.t(),
-          receipts: [Chain.TransactionReceipt.t()]
+          receipts: [Chain.TransactionReceipt.t()],
+          coinbase: any()
         }
 
   # @min_difficulty 131072
@@ -22,7 +24,7 @@ defmodule Chain.Block do
   def parent(%Block{} = block), do: Chain.block_by_hash(parent_hash(block))
   def parent_hash(%Block{header: header}), do: header.previous_block
   def nonce(%Block{header: header}), do: header.nonce
-  def miner(%Block{header: header}), do: Header.miner(header)
+  def miner(%Block{header: header}), do: Header.recover_miner(header)
   def state_hash(%Block{header: header}), do: Chain.Header.state_hash(header)
   @spec hash(Chain.Block.t()) :: binary()
   # Fix for creating a signature of a non-exisiting block in registry_test.ex
@@ -71,8 +73,6 @@ defmodule Chain.Block do
 
     with {1, %Block{}} <- {1, block},
          {2, %Block{}} <- {2, parent(block)},
-         {3, true} <-
-           {3, Wallet.equal?(Header.miner(block.header), Header.recover_miner(block.header))},
          {4, true} <- {4, hash_valid?(block)},
          {5, []} <-
            {5,
@@ -116,6 +116,15 @@ defmodule Chain.Block do
               :io.format("==> ~p~n==> ~p~n", [dup, Account.root(acc)])
             end
           end)
+
+          :io.format("Coinbases ~p ~p~n", [coinbase(block), coinbase(sim_block)])
+
+          dupstate = Chain.Block.state(sim_block)
+
+          if dupstate != nil do
+            diff = Chain.State.difference(dupstate, state)
+            :io.format("Diff: ~180p~n", [diff])
+          end
 
           send(Chain.Saver, :store)
         end
@@ -170,7 +179,7 @@ defmodule Chain.Block do
       if blockRef == nil do
         1
       else
-        Contract.Registry.minerValue(0, Block.miner(block), blockRef)
+        Contract.Registry.minerValue(0, Block.coinbase(block), blockRef)
         |> div(Shell.ether(1000))
         |> max(1)
         |> min(50)
@@ -191,12 +200,13 @@ defmodule Chain.Block do
   def create(%Block{} = parent, transactions, miner, time, trace? \\ false) do
     header = %Header{
       previous_block: hash(parent),
-      timestamp: time,
-      miner_pubkey: Wallet.pubkey!(miner)
+      number: number(parent) + 1,
+      timestamp: time
     }
 
     block = %Block{
-      header: header
+      header: header,
+      coinbase: miner
     }
 
     t1 = Time.utc_now()
@@ -315,12 +325,8 @@ defmodule Chain.Block do
   end
 
   @spec number(Block.t()) :: non_neg_integer()
-  def number(%Block{header: %Chain.Header{previous_block: nil}}) do
-    0
-  end
-
-  def number(%Block{} = block) do
-    BlockCache.number(BlockCache.parent(block)) + 1
+  def number(%Block{header: %Chain.Header{number: number}}) do
+    number
   end
 
   @spec gas_price(Chain.Block.t()) :: non_neg_integer()
@@ -421,8 +427,12 @@ defmodule Chain.Block do
     "0x0000000000000000000000000000000000000000000000000000000000000000"
   end
 
-  def coinbase(%Block{} = block) do
+  def coinbase(block = %Block{coinbase: nil}) do
     miner(block) |> Wallet.address!() |> :binary.decode_unsigned()
+  end
+
+  def coinbase(%Block{coinbase: coinbase}) do
+    coinbase |> Wallet.address!() |> :binary.decode_unsigned()
   end
 
   @spec gasLimit(Block.t()) :: non_neg_integer()

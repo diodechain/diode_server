@@ -181,6 +181,74 @@ defmodule Network.EdgeHandler do
       ["getblockheader", index] when is_integer(index) ->
         send!(state, ["response", "getblockheader", Chain.block(index).header])
 
+      ["getblockheader2", index] when is_integer(index) ->
+        header = Chain.block(index).header
+        pubkey = Chain.Header.recover_miner(header) |> Wallet.pubkey!()
+        send!(state, ["response", "getblockheader2", header, pubkey])
+
+      ["getblockquick", last_block, window_size]
+      when is_integer(last_block) and
+             is_integer(window_size) ->
+        # Step 1: Identifying current view the device has
+        #   based on it's current last valid block number
+        window =
+          Enum.map(1..window_size, fn idx ->
+            Chain.Block.miner(Chain.block(last_block - idx))
+            |> Wallet.pubkey!()
+          end)
+
+        counts =
+          Enum.reduce(window, %{}, fn miner, acc -> Map.update(acc, miner, 1, &(&1 + 1)) end)
+
+        threshold = div(window_size, 2)
+
+        # Step 2: Findind a provable sequence
+        #    Iterating from peak backwards until the block score is over 50% of the window_size
+        {:ok, heads} =
+          Enum.reduce_while(Chain.blocks(), {counts, 0, []}, fn block, {counts, score, heads} ->
+            miner = Chain.Block.miner(block) |> Wallet.pubkey!()
+            {value, counts} = Map.pop(counts, miner, 0)
+            score = score + value
+            heads = [{block.header, miner} | heads]
+
+            if score > threshold do
+              {:halt, {:ok, heads}}
+            else
+              {:cont, {counts, score, heads}}
+            end
+          end)
+
+        # Step 3: Filling gap between 'last_block' and provable sequence, but by more than
+        # 'window_size' block heads before the provable sequence
+        {%{number: begin}, _miner} = hd(heads)
+        size = min(window_size, begin - last_block) - 1
+
+        gap_fill =
+          Enum.map((begin - size)..(begin - 1), fn block_number ->
+            block = Chain.block(block_number)
+            miner = Chain.Block.miner(block) |> Wallet.pubkey!()
+            {block.header, miner}
+          end)
+
+        heads = gap_fill ++ heads
+        send!(state, ["response", "getblockquick", heads])
+
+      # # Step 4: Checking whether the the provable sequence can be shortened
+      # # TODO
+      # {:ok, heads} =
+      #   Enum.reduce_while(heads, {counts, 0, []}, fn {head, miner},
+      #                                                {counts, score, heads} ->
+      #     {value, counts} = Map.pop(counts, miner, 0)
+      #     score = score + value
+      #     heads = [{head, miner} | heads]
+
+      #     if score > threshold do
+      #       {:halt, {:ok, heads}}
+      #     else
+      #       {:cont, {counts, score, heads}}
+      #     end
+      #   end)
+
       ["getstateroots", index] ->
         merkel = Chain.state(index).store
         send!(state, ["response", "getstateroots", MerkleTree.root_hashes(merkel)])
@@ -355,7 +423,7 @@ defmodule Network.EdgeHandler do
 
       case TicketStore.add(dl) do
         {:ok, bytes} ->
-          Debounce.apply(Object.key(dl), fn ->
+          Debounce.immediate(Object.key(dl), fn ->
             Kademlia.store(Object.key(dl), Object.encode!(dl))
           end)
 

@@ -14,6 +14,7 @@ defmodule Chain do
         }
 
   @cache "chain.db"
+  @pregenesis "0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z"
 
   @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
   def start_link(_opts) do
@@ -41,6 +42,14 @@ defmodule Chain do
     end
 
     saver_loop()
+  end
+
+  def pre_genesis_hash() do
+    @pregenesis
+  end
+
+  def genesis_hash() do
+    Block.hash(block(0))
   end
 
   defp saver_loop_wait(store) do
@@ -144,11 +153,6 @@ defmodule Chain do
     Block.state(peakBlock())
   end
 
-  @spec genesis_hash :: binary
-  def genesis_hash() do
-    Block.hash(Chain.block(0))
-  end
-
   @spec block(number()) :: Chain.Block.t() | nil
   def block(n) do
     case :ets.lookup(__MODULE__, n) do
@@ -164,8 +168,11 @@ defmodule Chain do
 
   def block_by_hash(hash) do
     case :ets.lookup(__MODULE__, hash) do
-      [] -> nil
-      [{^hash, block}] -> block
+      [] ->
+        nil
+
+      [{^hash, block}] ->
+        block
     end
   end
 
@@ -196,28 +203,26 @@ defmodule Chain do
   # Seeds the ets table from a map
   defp seed_ets(state) do
     :ets.delete_all_objects(__MODULE__)
-    seed_ets(state.by_hash, Block.hash(state.peak), map_size(state.by_hash) - 1)
+
+    Map.values(state.by_hash)
+    |> Enum.each(&insert_ets/1)
   end
 
-  defp seed_ets(_by_hash, nil, _n) do
-    :ok
-  end
-
-  defp seed_ets(by_hash, hash, n) do
-    block = by_hash[hash]
-    :ets.insert(__MODULE__, {hash, block})
-    :ets.insert(__MODULE__, {n, block})
-    seed_ets(by_hash, Block.parent_hash(block), n - 1)
+  defp insert_ets(block) do
+    :ets.insert(__MODULE__, {Block.hash(block), block})
+    :ets.insert(__MODULE__, {Block.number(block), block})
   end
 
   defp genesis_state() do
-    gen = genesis()
+    {gen, parent} = genesis()
     Store.set_block_transactions(gen)
+    Store.set_block_transactions(parent)
     hash = Block.hash(gen)
+    phash = Block.hash(parent)
 
     %Chain{
       peak: gen,
-      by_hash: %{hash => gen},
+      by_hash: %{hash => gen, phash => parent},
       states: %{}
     }
   end
@@ -231,19 +236,17 @@ defmodule Chain do
       IO.puts("Chain.add_block: Skipping existing block (2)")
       :added
     else
-      number = Block.number(block)
-
-      if number < 1 do
+      if Block.number(block) < 1 do
         IO.puts("Chain.add_block: Rejected invalid genesis block")
         :rejected
       else
         parent_hash = Block.parent_hash(block)
-        do_add_block(block, number, parent_hash, block_hash, relay)
+        do_add_block(block, parent_hash, block_hash, relay)
       end
     end
   end
 
-  defp do_add_block(block, number, parent_hash, block_hash, relay) do
+  defp do_add_block(block, parent_hash, block_hash, relay) do
     prefix =
       Block.hash(block)
       |> binary_part(0, 5)
@@ -261,7 +264,7 @@ defmodule Chain do
         totalDiff = Block.totalDifficulty(peak) + Block.difficulty(peak) * blockchainDelta()
         peak_hash = Block.hash(peak)
         author = Wallet.words(Block.miner(block))
-        info = "chain ##{number}[#{prefix}] @#{author}"
+        info = "chain ##{Block.number(block)}[#{prefix}] @#{author}"
 
         if peak_hash == parent_hash or Block.totalDifficulty(block) > totalDiff do
           if peak_hash == parent_hash do
@@ -272,7 +275,10 @@ defmodule Chain do
             Store.clear_transactions()
 
             :mnesia.transaction(fn ->
-              Enum.each(blocks(block_hash), &Store.set_block_transactions/1)
+              Enum.each(blocks(block_hash), fn block ->
+                Store.set_block_transactions(block)
+                insert_ets(block)
+              end)
             end)
           end
 
@@ -283,8 +289,7 @@ defmodule Chain do
 
           # Update the state
           state = %{state | peak: block}
-          :ets.insert(__MODULE__, {block_hash, block})
-          :ets.insert(__MODULE__, {number, block})
+          insert_ets(block)
 
           # Schedule a job to store the current state
           send(Chain.Saver, :store)
@@ -307,7 +312,6 @@ defmodule Chain do
         else
           IO.puts("Chain.add_block: Extending  alt #{info}")
           :ets.insert(__MODULE__, {block_hash, block})
-          :ets.insert(__MODULE__, {number, block})
           {:reply, :stored, state}
         end
       end
@@ -377,7 +381,7 @@ defmodule Chain do
   end
 
   defp genesis() do
-    Chain.GenesisFactory.testnet()
+    {Chain.GenesisFactory.testnet(), Chain.GenesisFactory.testnet_parent()}
   end
 end
 

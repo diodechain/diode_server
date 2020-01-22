@@ -10,7 +10,7 @@ defmodule Bench do
     miner = Wallet.new()
 
     state = Chain.State.new()
-    block = %Chain.Block{header: %Chain.Header{miner_pubkey: Wallet.pubkey!(miner)}}
+    block = %Chain.Block{header: %Chain.Header{}, coinbase: miner}
 
     bin =
       :binary.encode_unsigned(

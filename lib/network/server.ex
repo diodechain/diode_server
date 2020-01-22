@@ -65,9 +65,9 @@ defmodule Network.Server do
     do_accept(state)
   end
 
-  def handle_info({:EXIT, pid, reason}, state) do
-    case Enum.split_with(state.clients, fn {_node_id, node_pid} -> node_pid == pid end) do
-      {[], _clients} ->
+  def handle_info({:EXIT, pid, reason}, state = %{clients: clients}) do
+    case Map.get(clients, pid) do
+      nil ->
         :io.format("~0p Connection setup failed before register (~0p)~n", [
           state.protocol,
           {pid, reason}
@@ -75,9 +75,9 @@ defmodule Network.Server do
 
         {:noreply, state}
 
-      {_failed, clients} ->
-        state = %Network.Server{state | clients: Map.new(clients)}
-        {:noreply, state}
+      key ->
+        clients = Map.drop(clients, [pid, key])
+        {:noreply, %{state | clients: clients}}
     end
   end
 
@@ -91,14 +91,25 @@ defmodule Network.Server do
   end
 
   def handle_call(:get_connections, _from, state) do
-    {:reply, state.clients, state}
+    result =
+      Enum.filter(state.clients, fn {_key, value} ->
+        is_pid(value)
+      end)
+      |> Map.new()
+
+    {:reply, result, state}
   end
 
   def handle_call({:ensure_node_connection, node_id, address, port}, _from, state) do
     case Map.get(state.clients, to_key(node_id)) do
       nil ->
         worker = start_worker!(state, [:connect, node_id, address, port])
-        {:reply, worker, %{state | clients: Map.put(state.clients, to_key(node_id), worker)}}
+
+        clients =
+          Map.put(state.clients, to_key(node_id), worker)
+          |> Map.put(worker, to_key(node_id))
+
+        {:reply, worker, %{state | clients: clients}}
 
       client ->
         {:reply, client, state}
@@ -106,7 +117,15 @@ defmodule Network.Server do
   end
 
   def handle_call({:register, node_id}, {pid, _}, state) do
-    case Map.get(state.clients, to_key(node_id)) do
+    # Checking whether pid is already registered and needs an update
+    clients =
+      case Map.get(state.clients, pid) do
+        nil -> state.clients
+        key -> Map.delete(state.clients, key)
+      end
+
+    # Checking whether node_id is already registered
+    case Map.get(clients, to_key(node_id)) do
       nil ->
         :ok
 
@@ -130,7 +149,10 @@ defmodule Network.Server do
         end
     end
 
-    clients = Map.put(state.clients, to_key(node_id), pid)
+    clients =
+      Map.put(clients, to_key(node_id), pid)
+      |> Map.put(pid, to_key(node_id))
+
     {:reply, {:ok, state.port}, %{state | clients: clients}}
   end
 
@@ -195,7 +217,7 @@ defmodule Network.Server do
       verify_fun: {&check/3, nil},
       fail_if_no_peer_cert: true,
       # Requires client to advertise the same
-      # openssl s_client -curves secp256k1 -connect localhost:41043 -showcerts -msg -servername local -tls1_2 -tlsextdebug
+      # openssl s_client -curves secp256k1 -connect localhost:41045 -showcerts -msg -servername local -tls1_2 -tlsextdebug
       eccs: [:secp256k1],
       active: false,
       reuseaddr: true,

@@ -5,7 +5,7 @@ defmodule Chain.BlockCache do
   alias Chain.Block
   use GenServer
 
-  defstruct difficulty: 0, totalDifficulty: 0, number: -1, receipts: [], epoch: 0
+  defstruct difficulty: 0, totalDifficulty: 0, epoch: 0
 
   def start_link(arg) do
     GenServer.start_link(__MODULE__, arg, name: __MODULE__)
@@ -38,8 +38,6 @@ defmodule Chain.BlockCache do
     %Chain.BlockCache{
       difficulty: Block.difficulty(block),
       totalDifficulty: Block.totalDifficulty(block),
-      number: Block.number(block),
-      receipts: Block.receipts(block),
       epoch: Block.epoch(block)
     }
   end
@@ -75,14 +73,6 @@ defmodule Chain.BlockCache do
     cache(block).totalDifficulty
   end
 
-  def number(block) do
-    cache(block).number
-  end
-
-  def receipts(block) do
-    cache(block).receipts
-  end
-
   def epoch(block) do
     cache(block).epoch
   end
@@ -109,8 +99,10 @@ defmodule Chain.BlockCache do
   defdelegate logsBloom(block), to: Block
   defdelegate miner(block), to: Block
   defdelegate nonce(block), to: Block
+  defdelegate number(block), to: Block
   defdelegate parent(block), to: Block
   defdelegate parent_hash(block), to: Block
+  defdelegate receipts(block), to: Block
   defdelegate receiptsRoot(block), to: Block
   defdelegate sign(block, priv), to: Block
   defdelegate simulate(block, trace? \\ false), to: Block

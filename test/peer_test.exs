@@ -35,8 +35,8 @@ defmodule PeerTest do
     # The Genesis Block should be the same
     assert Block.hash(Chain.block(0)) == rpc(1, "eth_getBlockByNumber", "0,false")["hash"]
 
-    # There should be only one block on the new clone
-    assert 1 == :binary.decode_unsigned(rpc(1, "eth_blockNumber"))
+    # There should be no block on the new clone
+    assert 0 == :binary.decode_unsigned(rpc(1, "eth_blockNumber"))
 
     # Building test blocks for syncing
     assert Chain.peak() == 1
@@ -50,7 +50,7 @@ defmodule PeerTest do
     # Waiting for the connection to settle
     wait_for(
       fn -> map_size(Network.Server.get_connections(PeerHandler)) == 1 end,
-      "clone connection",
+      "clone connection (1/#{inspect(Network.Server.get_connections(PeerHandler))})",
       30
     )
 

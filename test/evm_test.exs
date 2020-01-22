@@ -17,7 +17,7 @@ defmodule EvmTest do
     miner = Wallet.new()
 
     state = Chain.State.new()
-    block = %Chain.Block{header: %Chain.Header{miner_pubkey: Wallet.pubkey!(miner)}}
+    block = %Chain.Block{header: %Chain.Header{}, coinbase: miner}
 
     #     pragma solidity >=0.4.22 <0.6.0;
 
@@ -103,7 +103,7 @@ defmodule EvmTest do
     priv = Wallet.privkey!(from_wallet)
 
     state = Chain.State.new()
-    block = %Chain.Block{header: %Chain.Header{miner_pubkey: Wallet.pubkey!(miner)}}
+    block = %Chain.Block{header: %Chain.Header{}, coinbase: miner}
 
     # Creating simple transfer
     ctx = %Transaction{
@@ -153,7 +153,7 @@ defmodule EvmTest do
     priv = Wallet.privkey!(from_wallet)
 
     state = Chain.State.new()
-    block = %Chain.Block{header: %Chain.Header{miner_pubkey: Wallet.pubkey!(miner)}}
+    block = %Chain.Block{header: %Chain.Header{}, coinbase: miner}
 
     # Creating simple transfer
     ctx = %Transaction{

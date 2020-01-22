@@ -73,11 +73,7 @@ defmodule Chain.Worker do
     if state == state2 do
       state
     else
-      if state.mode == :poll and state.proposal != [] do
-        send(self(), :work)
-      end
-
-      %{state2 | candidate: nil}
+      %{activate_timer(state2) | candidate: nil}
     end
   end
 
@@ -201,7 +197,7 @@ defmodule Chain.Worker do
   defp activate_timer(state) do
     case state.mode do
       :poll ->
-        if state.proposal != [] do
+        if state.proposal != [] and state.proposal != nil do
           send(self(), :work)
         end
 

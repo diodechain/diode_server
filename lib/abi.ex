@@ -21,7 +21,7 @@ defmodule ABI do
   end
 
   def decode_revert(other) do
-    :io.format("decode_revert(~0p)~n", [other])
+    :io.format("DEBUG: decode_revert(~0p)~n", [other])
     {:evmc_revert, "blubb"}
   end
 

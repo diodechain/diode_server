@@ -12,17 +12,16 @@ config :logger,
 
 case Mix.env() do
   :benchmark ->
+    System.put_env("SEED", "none")
     System.put_env("WORKER_MODE", "disabled")
 
   :test ->
-    System.put_env("KADEMLIA_PORT", "51053")
-    System.put_env("SEED", "diode://localhost:51052")
+    System.put_env("SEED", "none")
     System.put_env("WORKER_MODE", "poll")
-    System.put_env("DATADIR", "testdata")
 
   :dev ->
     System.put_env("WORKER_MODE", "poll")
-    System.put_env("SEED", "diode://localhost:51052")
+    System.put_env("SEED", "none")
 
   _env ->
     :ok

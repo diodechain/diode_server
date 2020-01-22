@@ -44,7 +44,9 @@ defmodule Diode do
     start_mnesia()
 
     if dev_mode?() and [] == wallets() do
-      wallets = for _n <- 1..5, do: Wallet.new()
+      wallets =
+        for n <- 1..5, do: Wallet.from_privkey(Hash.keccak_256("#{Date.utc_today()}.#{n}"))
+
       keys = Enum.map(wallets, fn w -> Base16.encode(Wallet.privkey!(w)) end)
       System.put_env("WALLETS", Enum.join(keys, " "))
 
@@ -73,20 +75,23 @@ defmodule Diode do
       worker(Chain.Worker, [workerMode()])
     ]
 
-    network_children = [
-      # Starting External Interfaces
-      Network.Server.child(edgePort(), Network.EdgeHandler),
-      Network.Server.child(kademliaPort(), Network.PeerHandler),
-      worker(Kademlia, [args]),
-      rpc_api(:http, port: rpcPort())
-    ]
-
-    base_children = if not dev_mode?(), do: base_children ++ start_ssl(), else: base_children
-
     children =
       if Mix.env() == :benchmark do
         base_children
       else
+        {:ok, _pid} = rpc_api(:http, port: rpcPort())
+
+        if not dev_mode?() do
+          start_ssl()
+        end
+
+        network_children = [
+          # Starting External Interfaces
+          Network.Server.child(edgePort(), Network.EdgeHandler),
+          Network.Server.child(kademliaPort(), Network.PeerHandler),
+          worker(Kademlia, [args])
+        ]
+
         base_children ++ network_children
       end
 
@@ -96,22 +101,21 @@ defmodule Diode do
   end
 
   defp rpc_api(scheme, opts) do
-    Plug.Cowboy.child_spec(
-      scheme: scheme,
-      plug: Network.RpcHttp,
-      options:
-        [
-          ip: {0, 0, 0, 0},
-          compress: not Diode.dev_mode?(),
-          dispatch: [
-            {:_,
-             [
-               {"/ws", Network.RpcWs, []},
-               {:_, Plug.Adapters.Cowboy.Handler, {Network.RpcHttp, []}}
-             ]}
-          ]
-        ] ++ opts
-    )
+    apply(Plug.Cowboy, scheme, [
+      Network.RpcHttp,
+      [],
+      [
+        ip: {0, 0, 0, 0},
+        compress: not Diode.dev_mode?(),
+        dispatch: [
+          {:_,
+           [
+             {"/ws", Network.RpcWs, []},
+             {:_, Plug.Adapters.Cowboy.Handler, {Network.RpcHttp, []}}
+           ]}
+        ]
+      ] ++ opts
+    ])
   end
 
   defp start_ssl() do
@@ -119,29 +123,14 @@ defmodule Diode do
       {:ok, _} ->
         IO.puts("++++++  SSL ON  ++++++")
         IO.puts("RPC  SSL Port: #{rpcsPort()}")
-        IO.puts("Edge SSL Port: #{edgesPort()}")
         IO.puts("")
 
-        https =
-          rpc_api(:https,
-            keyfile: "priv/privkey.pem",
-            certfile: "priv/cert.pem",
-            port: rpcsPort(),
-            otp_app: Diode
-          )
-
-        # This is not using selfsigned certs. Temporary solution until
-        # Firefox can handle secp256k1 certs.
-        edge =
-          Network.Server.child(edgesPort(), Network.EdgeHandler,
-            name: EdgeHandlerS,
-            pki: %{
-              keyfile: "priv/privkey.pem",
-              certfile: "priv/cert.pem"
-            }
-          )
-
-        [https, edge]
+        rpc_api(:https,
+          keyfile: "priv/privkey.pem",
+          certfile: "priv/cert.pem",
+          port: rpcsPort(),
+          otp_app: Diode
+        )
 
       _ ->
         []
@@ -154,7 +143,7 @@ defmodule Diode do
   end
 
   def chain_id() do
-    41043
+    41045
   end
 
   @spec dev_mode? :: boolean
@@ -254,32 +243,23 @@ defmodule Diode do
 
   @spec edgePort() :: integer()
   def edgePort() do
-    get_env_int("EDGE_PORT", 41043)
-  end
-
-  @spec edgesPort() :: integer()
-  def edgesPort() do
-    get_env_int("EDGES_PORT", 41044)
+    get_env_int("EDGE_PORT", 41045)
   end
 
   @spec kademliaPort() :: integer()
   def kademliaPort() do
-    get_env_int("KADEMLIA_PORT", 51053)
-  end
-
-  @spec seed() :: binary()
-  def seed() do
-    hd(seeds())
+    get_env_int("KADEMLIA_PORT", 51054)
   end
 
   def seeds() do
     get_env(
       "SEED",
-      "diode://0x68e0bafdda9ef323f692fc080d612718c941d120@seed-alpha.diode.io:51053 " <>
-        "diode://0x937c492a77ae90de971986d003ffbc5f8bb2232c@seed-beta.diode.io:51053 " <>
-        "diode://0xceca2f8cf1983b4cf0c1ba51fd382c2bc37aba58@seed-gamma.diode.io:51053"
+      "diode://0x68e0bafdda9ef323f692fc080d612718c941d120@seed-alpha.diode.io:51054 " <>
+        "diode://0x937c492a77ae90de971986d003ffbc5f8bb2232c@seed-beta.diode.io:51054 " <>
+        "diode://0xceca2f8cf1983b4cf0c1ba51fd382c2bc37aba58@seed-gamma.diode.io:51054"
     )
     |> String.split(" ", trim: true)
+    |> Enum.reject(fn item -> item == "none" end)
   end
 
   @spec workerMode() :: :disabled | :poll | integer()

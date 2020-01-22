@@ -240,7 +240,6 @@ defmodule Evm do
         tx = %Transaction{},
         state = %Chain.State{},
         block = %Chain.Block{},
-        _store,
         code,
         opts \\ []
       ) do

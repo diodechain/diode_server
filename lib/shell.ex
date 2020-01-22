@@ -17,8 +17,8 @@ defmodule Shell do
     registryContract = Diode.registryAddress()
     Shell.call(registryContract, "ContractStake", ["address"], [fleetContract])
 
-    wallet = Chain.GenesisFactory.genesis_accounts |> hd |> elem(0)
-    Shell.call_from(wallet, registryContract, "ContractStake", ["address"], [fleetContract])
+    addr = Chain.GenesisFactory.genesis_accounts |> hd |> elem(0)
+    Shell.call_from(Wallet.from_address(addr), registryContract, "ContractStake", ["address"], [fleetContract])
   """
   def call(address, name, types \\ [], values \\ [], opts \\ [])
       when is_list(types) and is_list(values) do

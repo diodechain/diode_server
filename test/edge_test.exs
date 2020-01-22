@@ -69,8 +69,7 @@ defmodule EdgeTest do
     ["error", "getaccount", "account does not exist"] =
       rpc(:client_1, ["getaccount", Chain.peak(), "01234567890123456789"])
 
-    {wallet, acc} = hd(Chain.GenesisFactory.genesis_accounts())
-    addr = Wallet.address!(wallet)
+    {addr, acc} = hd(Chain.GenesisFactory.genesis_accounts())
 
     ["response", "getaccount", ret, _proof] = rpc(:client_1, ["getaccount", Chain.peak(), addr])
 
@@ -82,8 +81,7 @@ defmodule EdgeTest do
     ["error", "getaccountvalue", "account does not exist"] =
       rpc(:client_1, ["getaccountvalue", Chain.peak(), "01234567890123456789", 0])
 
-    {wallet, _balance} = hd(Chain.GenesisFactory.genesis_accounts())
-    addr = Wallet.address!(wallet)
+    {addr, _balance} = hd(Chain.GenesisFactory.genesis_accounts())
 
     ["response", "getaccountvalue", ret] =
       rpc(:client_1, ["getaccountvalue", Chain.peak(), addr, 0])
@@ -148,6 +146,8 @@ defmodule EdgeTest do
                Ticket.device_signature(tck)
              ]
 
+    # Waiting for Kademlia Debounce to write the object to the file
+    Process.sleep(1000)
     ["response", "getobject", loc2] = rpc(:client_1, ["getobject", Wallet.address!(clientid(1))])
 
     loc2 = Object.decode_list!(loc2)
@@ -400,6 +400,46 @@ defmodule EdgeTest do
 
     Process.sleep(1000)
     assert false == Process.alive?(old_pid)
+  end
+
+  test "getblockquick" do
+    for _ <- 1..50, do: Chain.Worker.work()
+    peak = Chain.peak()
+
+    # Test blockquick with gap
+    window_size = 10
+    ["response", "getblockquick", headers] = rpc(:client_1, ["getblockquick", 30, window_size])
+
+    Enum.reduce(headers, peak - 9, fn [head, _miner], num ->
+      assert head["number"] == num
+      num + 1
+    end)
+
+    assert length(headers) == window_size
+
+    # Test blockquick with gap
+    window_size = 20
+    ["response", "getblockquick", headers] = rpc(:client_1, ["getblockquick", 30, window_size])
+
+    Enum.reduce(headers, peak - 19, fn [head, _miner], num ->
+      assert head["number"] == num
+      num + 1
+    end)
+
+    assert length(headers) == window_size
+
+    # Test blockquick without gap
+    window_size = 20
+
+    ["response", "getblockquick", headers] =
+      rpc(:client_1, ["getblockquick", peak - 10, window_size])
+
+    Enum.reduce(headers, peak - 9, fn [head, _miner], num ->
+      assert head["number"] == num
+      num + 1
+    end)
+
+    assert length(headers) == 10
   end
 
   defp check_counters() do
@@ -669,7 +709,7 @@ defmodule EdgeTest do
 
   defp client(n) do
     cert = "./test/pems/device#{n}_certificate.pem"
-    {:ok, socket} = :ssl.connect('localhost', 41043, options(cert), 5000)
+    {:ok, socket} = :ssl.connect('localhost', 41045, options(cert), 5000)
     wallet = clientid(n)
     key = Wallet.privkey!(wallet)
     fleet = <<0::160>>

@@ -26,7 +26,7 @@ defmodule Chain.State do
     Enum.map(diff, fn {id, _} ->
       acc_a = Chain.State.account(state_a, id)
       acc_b = Chain.State.account(state_b, id)
-      {id, MerkleTree.difference(Account.root(acc_a), Account.root(acc_b))}
+      {Base16.encode(id), MerkleTree.difference(Account.root(acc_a), Account.root(acc_b))}
     end)
   end
 

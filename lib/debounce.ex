@@ -15,12 +15,31 @@ defmodule Debounce do
     {:ok, %{}}
   end
 
+  @spec immediate(term(), (() -> any()), non_neg_integer()) :: :ok
+  @doc """
+    immediate executes the function immediately but blocks any further call
+      under the same key for the given timeout.
+  """
+  def immediate(key, fun, timeout \\ 5000) do
+    GenServer.cast(__MODULE__, {:immediate, key, fun, timeout})
+  end
+
   @spec delay(term(), (() -> any()), non_neg_integer()) :: :ok
+  @doc """
+    delay executes the function after the specified timeout t0 + timeout,
+      when delay is called multipe times the timeout is reset based on the
+      most recent call (t1 + timeout, t2 + timeout) etc... the fun is also updated
+  """
   def delay(key, fun, timeout \\ 5000) do
     GenServer.cast(__MODULE__, {:delay, key, fun, timeout})
   end
 
   @spec apply(term(), (() -> any()), non_neg_integer()) :: :ok
+  @doc """
+    apply executes the function after the specified timeout t0 + timeout,
+      when apply is called multiple times it does not affect the point
+      in time when the next call is happening (t0 + timeout) but updates the fun
+  """
   def apply(key, fun, timeout \\ 5000) do
     GenServer.cast(__MODULE__, {:apply, key, fun, timeout})
   end
@@ -43,6 +62,21 @@ defmodule Debounce do
     end
   end
 
+  def handle_cast({:immediate, key, fun, timeout}, state) do
+    calltime = time() + timeout
+
+    case :ets.lookup(__MODULE__, calltime) do
+      [] ->
+        execute(fun)
+        :ets.insert(__MODULE__, {calltime, [key]})
+        {:noreply, Map.put(state, key, {calltime, nil})}
+
+      [{_, keys}] ->
+        :ets.insert(__MODULE__, {calltime, [key | keys]})
+        {:noreply, Map.put(state, key, {calltime, fun})}
+    end
+  end
+
   def handle_info(:tick, state) do
     {:noreply, update(state, time())}
   end
@@ -62,7 +96,7 @@ defmodule Debounce do
           |> Enum.reduce(state, fn key, state ->
             case Map.get(state, key) do
               {^ts, fun} ->
-                spawn(fun)
+                execute(fun)
                 Map.delete(state, key)
 
               _ ->
@@ -73,6 +107,14 @@ defmodule Debounce do
         :ets.delete(__MODULE__, ts)
         update(state, now)
     end
+  end
+
+  defp execute(nil) do
+    :ok
+  end
+
+  defp execute(fun) do
+    spawn(fun)
   end
 
   defp time() do

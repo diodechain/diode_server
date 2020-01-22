@@ -6,32 +6,32 @@ defmodule Chain.Header do
 
   defstruct previous_block: nil,
             miner_signature: nil,
-            miner_pubkey: nil,
             block_hash: nil,
             state_hash: nil,
             transaction_hash: nil,
             timestamp: 0,
+            number: 0,
             nonce: 0
 
   @type t :: %Chain.Header{
           previous_block: binary() | nil,
           miner_signature: binary() | nil,
-          miner_pubkey: binary() | nil,
           block_hash: binary() | nil,
           state_hash: binary() | nil,
           transaction_hash: binary() | nil,
           timestamp: non_neg_integer(),
+          number: integer(),
           nonce: non_neg_integer()
         }
 
   # egg is everything but the miner_signature and the block hash, it is required to create the miner_signature
-  defp encode_egg(header) do
+  defp encode_egg(%Chain.Header{} = header) do
     BertExt.encode!([
       header.previous_block,
-      header.miner_pubkey,
       state_hash(header),
       header.transaction_hash,
       header.timestamp,
+      header.number,
       header.nonce
     ])
   end
@@ -40,10 +40,10 @@ defmodule Chain.Header do
   defp encode_chicken(header) do
     BertExt.encode!([
       header.previous_block,
-      header.miner_pubkey,
       state_hash(header),
       header.transaction_hash,
       header.timestamp,
+      header.number,
       header.nonce,
       header.miner_signature
     ])
@@ -61,11 +61,6 @@ defmodule Chain.Header do
 
   def state_hash(%Chain.Header{state_hash: %Chain.State{} = state}), do: Chain.State.hash(state)
   def state_hash(%Chain.Header{state_hash: state_hash}), do: state_hash
-
-  @spec miner(Chain.Header.t()) :: Wallet.t()
-  def miner(header) do
-    Wallet.from_pubkey(header.miner_pubkey)
-  end
 
   def recover_miner(header) do
     case :binary.decode_unsigned(header.miner_signature) do
