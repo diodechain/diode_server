@@ -2,7 +2,6 @@
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
 defmodule Chain.State do
-  import Wallet
   alias Chain.Account
 
   @enforce_keys [:store]
@@ -59,10 +58,6 @@ defmodule Chain.State do
 
   @spec ensure_account(Chain.State.t(), <<_::160>> | Wallet.t() | non_neg_integer()) ::
           Chain.Account.t()
-  def ensure_account(state = %Chain.State{}, id = wallet()) do
-    ensure_account(state, Wallet.address!(id))
-  end
-
   def ensure_account(state = %Chain.State{}, id = <<_::160>>) do
     case account(state, id) do
       nil -> Chain.Account.new(nonce: 0)
@@ -72,6 +67,10 @@ defmodule Chain.State do
 
   def ensure_account(state = %Chain.State{}, id) when is_integer(id) do
     ensure_account(state, <<id::unsigned-size(160)>>)
+  end
+
+  def ensure_account(state = %Chain.State{}, id) do
+    ensure_account(state, Wallet.address!(id))
   end
 
   @spec set_account(Chain.State.t(), binary(), Chain.Account.t()) :: Chain.State.t()

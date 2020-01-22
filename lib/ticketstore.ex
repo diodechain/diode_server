@@ -87,7 +87,7 @@ defmodule TicketStore do
           else
             if Ticket.device_address(tck) != Ticket.device_address(last) do
               :io.format("TicketStore.too_low_bug!!~n")
-              :io.format("Tck: ~180p~~nLast: ~180p~~nKey: ~180p~~n", [tck, last, key])
+              :io.format("Tck: ~180p~nLast: ~180p~nKey: ~180p~n", [tck, last, key])
               {:ok, 40000}
             else
               {:too_low, last}

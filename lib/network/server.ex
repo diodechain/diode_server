@@ -73,10 +73,10 @@ defmodule Network.Server do
           {pid, reason}
         ])
 
-      {_failed, clients} ->
-        state = %Network.Server{state | clients: Map.new(clients)}
         {:noreply, state}
 
+      {_failed, clients} ->
+        state = %Network.Server{state | clients: Map.new(clients)}
         {:noreply, state}
     end
   end
