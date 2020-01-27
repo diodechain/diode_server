@@ -155,9 +155,11 @@ defmodule Chain do
 
   @spec block(number()) :: Chain.Block.t() | nil
   def block(n) do
-    case :ets.lookup(__MODULE__, n) do
-      [] -> nil
-      [{^n, block}] -> block
+    if n > peak() do
+      nil
+    else
+      [{^n, block}] = :ets.lookup(__MODULE__, n)
+      block
     end
   end
 
@@ -267,6 +269,10 @@ defmodule Chain do
         info = "chain ##{Block.number(block)}[#{prefix}] @#{author}"
 
         if peak_hash == parent_hash or Block.totalDifficulty(block) > totalDiff do
+          # Update the state
+          state = %{state | peak: block}
+          insert_ets(block)
+
           if peak_hash == parent_hash do
             IO.puts("Chain.add_block: Extending main #{info}")
             Store.set_block_transactions(block)
@@ -288,10 +294,6 @@ defmodule Chain do
           if Diode.dev_mode?() do
             print_transactions(block)
           end
-
-          # Update the state
-          state = %{state | peak: block}
-          insert_ets(block)
 
           # Schedule a job to store the current state
           send(Chain.Saver, :store)
@@ -385,80 +387,27 @@ defmodule Chain do
   defp genesis() do
     {Chain.GenesisFactory.testnet(), Chain.GenesisFactory.testnet_parent()}
   end
+
+  @doc """
+    reseed is a debugging function
+  """
+  def reseed() do
+    Enum.each(blocks(), fn block ->
+      n = Block.number(block)
+
+      case :ets.lookup(__MODULE__, n) do
+        [] ->
+          :io.format("reseeding ~p ~p~n", [n, Block.hash(block)])
+          insert_ets(block)
+
+        [{^n, ^block}] ->
+          :ok
+
+        [{^n, other}] ->
+          :io.format("reseeding wrong ~p ~p != ~p~n", [n, Block.hash(block), Block.hash(other)])
+          # :io.format("~180p~n~180p~n", [block, other])
+          insert_ets(block)
+      end
+    end)
+  end
 end
-
-"""
-for transaction validation:
-
-// SendTransaction updates the pending block to include the given transaction.
-// It panics if the transaction is invalid.
-func (b *SimulatedBackend) SendTransaction(ctx context.Context, tx *types.Transaction) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	sender, err := types.Sender(types.HomesteadSigner{}, tx)
-	if err != nil {
-		panic(fmt.Errorf("invalid transaction: %v", err))
-	}
-	nonce := b.pendingState.GetNonce(sender)
-	if tx.Nonce() != nonce {
-		panic(fmt.Errorf("invalid transaction nonce: got %d, want %d", tx.Nonce(), nonce))
-	}
-
-	blocks, _ := core.GenerateChain(b.config, b.blockchain.CurrentBlock(), ethash.NewFaker(), b.database, 1, func(number int, block *core.BlockGen) {
-		for _, tx := range b.pendingBlock.Transactions() {
-			block.AddTx(tx)
-		}
-		block.AddTx(tx)
-	})
-	statedb, _ := b.blockchain.State()
-
-	b.pendingBlock = blocks[0]
-	b.pendingState, _ = state.New(b.pendingBlock.Root(), statedb.Database())
-	return nil
-}
-
-
-sate_processor.go:
-
-func ApplyTransaction(config *params.ChainConfig, bc *BlockChain, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, uint64, error) {
-	msg, err := tx.AsMessage(types.MakeSigner(config, header.Number))
-	if err != nil {
-		return nil, 0, err
-	}
-	// Create a new context to be used in the EVM environment
-	context := NewEVMContext(msg, header, bc, author)
-	// Create a new environment which holds all relevant information
-	// about the transaction and calling mechanisms.
-	vmenv := vm.NewEVM(context, statedb, config, cfg)
-	// Apply the transaction to the current state (included in the env)
-	_, gas, failed, err := ApplyMessage(vmenv, msg, gp)
-	if err != nil {
-		return nil, 0, err
-	}
-	// Update the state with pending changes
-	var root []byte
-	if config.IsByzantium(header.Number) {
-		statedb.Finalise(true)
-	} else {
-		root = statedb.IntermediateRoot(config.IsEIP158(header.Number)).Bytes()
-	}
-	*usedGas += gas
-
-	// Create a new receipt for the transaction, storing the intermediate root and gas used by the tx
-	// based on the eip phase, we're passing wether the root touch-delete accounts.
-	receipt := types.NewReceipt(root, failed, *usedGas)
-	receipt.TxHash = tx.Hash()
-	receipt.GasUsed = gas
-	// if the transaction created a contract, store the creation address in the receipt.
-	if msg.To() == nil {
-		receipt.ContractAddress = crypto.CreateAddress(vmenv.Context.Origin, tx.Nonce())
-	}
-	// Set the receipt logs and create a bloom for filtering
-	receipt.Logs = statedb.GetLogs(tx.Hash())
-	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
-
-	return receipt, gas, err
-}
-
-"""
