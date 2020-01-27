@@ -95,6 +95,8 @@ defmodule Network.EdgeHandler do
 
   @type state :: %{
           socket: any(),
+          compression: nil | :zlib,
+          extra_flags: [],
           node_id: Wallet.t(),
           node_address: :inet.ip_address(),
           ports: PortCollection.t(),
@@ -109,6 +111,8 @@ defmodule Network.EdgeHandler do
     state =
       Map.merge(state, %{
         ports: %PortCollection{},
+        compression: nil,
+        extra_flags: [],
         unpaid_bytes: 0,
         unpaid_rx_bytes: 0,
         last_ticket: nil
@@ -145,6 +149,23 @@ defmodule Network.EdgeHandler do
 
   def handle_msg(msg, state) do
     case msg do
+      ["hello", vsn | flags] ->
+        if vsn != 1_000 do
+          send(state, ["error", "hello", "version not supported"])
+        else
+          state1 =
+            Enum.reduce(flags, state, fn flag, state ->
+              case flag do
+                "zlib" -> %{state | compression: :zlib}
+                other -> %{state | extra_flags: [other | state.extra_flags]}
+              end
+            end)
+
+          # If compression has been enabled then on the next frame
+          send!(state, ["response", "hello", "ok"])
+          %{state | compression: state1.compression, extra_flags: state1.extra_flags}
+        end
+
       ["ticket" | rest = [_block, _fc, _tc, _tb, _la, _ds]] ->
         handle_ticket(rest, state)
 
@@ -182,6 +203,7 @@ defmodule Network.EdgeHandler do
         send!(state, ["response", "getblockheader", Chain.block(index).header])
 
       ["getblockheader2", index] when is_integer(index) ->
+        :io.format("getblockheader2: ~p~n", [index])
         header = Chain.block(index).header
         pubkey = Chain.Header.recover_miner(header) |> Wallet.pubkey!()
         send!(state, ["response", "getblockheader2", header, pubkey])
@@ -189,65 +211,21 @@ defmodule Network.EdgeHandler do
       ["getblockquick", last_block, window_size]
       when is_integer(last_block) and
              is_integer(window_size) ->
-        # Step 1: Identifying current view the device has
-        #   based on it's current last valid block number
-        window =
-          Enum.map(1..window_size, fn idx ->
-            Chain.Block.miner(Chain.block(last_block - idx))
-            |> Wallet.pubkey!()
-          end)
-
-        counts =
-          Enum.reduce(window, %{}, fn miner, acc -> Map.update(acc, miner, 1, &(&1 + 1)) end)
-
-        threshold = div(window_size, 2)
-
-        # Step 2: Findind a provable sequence
-        #    Iterating from peak backwards until the block score is over 50% of the window_size
-        {:ok, heads} =
-          Enum.reduce_while(Chain.blocks(), {counts, 0, []}, fn block, {counts, score, heads} ->
-            miner = Chain.Block.miner(block) |> Wallet.pubkey!()
-            {value, counts} = Map.pop(counts, miner, 0)
-            score = score + value
-            heads = [{block.header, miner} | heads]
-
-            if score > threshold do
-              {:halt, {:ok, heads}}
-            else
-              {:cont, {counts, score, heads}}
-            end
-          end)
-
-        # Step 3: Filling gap between 'last_block' and provable sequence, but by more than
-        # 'window_size' block heads before the provable sequence
-        {%{number: begin}, _miner} = hd(heads)
-        size = min(window_size, begin - last_block) - 1
-
-        gap_fill =
-          Enum.map((begin - size)..(begin - 1), fn block_number ->
-            block = Chain.block(block_number)
+        answ =
+          get_blockquick_seq(last_block, window_size)
+          |> Enum.map(fn num ->
+            block = Chain.block(num)
             miner = Chain.Block.miner(block) |> Wallet.pubkey!()
             {block.header, miner}
           end)
 
-        heads = gap_fill ++ heads
-        send!(state, ["response", "getblockquick", heads])
+        send!(state, ["response", "getblockquick", answ])
 
-      # # Step 4: Checking whether the the provable sequence can be shortened
-      # # TODO
-      # {:ok, heads} =
-      #   Enum.reduce_while(heads, {counts, 0, []}, fn {head, miner},
-      #                                                {counts, score, heads} ->
-      #     {value, counts} = Map.pop(counts, miner, 0)
-      #     score = score + value
-      #     heads = [{head, miner} | heads]
-
-      #     if score > threshold do
-      #       {:halt, {:ok, heads}}
-      #     else
-      #       {:cont, {counts, score, heads}}
-      #     end
-      #   end)
+      ["getblockquick2", last_block, window_size]
+      when is_integer(last_block) and
+             is_integer(window_size) ->
+        answ = get_blockquick_seq(last_block, window_size)
+        send!(state, ["response", "getblockquick2", answ])
 
       ["getstateroots", index] ->
         merkel = Chain.state(index).store
@@ -362,9 +340,9 @@ defmodule Network.EdgeHandler do
 
   def handle_info({:ssl, _socket, raw_msg}, state) do
     state = account_incoming(state, raw_msg)
-    msg = decode(raw_msg)
+    msg = decode(state, raw_msg)
 
-    # log(state, "handle: ~0p", [msg])
+    log(state, "handle: ~0p", [msg])
     state = handle_msg(msg, state)
     {:noreply, state}
   end
@@ -618,7 +596,13 @@ defmodule Network.EdgeHandler do
     }
   end
 
-  defp decode(msg) do
+  defp decode(state, msg) do
+    msg =
+      case state.compression do
+        nil -> msg
+        :zlib -> :zlib.unzip(msg)
+      end
+
     case Json.decode(msg) do
       {:ok, obj} -> obj
       _ -> nil
@@ -644,8 +628,18 @@ defmodule Network.EdgeHandler do
         encode(data)
       end
 
-    if msg != "", do: :ok = :ssl.send(state.socket, msg)
+    if msg != "", do: :ok = do_send!(state, msg)
     %{state | unpaid_bytes: b + byte_size(msg) + rx, unpaid_rx_bytes: 0}
+  end
+
+  defp do_send!(state, msg) do
+    msg =
+      case state.compression do
+        nil -> msg
+        :zlib -> :zlib.zip(msg)
+      end
+
+    :ssl.send(state.socket, msg)
   end
 
   @spec device_id(state()) :: Wallet.t()
@@ -658,5 +652,65 @@ defmodule Network.EdgeHandler do
 
   def on_nodeid(_edge) do
     :ok
+  end
+
+  defp get_blockquick_seq(last_block, window_size) do
+    # Step 1: Identifying current view the device has
+    #   based on it's current last valid block number
+    window =
+      Enum.map(1..window_size, fn idx ->
+        Chain.Block.miner(Chain.block(last_block - idx))
+        |> Wallet.pubkey!()
+      end)
+
+    counts = Enum.reduce(window, %{}, fn miner, acc -> Map.update(acc, miner, 1, &(&1 + 1)) end)
+
+    threshold = div(window_size, 2)
+
+    # Step 2: Findind a provable sequence
+    #    Iterating from peak backwards until the block score is over 50% of the window_size
+    {:ok, heads} =
+      Enum.reduce_while(Chain.blocks(), {counts, 0, []}, fn block, {counts, score, heads} ->
+        miner = Chain.Block.miner(block) |> Wallet.pubkey!()
+        {value, counts} = Map.pop(counts, miner, 0)
+        score = score + value
+        heads = [Chain.Block.number(block) | heads]
+
+        if score > threshold do
+          {:halt, {:ok, heads}}
+        else
+          {:cont, {counts, score, heads}}
+        end
+      end)
+
+    # Step 3: Filling gap between 'last_block' and provable sequence, but not
+    # by more than 'window_size' block heads before the provable sequence
+    begin = hd(heads)
+    size = min(window_size, begin - last_block) - 1
+
+    gap_fill =
+      Enum.map((begin - size)..(begin - 1), fn block_number ->
+        block = Chain.block(block_number)
+        miner = Chain.Block.miner(block) |> Wallet.pubkey!()
+        {block.header, miner}
+      end)
+
+    gap_fill ++ heads
+
+    # # Step 4: Checking whether the the provable sequence can be shortened
+    # # TODO
+    # {:ok, heads} =
+    #   Enum.reduce_while(heads, {counts, 0, []}, fn {head, miner},
+    #                                                {counts, score, heads} ->
+    #     {value, counts} = Map.pop(counts, miner, 0)
+    #     score = score + value
+    #     heads = [{head, miner} | heads]
+
+    #     if score > threshold do
+    #       {:halt, {:ok, heads}}
+    #     else
+    #       {:cont, {counts, score, heads}}
+    #     end
+    #   end)
   end
 end
