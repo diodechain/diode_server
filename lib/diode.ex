@@ -143,7 +143,7 @@ defmodule Diode do
   end
 
   def chain_id() do
-    41045
+    41043
   end
 
   @spec dev_mode? :: boolean
