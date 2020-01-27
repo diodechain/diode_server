@@ -248,7 +248,7 @@ defmodule Chain do
 
   defp do_add_block(block, parent_hash, block_hash, relay) do
     prefix =
-      Block.hash(block)
+      block_hash
       |> binary_part(0, 5)
       |> Base16.encode(false)
 
@@ -274,11 +274,13 @@ defmodule Chain do
             IO.puts("Chain.add_block: Replacing main #{info}")
             Store.clear_transactions()
 
-            :mnesia.transaction(fn ->
-              Enum.each(blocks(block_hash), fn block ->
-                Store.set_block_transactions(block)
-                insert_ets(block)
-              end)
+            Enum.each(blocks(block_hash), fn block ->
+              insert_ets(block)
+
+              {:atomic, :ok} =
+                :mnesia.transaction(fn ->
+                  Store.set_block_transactions(block)
+                end)
             end)
           end
 

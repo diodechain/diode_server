@@ -203,7 +203,6 @@ defmodule Network.EdgeHandler do
         send!(state, ["response", "getblockheader", Chain.block(index).header])
 
       ["getblockheader2", index] when is_integer(index) ->
-        :io.format("getblockheader2: ~p~n", [index])
         header = Chain.block(index).header
         pubkey = Chain.Header.recover_miner(header) |> Wallet.pubkey!()
         send!(state, ["response", "getblockheader2", header, pubkey])
@@ -342,7 +341,7 @@ defmodule Network.EdgeHandler do
     state = account_incoming(state, raw_msg)
     msg = decode(state, raw_msg)
 
-    log(state, "handle: ~0p", [msg])
+    # log(state, "handle: ~0p", [msg])
     state = handle_msg(msg, state)
     {:noreply, state}
   end
@@ -690,9 +689,7 @@ defmodule Network.EdgeHandler do
 
     gap_fill =
       Enum.map((begin - size)..(begin - 1), fn block_number ->
-        block = Chain.block(block_number)
-        miner = Chain.Block.miner(block) |> Wallet.pubkey!()
-        {block.header, miner}
+        block_number
       end)
 
     gap_fill ++ heads

@@ -72,7 +72,8 @@ defmodule Chain.Block do
     # IO.puts("Block #{number(block)}.: #{length(transactions(block))}txs")
 
     with {1, %Block{}} <- {1, block},
-         {2, %Block{}} <- {2, parent(block)},
+         {2, pa = %Block{}} <- {2, parent(block)},
+         {3, true} <- {3, Block.number(block) == Block.number(pa) + 1},
          {4, true} <- {4, hash_valid?(block)},
          {5, []} <-
            {5,
