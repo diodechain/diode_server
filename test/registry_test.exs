@@ -25,10 +25,10 @@ defmodule RegistryTest do
         total_connections: 1,
         total_bytes: 0,
         local_address: "spam",
-        block_number: Chain.peak() + 1,
-        fleet_contract: <<0::unsigned-size(160)>>
+        block_number: Chain.peak() + 10,
+        fleet_contract: <<0::unsigned-size(160)>>,
+        device_signature: Secp256k1.sign(clientkey(1), Hash.sha3_256("random"))
       )
-      |> Ticket.device_sign(clientkey(1))
 
     raw = Ticket.raw(tck)
     tx = Registry.submitTicketRawTx(raw)

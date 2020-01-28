@@ -5,14 +5,17 @@ defmodule Chain do
   alias Chain.BlockCache, as: Block
   alias Chain.Transaction
   use GenServer
-  defstruct peak: nil, by_hash: %{}, states: %{}
+  defstruct window: %{}, final: nil, peak: nil, by_hash: %{}, states: %{}
 
   @type t :: %Chain{
+          window: %{binary() => integer()},
+          final: Chain.Block.t(),
           peak: Chain.Block.t(),
           by_hash: %{binary() => Chain.Block.t()} | nil,
           states: Map.t()
         }
 
+  @window_size 100
   @cache "chain.db"
   @pregenesis "0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z"
 
@@ -98,10 +101,6 @@ defmodule Chain do
     GenServer.call(__MODULE__, {:call, fun}, timeout)
   end
 
-  def handle_call({:call, fun}, from, state) when is_function(fun) do
-    fun.(state, from)
-  end
-
   @doc "Gaslimit for block validation and estimation"
   def gasLimit() do
     100_000_000_000
@@ -143,6 +142,16 @@ defmodule Chain do
     end
   end
 
+  @spec final_block() :: Chain.Block.t()
+  def final_block() do
+    call(fn state, _from -> {:reply, state.final, state} end)
+  end
+
+  def set_final_block(%Chain.Block{} = block) do
+    window = generate_blockquick_window(block)
+    call(fn state, _from -> {:reply, :ok, %{state | final: block, window: window}} end)
+  end
+
   @spec peak_block() :: Chain.Block.t()
   def peak_block() do
     call(fn state, _from -> {:reply, state.peak, state} end)
@@ -155,12 +164,8 @@ defmodule Chain do
 
   @spec block(number()) :: Chain.Block.t() | nil
   def block(n) do
-    if n > peak() do
-      nil
-    else
-      [{^n, block}] = :ets.lookup(__MODULE__, n)
-      block
-    end
+    [{^n, block}] = :ets.lookup(__MODULE__, n)
+    block
   end
 
   @spec block_by_hash(any()) :: Chain.Block.t() | nil
@@ -186,6 +191,10 @@ defmodule Chain do
 
   # returns all blocks from the given hash
   @spec blocks(any()) :: Enumerable.t()
+  def blocks(%Chain.Block{} = block) do
+    blocks(Block.hash(block))
+  end
+
   def blocks(hash) do
     Stream.unfold(hash, fn hash ->
       case block_by_hash(hash) do
@@ -199,7 +208,71 @@ defmodule Chain do
   defp load_blocks() do
     chain = %Chain{} = load_file(Diode.dataDir(@cache), &genesis_state/0)
     seed_ets(chain)
-    %{chain | by_hash: nil}
+    chain = %{chain | by_hash: nil}
+
+    if Map.get(chain, :final, nil) == nil do
+      Map.put(chain, :final, nil)
+      |> Map.put(:window, %{})
+    else
+      chain
+    end
+    |> update_blockquick(chain.peak)
+  end
+
+  defp is_final_tree?(%Chain{final: nil}, _block) do
+    # We don't have any final yet during bootstrap so let's pass all blocks
+    true
+  end
+
+  defp is_final_tree?(chain = %Chain{final: final}, block) do
+    cond do
+      Block.hash(final) == Block.hash(block) -> true
+      Block.number(final) >= Block.number(block) -> false
+      true -> is_final_tree?(chain, Block.parent(block))
+    end
+  end
+
+  defp update_blockquick(chain = %Chain{final: nil, peak: peak}, block) do
+    if Block.number(peak) > @window_size do
+      final = block(@window_size)
+      window = generate_blockquick_window(final)
+      update_blockquick(%{chain | final: final, window: window}, block)
+    else
+      chain
+    end
+  end
+
+  defp update_blockquick(chain = %Chain{final: final, window: window}, new_block) do
+    scores = %{}
+    threshold = div(@window_size, 2)
+
+    ret =
+      blocks(new_block)
+      |> Enum.take(Block.number(new_block) - Block.number(final))
+      |> Enum.reduce_while(scores, fn block, scores ->
+        if Map.values(scores) |> Enum.sum() > threshold do
+          {:halt, block}
+        else
+          miner = Block.coinbase(block)
+          {:cont, Map.put(scores, miner, Map.get(window, miner, 0))}
+        end
+      end)
+
+    case ret do
+      new_final = %Chain.Block{} ->
+        %{chain | final: new_final, window: generate_blockquick_window(new_final)}
+
+      _too_low_scores ->
+        chain
+    end
+  end
+
+  def generate_blockquick_window(final_block) do
+    blocks(final_block)
+    |> Enum.take(@window_size)
+    |> Enum.reduce(%{}, fn block, scores ->
+      Map.update(scores, Block.coinbase(block), 1, fn i -> i + 1 end)
+    end)
   end
 
   # Seeds the ets table from a map
@@ -234,92 +307,113 @@ defmodule Chain do
     block_hash = Block.hash(block)
     true = Block.has_state?(block)
 
-    if block_by_hash(block_hash) != nil do
-      IO.puts("Chain.add_block: Skipping existing block (2)")
-      :added
-    else
-      if Block.number(block) < 1 do
+    cond do
+      block_by_hash(block_hash) != nil ->
+        IO.puts("Chain.add_block: Skipping existing block (2)")
+        :added
+
+      Block.number(block) < 1 ->
         IO.puts("Chain.add_block: Rejected invalid genesis block")
         :rejected
-      else
+
+      false == :ets.insert_new(__MODULE__, {block_hash, block}) ->
+        IO.puts("Chain.add_block: Skipping existing block (3)")
+        :stored
+
+      true ->
         parent_hash = Block.parent_hash(block)
-        do_add_block(block, parent_hash, block_hash, relay)
-      end
+
+        # Ensure the block state is on disk
+        block = Chain.Block.store(block)
+
+        GenServer.call(__MODULE__, {:add_block, block, parent_hash, block_hash, relay})
     end
   end
 
-  defp do_add_block(block, parent_hash, block_hash, relay) do
+  def handle_call({:add_block, block, parent_hash, block_hash, relay}, _from, state) do
+    peak = state.peak
+    totalDiff = Block.totalDifficulty(peak) + Block.difficulty(peak) * blockchainDelta()
+    peak_hash = Block.hash(peak)
+
+    author = Wallet.words(Block.miner(block))
+
     prefix =
       block_hash
       |> binary_part(0, 5)
       |> Base16.encode(false)
 
-    # Ensure the block state is on disk
-    block = Chain.Block.store(block)
+    info = "chain ##{Block.number(block)}[#{prefix}] @#{author}"
 
-    call(fn state, _from ->
-      if block_by_hash(block_hash) != nil do
-        IO.puts("Chain.add_block: Skipping existing block (3)")
-        {:reply, :added, state}
-      else
-        peak = state.peak
-        totalDiff = Block.totalDifficulty(peak) + Block.difficulty(peak) * blockchainDelta()
-        peak_hash = Block.hash(peak)
-        author = Wallet.words(Block.miner(block))
-        info = "chain ##{Block.number(block)}[#{prefix}] @#{author}"
+    cond do
+      not is_final_tree?(state, block) ->
+        IO.puts("Chain.add_block: Skipped    alt #{info}")
+        {:reply, :stored, state}
 
-        if peak_hash == parent_hash or Block.totalDifficulty(block) > totalDiff do
-          # Update the state
-          state = %{state | peak: block}
-          insert_ets(block)
+      peak_hash != parent_hash and Block.totalDifficulty(block) <= totalDiff ->
+        IO.puts("Chain.add_block: Extended   alt #{info}")
+        state = update_blockquick(state, block)
+        {:reply, :stored, state}
 
-          if peak_hash == parent_hash do
-            IO.puts("Chain.add_block: Extending main #{info}")
-            Store.set_block_transactions(block)
-          else
-            IO.puts("Chain.add_block: Replacing main #{info}")
-            Store.clear_transactions()
+      true ->
+        state = update_blockquick(state, block)
+        # Update the state
+        state = %{state | peak: block}
+        insert_ets(block)
 
-            Enum.each(blocks(block_hash), fn block ->
-              insert_ets(block)
-
-              {:atomic, :ok} =
-                :mnesia.transaction(fn ->
-                  Store.set_block_transactions(block)
-                end)
-            end)
-          end
-
-          # Printing some debug output per transaction
-          if Diode.dev_mode?() do
-            print_transactions(block)
-          end
-
-          # Schedule a job to store the current state
-          send(Chain.Saver, :store)
-          # Remove all transactions that have been processed in this block
-          # from the outstanding local transaction pool
-          Chain.Pool.remove_transactions(block)
-
-          # Let the ticketstore know the new block
-          PubSub.publish(:rpc, {:rpc, :block, block})
-
-          Debounce.immediate(TicketStore, fn ->
-            TicketStore.newblock(block)
-          end)
-
-          if relay do
-            Kademlia.publish(block)
-          end
-
-          {:reply, :added, state}
+        if peak_hash == parent_hash do
+          IO.puts("Chain.add_block: Extending main #{info}")
+          Store.set_block_transactions(block)
         else
-          IO.puts("Chain.add_block: Extending  alt #{info}")
-          :ets.insert(__MODULE__, {block_hash, block})
-          {:reply, :stored, state}
+          IO.puts("Chain.add_block: Replacing main #{info}")
+
+          # When the blockchain was shorted delete cache > new block
+          if Block.number(peak) > Block.number(block) do
+            for num <- (Block.number(block) + 1)..Block.number(peak) do
+              :ets.delete(__MODULE__, num)
+            end
+          end
+
+          # Rewrite transactions and block numbers <= new block
+          Store.clear_transactions()
+
+          Enum.each(blocks(block_hash), fn block ->
+            insert_ets(block)
+
+            {:atomic, :ok} =
+              :mnesia.transaction(fn ->
+                Store.set_block_transactions(block)
+              end)
+          end)
         end
-      end
-    end)
+
+        # Printing some debug output per transaction
+        if Diode.dev_mode?() do
+          print_transactions(block)
+        end
+
+        # Schedule a job to store the current state
+        send(Chain.Saver, :store)
+        # Remove all transactions that have been processed in this block
+        # from the outstanding local transaction pool
+        Chain.Pool.remove_transactions(block)
+
+        # Let the ticketstore know the new block
+        PubSub.publish(:rpc, {:rpc, :block, block})
+
+        Debounce.immediate(TicketStore, fn ->
+          TicketStore.newblock(block)
+        end)
+
+        if relay do
+          Kademlia.publish(block)
+        end
+
+        {:reply, :added, state}
+    end
+  end
+
+  def handle_call({:call, fun}, from, state) when is_function(fun) do
+    fun.(state, from)
   end
 
   def print_transactions(block) do
