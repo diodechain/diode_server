@@ -574,9 +574,10 @@ defmodule Network.Rpc do
         get_block(Base16.decode_int(ref))
 
       num when is_integer(num) ->
-        case Chain.block(num) do
-          %Chain.Block{} = block -> block
-          nil -> throw(:notfound)
+        if num > Chain.peak() do
+          throw(:notfound)
+        else
+          Chain.block(num)
         end
     end
   end

@@ -61,7 +61,7 @@ defmodule Chain.Worker do
   def mode(), do: GenServer.call(__MODULE__, :mode)
 
   def handle_cast({:set_mode, mode}, state) do
-    {:noreply, %{state | mode: mode}}
+    {:noreply, %{state | mode: mode, proposal: nil}}
   end
 
   def handle_cast(:update, state) do
