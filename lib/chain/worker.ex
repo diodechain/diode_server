@@ -51,8 +51,8 @@ defmodule Chain.Worker do
 
   @spec update() :: :ok
   def update() do
-    Debounce.immediate(__MODULE__, fn ->
-      GenServer.cast(__MODULE__, :update)
+    Debounce.immediate(Chain.Worker, fn ->
+      GenServer.cast(Chain.Worker, :update)
     end)
   end
 
