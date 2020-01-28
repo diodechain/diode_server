@@ -63,16 +63,14 @@ defmodule Debounce do
   end
 
   def handle_cast({:immediate, key, fun, timeout}, state) do
-    calltime = time() + timeout
-
-    case :ets.lookup(__MODULE__, calltime) do
-      [] ->
+    case Map.get(state, key) do
+      nil ->
         execute(fun)
+        calltime = time() + timeout
         :ets.insert(__MODULE__, {calltime, [key]})
         {:noreply, Map.put(state, key, {calltime, nil})}
 
-      [{_, keys}] ->
-        :ets.insert(__MODULE__, {calltime, [key | keys]})
+      {calltime, _fun} ->
         {:noreply, Map.put(state, key, {calltime, fun})}
     end
   end

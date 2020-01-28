@@ -50,7 +50,12 @@ defmodule Chain.Worker do
   end
 
   @spec update() :: :ok
-  def update(), do: GenServer.cast(__MODULE__, :update)
+  def update() do
+    Debounce.immediate(__MODULE__, fn ->
+      GenServer.cast(__MODULE__, :update)
+    end)
+  end
+
   @spec set_mode(any()) :: :ok
   def set_mode(mode), do: GenServer.cast(__MODULE__, {:set_mode, mode})
   def mode(), do: GenServer.call(__MODULE__, :mode)
