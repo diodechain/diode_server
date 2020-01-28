@@ -73,7 +73,7 @@ defmodule Shell do
   end
 
   def get_balance(address) do
-    Chain.peakState()
+    Chain.peak_state()
     |> Chain.State.ensure_account(address)
     |> Chain.Account.balance()
   end
@@ -87,13 +87,13 @@ defmodule Shell do
   end
 
   def get_slot(address, slot) do
-    Chain.peakState()
+    Chain.peak_state()
     |> Chain.State.ensure_account(address)
     |> Chain.Account.storageValue(slot)
   end
 
   def get_code(address) do
-    Chain.peakState()
+    Chain.peak_state()
     |> Chain.State.ensure_account(address)
     |> Chain.Account.code()
   end

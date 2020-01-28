@@ -12,7 +12,7 @@ defmodule ChainTest do
 
   test "length" do
     peak = Chain.peak()
-    peak_block = Chain.peakBlock()
+    peak_block = Chain.peak_block()
     other = Chain.block(peak)
     assert peak_block == other
 
@@ -20,7 +20,7 @@ defmodule ChainTest do
 
     assert peak + 1 == Chain.peak()
     peak = Chain.peak()
-    peak_block = Chain.peakBlock()
+    peak_block = Chain.peak_block()
     other = Chain.block(peak)
     assert peak_block == other
   end

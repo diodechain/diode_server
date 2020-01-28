@@ -206,7 +206,7 @@ defmodule EvmTest do
   test "Peters transactions" do
     # These were producing an error like this:
     # Network.Rpc: ErlangError in <<"eth_sendRawTransaction">>: [{'Elixir.PreCompiles',ecrecover,[run,<<>>],[{file,"lib/precompiles.ex"},{line,14}]},{'Elixir.Evm',eval_internal_precompile,2,[{file,"lib/evm.ex"},{line,322}]},{'Elixir.Evm',eval,1,[{file,"lib/evm.ex"},{line,268}]},{'Elixir.Chain.Transaction',do_apply,6,[{file,"lib/chain/transaction.ex"},{line,200}]},{'Elixir.Network.Rpc',execute_std,2,[{file,"lib/network/rpc.ex"},{line,110}]},{'Elixir.Network.Rpc',execute,2,[{file,"lib/network/rpc.ex"},{line,64}]},{'Elixir.Network.Rpc',handle_jsonrpc,2,[{file,"lib/network/rpc.ex"},{line,38}]},{'Elixir.Network.RpcHttp','-do_match/4-fun-3-',2,[{file,"lib/network/rpc_http.ex"},{line,37}]}]
-    block = Chain.peakBlock()
+    block = Chain.peak_block()
     state = Chain.Block.state(block)
 
     from_peter()

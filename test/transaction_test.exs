@@ -10,7 +10,7 @@ defmodule TransactionTest do
   test "recoding" do
     [from, to] = Diode.wallets() |> Enum.reverse() |> Enum.take(2)
 
-    before = Chain.peakState()
+    before = Chain.peak_state()
     nonce = State.ensure_account(before, from) |> Account.nonce()
     to = Wallet.address!(to)
 

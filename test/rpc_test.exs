@@ -29,7 +29,7 @@ defmodule RpcTest do
   test "transaction ordering" do
     [from, to] = Diode.wallets() |> Enum.reverse() |> Enum.take(2)
 
-    before = Chain.peakState()
+    before = Chain.peak_state()
 
     from_acc = State.ensure_account(before, from)
     to_acc = State.ensure_account(before, to)
@@ -61,7 +61,7 @@ defmodule RpcTest do
     Worker.work()
 
     # Checking values now after transfer
-    result = Chain.peakState()
+    result = Chain.peak_state()
     from_acc2 = State.ensure_account(result, from)
     to_acc2 = State.ensure_account(result, to)
 

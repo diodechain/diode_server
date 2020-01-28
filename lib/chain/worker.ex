@@ -66,7 +66,7 @@ defmodule Chain.Worker do
   defp do_update(state) do
     state2 = %{
       state
-      | parent_hash: Block.hash(Chain.peakBlock()),
+      | parent_hash: Block.hash(Chain.peak_block()),
         proposal: Chain.Pool.proposal()
     }
 
@@ -137,7 +137,7 @@ defmodule Chain.Worker do
   end
 
   defp generate_candidate(state = %{parent_hash: nil}) do
-    parent_hash = Block.hash(Chain.peakBlock())
+    parent_hash = Block.hash(Chain.peak_block())
     generate_candidate(%{state | parent_hash: parent_hash})
   end
 

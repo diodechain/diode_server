@@ -166,7 +166,6 @@ defmodule Store do
     :mnesia.clear_table(:transactions)
   end
 
-  @spec set_block_transactions(Chain.Block.t()) :: :ok
   def set_block_transactions(block = %Chain.Block{}) do
     for tx <- block.transactions do
       set_transaction(tx, Block.hash(block))

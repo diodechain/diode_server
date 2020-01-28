@@ -128,11 +128,11 @@ defmodule Chain do
 
   @spec peak() :: integer()
   def peak() do
-    Block.number(peakBlock())
+    Block.number(peak_block())
   end
 
   def epoch() do
-    Block.epoch(peakBlock())
+    Block.epoch(peak_block())
   end
 
   def epoch_length() do
@@ -143,14 +143,14 @@ defmodule Chain do
     end
   end
 
-  @spec peakBlock() :: Chain.Block.t()
-  def peakBlock() do
+  @spec peak_block() :: Chain.Block.t()
+  def peak_block() do
     call(fn state, _from -> {:reply, state.peak, state} end)
   end
 
-  @spec peakState() :: Chain.State.t()
-  def peakState() do
-    Block.state(peakBlock())
+  @spec peak_state() :: Chain.State.t()
+  def peak_state() do
+    Block.state(peak_block())
   end
 
   @spec block(number()) :: Chain.Block.t() | nil
@@ -181,7 +181,7 @@ defmodule Chain do
   # returns all blocks from the current peak
   @spec blocks() :: Enumerable.t()
   def blocks() do
-    blocks(Block.hash(peakBlock()))
+    blocks(Block.hash(peak_block()))
   end
 
   # returns all blocks from the given hash
@@ -304,8 +304,8 @@ defmodule Chain do
           # Let the ticketstore know the new block
           PubSub.publish(:rpc, {:rpc, :block, block})
 
-          spawn(fn ->
-            TicketStore.newblock()
+          Debounce.immediate(TicketStore, fn ->
+            TicketStore.newblock(block)
           end)
 
           if relay do

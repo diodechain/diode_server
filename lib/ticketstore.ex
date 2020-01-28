@@ -22,8 +22,7 @@ defmodule TicketStore do
   end
 
   # Should be called on each new block
-  def newblock() do
-    peak = Chain.peakBlock()
+  def newblock(peak) do
     epoch = Block.epoch(peak)
     last = Block.parent(peak)
 

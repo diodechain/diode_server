@@ -126,7 +126,7 @@ defmodule Network.PeerHandler do
     else
       GenServer.cast(
         self(),
-        {:rpc, [Network.PeerHandler.publish(), filter_block(Chain.peakBlock())]}
+        {:rpc, [Network.PeerHandler.publish(), filter_block(Chain.peak_block())]}
       )
 
       if Map.has_key?(state, :peer_port) do
