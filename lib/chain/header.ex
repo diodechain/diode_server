@@ -72,4 +72,8 @@ defmodule Chain.Header do
         |> Wallet.from_pubkey()
     end
   end
+
+  def flat(header) do
+    %{header | state_hash: state_hash(header)}
+  end
 end

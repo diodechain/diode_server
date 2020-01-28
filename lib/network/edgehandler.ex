@@ -200,10 +200,10 @@ defmodule Network.EdgeHandler do
         send!(state, ["response", "getblock", Chain.block(index)])
 
       ["getblockheader", index] when is_integer(index) ->
-        send!(state, ["response", "getblockheader", Chain.block(index).header])
+        send!(state, ["response", "getblockheader", block_header(index)])
 
       ["getblockheader2", index] when is_integer(index) ->
-        header = Chain.block(index).header
+        header = block_header(index)
         pubkey = Chain.Header.recover_miner(header) |> Wallet.pubkey!()
         send!(state, ["response", "getblockheader2", header, pubkey])
 
@@ -213,9 +213,9 @@ defmodule Network.EdgeHandler do
         answ =
           get_blockquick_seq(last_block, window_size)
           |> Enum.map(fn num ->
-            block = Chain.block(num)
-            miner = Chain.Block.miner(block) |> Wallet.pubkey!()
-            {block.header, miner}
+            header = block_header(num)
+            miner = Chain.Header.recover_miner(header) |> Wallet.pubkey!()
+            {header, miner}
           end)
 
         send!(state, ["response", "getblockquick", answ])
@@ -426,7 +426,12 @@ defmodule Network.EdgeHandler do
       end
     else
       log(state, "Received invalid ticket!")
-      send!(state, ["error", "ticket", "signature mismatch"])
+      :io.format("Ticket: ~p~n", [dl])
+      # send!(state, ["error", "ticket", "signature mismatch"])
+      bytes = 40000
+
+      %{state | unpaid_bytes: state.unpaid_bytes - bytes, last_ticket: Time.utc_now()}
+      |> send!(["response", "ticket", "thanks!", bytes])
     end
   end
 
@@ -711,5 +716,10 @@ defmodule Network.EdgeHandler do
     #       {:cont, {counts, score, heads}}
     #     end
     #   end)
+  end
+
+  defp block_header(n) do
+    Chain.block(n).header
+    |> Chain.Header.flat()
   end
 end
