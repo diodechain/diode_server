@@ -36,22 +36,35 @@ defmodule DebounceTest do
     Debounce.apply(:test_one, fn -> incr(7) end, @timeout)
     Debounce.apply(:test_one, fn -> incr(11) end, @timeout)
     Process.sleep(@timeout + @pause)
+    # Last should be executed
     assert get() == 11
   end
 
   test "delay debounced" do
-    Debounce.apply(:test_one, fn -> incr(1) end, @timeout)
-    Debounce.apply(:test_one, fn -> incr(3) end, @timeout)
-    Debounce.apply(:test_one, fn -> incr(5) end, @timeout)
-    Debounce.apply(:test_one, fn -> incr(7) end, @timeout)
-    Debounce.apply(:test_one, fn -> incr(11) end, @timeout)
+    Debounce.delay(:test_two, fn -> incr(1) end, @timeout)
+    Debounce.delay(:test_two, fn -> incr(3) end, @timeout)
+    Debounce.delay(:test_two, fn -> incr(5) end, @timeout)
+    Debounce.delay(:test_two, fn -> incr(7) end, @timeout)
+    Debounce.delay(:test_two, fn -> incr(11) end, @timeout)
     Process.sleep(@timeout + @pause)
+    # Last should be executed
     assert get() == 11
+  end
+
+  test "immediate debounced" do
+    Debounce.immediate(:test_three, fn -> incr(1) end, @timeout)
+    Debounce.immediate(:test_three, fn -> incr(3) end, @timeout)
+    Debounce.immediate(:test_three, fn -> incr(5) end, @timeout)
+    Debounce.immediate(:test_three, fn -> incr(7) end, @timeout)
+    Debounce.immediate(:test_three, fn -> incr(11) end, @timeout)
+    Process.sleep(@timeout + @pause)
+    # First and last should be executed
+    assert get() == 12
   end
 
   test "apply twice" do
     for _ <- 1..10 do
-      Debounce.apply(:test_one, fn -> incr(3) end, @timeout)
+      Debounce.apply(:test_one_b, fn -> incr(3) end, @timeout)
       # 100
       Process.sleep(100)
     end
@@ -62,12 +75,23 @@ defmodule DebounceTest do
 
   test "delay twice" do
     for _ <- 1..10 do
-      Debounce.delay(:test_one, fn -> incr(3) end, @timeout)
+      Debounce.delay(:test_two_b, fn -> incr(3) end, @timeout)
       # 100
       Process.sleep(100)
     end
 
     Process.sleep(@pause)
     assert get() == 3
+  end
+
+  test "immediate twice" do
+    for _ <- 1..12 do
+      Debounce.immediate(:test_three_b, fn -> incr(3) end, @timeout)
+      # 100
+      Process.sleep(100)
+    end
+
+    Process.sleep(@pause)
+    assert get() == 12
   end
 end
