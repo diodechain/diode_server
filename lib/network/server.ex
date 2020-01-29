@@ -223,9 +223,8 @@ defmodule Network.Server do
       reuseaddr: true,
       key: {:ECPrivateKey, Secp256k1.der_encode_private(private, public)},
       show_econnreset: true,
-      buffer: 1024 * 300,
-      sndbuf: 1024 * 300,
-      recbuf: 1024 * 300
+      nodelay: false,
+      delay_send: true
     ]
   end
 end

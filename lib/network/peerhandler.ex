@@ -349,7 +349,7 @@ defmodule Network.PeerHandler do
       block
       | coinbase: nil,
         receipts: [],
-        header: %{block.header | state_hash: Chain.Block.state_hash(block)}
+        header: Chain.Header.flat(block.header)
     }
   end
 

@@ -118,23 +118,11 @@ defmodule Network.EdgeHandler do
         last_ticket: nil
       })
 
+    log(state, "accepted connection")
     Process.send_after(self(), :must_have_ticket, 20_000)
     {:noreply, state}
   end
 
-  # Special override to serve using testnet.diode.io certificate instead of miner key
-  def ssl_options(%{pki: %{keyfile: keyfile, certfile: certfile}}) do
-    [
-      mode: :binary,
-      packet: 2,
-      active: false,
-      reuseaddr: true
-    ]
-    |> Keyword.put(:keyfile, keyfile)
-    |> Keyword.put(:certfile, certfile)
-  end
-
-  # Default path, so miner key self signed certificate will be used
   def ssl_options(extra) do
     Network.Server.default_ssl_options(extra)
   end
@@ -162,7 +150,7 @@ defmodule Network.EdgeHandler do
             end)
 
           # If compression has been enabled then on the next frame
-          send!(state, ["response", "hello", "ok"])
+          state = send!(state, ["response", "hello", "ok"])
           %{state | compression: state1.compression, extra_flags: state1.extra_flags}
         end
 
@@ -426,12 +414,7 @@ defmodule Network.EdgeHandler do
       end
     else
       log(state, "Received invalid ticket!")
-      :io.format("Ticket: ~p~n", [dl])
-      # send!(state, ["error", "ticket", "signature mismatch"])
-      bytes = 40000
-
-      %{state | unpaid_bytes: state.unpaid_bytes - bytes, last_ticket: Time.utc_now()}
-      |> send!(["response", "ticket", "thanks!", bytes])
+      send!(state, ["error", "ticket", "signature mismatch"])
     end
   end
 

@@ -85,9 +85,10 @@ defmodule TicketStore do
             {:ok, max(0, Ticket.total_bytes(tck) - Ticket.total_bytes(last))}
           else
             if Ticket.device_address(tck) != Ticket.device_address(last) do
-              :io.format("TicketStore.too_low_bug!!~n")
-              :io.format("Tck: ~180p~nLast: ~180p~nKey: ~180p~n", [tck, last, key])
-              {:ok, 40000}
+              :io.format("Ticked Signed on Fork Chain~n")
+              :io.format("Last: ~180p~nKey: ~180p~n", [last, key])
+              write(tck)
+              {:ok, Ticket.total_bytes(tck)}
             else
               {:too_low, last}
             end
