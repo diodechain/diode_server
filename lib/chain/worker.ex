@@ -12,7 +12,8 @@ defmodule Chain.Worker do
             candidate: nil,
             target: 0,
             mode: 75,
-            time: nil
+            time: nil,
+            working: false
 
   @type t :: %Chain.Worker{
           creds: Wallet.t(),
@@ -20,7 +21,9 @@ defmodule Chain.Worker do
           parent_hash: binary(),
           candidate: Chain.Block.t(),
           target: non_neg_integer(),
-          mode: non_neg_integer() | :poll | :disabled
+          mode: non_neg_integer() | :poll | :disabled,
+          time: integer(),
+          working: bool()
         }
 
   def candidate() do
@@ -45,8 +48,7 @@ defmodule Chain.Worker do
     state = %Chain.Worker{creds: Store.wallet(), mode: mode}
     :erlang.process_flag(:priority, :low)
     {:ok, _ref} = :timer.send_interval(100, :sleep)
-    activate_timer(state)
-    {:ok, state}
+    {:ok, activate_timer(state)}
   end
 
   @spec update() :: :ok
@@ -132,6 +134,7 @@ defmodule Chain.Worker do
       end)
 
     hash = Block.hash(block) |> Hash.integer()
+    state = %{state | working: false}
 
     if hash < target and Chain.add_block(block) == :added do
       do_update(state)
@@ -199,20 +202,21 @@ defmodule Chain.Worker do
     state
   end
 
-  defp activate_timer(state) do
-    case state.mode do
-      :poll ->
-        if state.proposal != [] and state.proposal != nil do
-          send(self(), :work)
-        end
-
-      :disabled ->
-        :ok
-
-      _ ->
-        send(self(), :work)
-    end
-
+  defp activate_timer(state = %{working: true}) do
     state
+  end
+
+  defp activate_timer(state) do
+    cond do
+      state.mode == :poll and (state.proposal == [] or state.proposal == nil) ->
+        state
+
+      state.mode == :disabled ->
+        state
+
+      true ->
+        send(self(), :work)
+        %{state | working: true}
+    end
   end
 end
