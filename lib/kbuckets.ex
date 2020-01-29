@@ -10,6 +10,10 @@ defmodule KBuckets do
 
   defmodule Item do
     defstruct node_id: nil, last_seen: nil, object: nil, retries: 0
+
+    def disabled?(item, now \\ System.os_time(:second)) do
+      item.last_seen > now
+    end
   end
 
   defimpl String.Chars, for: Item do
@@ -174,13 +178,13 @@ defmodule KBuckets do
   end
 
   defp do_nearest_n({:leaf, _prefix, bucket}, _key, _n) do
-    now = :os.timestamp()
+    now = System.os_time(:second)
 
     # Filtering items that had a connection failure through
     # Kademlia.cast. 'last_seen' in the future means "should
     # not be used again before"
     Map.values(bucket)
-    |> Enum.reject(fn item -> item.last_seen > now end)
+    |> Enum.reject(fn item -> KBuckets.Item.disabled?(item, now) end)
   end
 
   defp do_nearest_n({:node, prefix, zero, one}, key, n) do

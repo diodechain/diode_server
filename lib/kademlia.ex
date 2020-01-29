@@ -194,7 +194,7 @@ defmodule Kademlia do
         %KBuckets.Item{
           node_id: node_id,
           object: server,
-          last_seen: :os.system_time()
+          last_seen: System.os_time(:second)
         }
       )
 
@@ -218,7 +218,7 @@ defmodule Kademlia do
   end
 
   defp do_failed_node(item, network) do
-    now = :os.system_time()
+    now = System.os_time(:second)
 
     case item.retries do
       0 ->
@@ -232,7 +232,7 @@ defmodule Kademlia do
         KBuckets.delete_item(network, item)
 
       failures ->
-        if item.last_seen < now do
+        if KBuckets.Item.disabled?(item, now) do
           factor = min(failures, 5)
           next = now + round(:math.pow(5, factor))
           KBuckets.update_item(network, %{item | retries: failures + 1, last_seen: next})
