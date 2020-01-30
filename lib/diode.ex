@@ -128,6 +128,7 @@ defmodule Diode do
         rpc_api(:https,
           keyfile: "priv/privkey.pem",
           certfile: "priv/cert.pem",
+          cacertfile: "priv/fullchain.pem",
           port: rpcsPort(),
           otp_app: Diode
         )
