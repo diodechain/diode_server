@@ -5,6 +5,7 @@ defmodule Chain.Pool do
   alias Chain.Transaction
   use GenServer
   defstruct transactions: %{}
+  @type t :: %Chain.Pool{}
 
   @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
   def start_link(_opts) do

@@ -14,6 +14,8 @@ defmodule Chain.Transaction do
             init: nil,
             data: nil
 
+  @type t :: %Chain.Transaction{}
+
   def nonce(%Chain.Transaction{nonce: nonce}), do: nonce
   def data(%Chain.Transaction{data: nil}), do: ""
   def data(%Chain.Transaction{data: data}), do: data

@@ -21,6 +21,8 @@ defmodule Evm do
             msg: :evmc_success,
             create_address: 0
 
+  @type t :: %Evm{}
+
   defmodule State do
     defstruct chain_state: nil,
               static: false,
@@ -36,6 +38,8 @@ defmodule Evm do
               number: 0,
               internal: false,
               selfdestructs: []
+
+    @type t :: %Evm.State{}
 
     @spec store(Evm.State.t()) :: MerkleTree.merkle()
     def store(%State{chain_state: st} = state) do

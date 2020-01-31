@@ -3,6 +3,7 @@
 /db
 /deps
 /*.ez
+/doc
 
 *.pem
 *.o

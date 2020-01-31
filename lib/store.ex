@@ -26,6 +26,7 @@ defmodule Store do
 
     KademliaStore.init()
     TicketStore.init()
+
     # Chain.blocks(1000)
     # KBuckets.init()
 

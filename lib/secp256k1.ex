@@ -153,6 +153,7 @@ defmodule Secp256k1 do
 
     # Garbage currently
     rec = 27
+
     # https://github.com/bitcoin/bitcoin/blob/master/src/key.cpp:252
     # vchSig[0] = 27 + rec + (fCompressed ? 4 : 0);
 

@@ -24,6 +24,7 @@ defmodule Diode.Mixfile do
 
   defp deps do
     [
+      {:ex_doc, "~> 0.21.2"},
       {:plug_cowboy, "~> 1.0.0"},
       {:plug, "~> 1.0"},
       {:poison, "~> 3.0"},

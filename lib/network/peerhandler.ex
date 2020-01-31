@@ -91,6 +91,7 @@ defmodule Network.PeerHandler do
 
   def handle_info({:ssl, _sock, omsg}, state) do
     msg = decode(omsg)
+
     # log(state, format("Received ~p bytes on ~p: ~180p", [byte_size(omsg), _sock, msg]))
 
     case handle_msg(msg, state) do

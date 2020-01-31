@@ -6,6 +6,7 @@ defmodule Chain.State do
 
   @enforce_keys [:store]
   defstruct store: nil
+  @type t :: %Chain.State{store: MnesiaMerkleTree.merkle() | nil}
 
   def init() do
     Store.create_table!(:state_accounts, [:hash, :account])
