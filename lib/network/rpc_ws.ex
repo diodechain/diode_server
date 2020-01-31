@@ -62,7 +62,7 @@ defmodule Network.RpcWs do
   end
 
   defp subscribe(what) do
-    id = Base16.encode(:erlang.phash2(make_ref()), false)
+    id = Base16.encode(Random.uint63h(), false)
     Process.put({:subs, id}, what)
 
     # Netowrk.Rpc.result() format
