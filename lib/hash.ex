@@ -7,6 +7,18 @@ defmodule Hash do
     :binary.decode_unsigned(hash)
   end
 
+  def to_bytes32(hash = <<_::256>>) do
+    hash
+  end
+
+  def to_bytes32(hash = <<_::160>>) do
+    <<0::96, hash::binary-size(20)>>
+  end
+
+  def to_bytes32(hash) when is_integer(hash) do
+    <<hash::unsigned-big-size(256)>>
+  end
+
   def to_address(hash = <<_::160>>) do
     hash
   end

@@ -93,6 +93,6 @@ defmodule RegistryTest do
 
     raw = Ticket.raw(tck)
     tx = Registry.submitTicketRawTx(raw)
-    {{:evmc_revert, "Unregistered device"}, _} = Shell.call_tx(tx, "latest")
+    {"", _gas_cost} = Shell.call_tx(tx, "latest")
   end
 end

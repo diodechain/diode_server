@@ -36,18 +36,15 @@ defmodule Object.Ticket do
   def device_address(tck = ticket()) do
     Secp256k1.recover!(
       device_signature(tck),
-      device_blob(tck)
+      device_blob(tck),
+      :kec
     )
     |> Wallet.from_pubkey()
     |> Wallet.address!()
   end
 
-  # def ticket_id(tck = ticket()) do
-  #   {device_address(tck), fleet_contract(tck),
-  # end
-
   def device_sign(tck = ticket(), private) do
-    ticket(tck, device_signature: Secp256k1.sign(private, device_blob(tck)))
+    ticket(tck, device_signature: Secp256k1.sign(private, device_blob(tck), :kec))
   end
 
   def device_verify(tck = ticket(), id) do
@@ -70,7 +67,7 @@ defmodule Object.Ticket do
       server_id(tck),
       total_connections(tck),
       total_bytes(tck),
-      local_address(tck),
+      Hash.sha3_256(local_address(tck)),
       r,
       s,
       rec
@@ -78,14 +75,24 @@ defmodule Object.Ticket do
   end
 
   def device_blob(tck = ticket()) do
-    BertExt.encode!([
-      server_id(tck),
+    # From DiodeRegistry.sol:
+    #   bytes32[] memory message = new bytes32[](6);
+    #   message[0] = blockhash(blockHeight);
+    #   message[1] = bytes32(fleetContract);
+    #   message[2] = bytes32(nodeAddress);
+    #   message[3] = bytes32(totalConnections);
+    #   message[4] = bytes32(totalBytes);
+    #   message[5] = localAddress;
+    [
       block_hash(tck),
       fleet_contract(tck),
+      server_id(tck),
       total_connections(tck),
       total_bytes(tck),
-      local_address(tck)
-    ])
+      Hash.sha3_256(local_address(tck))
+    ]
+    |> Enum.map(&ABI.encode("bytes32", &1))
+    |> :erlang.iolist_to_binary()
   end
 
   def server_blob(tck = ticket()) do
