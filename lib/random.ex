@@ -18,6 +18,7 @@ defmodule Random do
 
   def uint8h(), do: random(16, 255)
   def uint16h(), do: random(255, 65535)
+  def uint31h(), do: random(65535, 2_147_483_647)
   def uint32h(), do: random(65535, 4_294_967_295)
   def uint63h(), do: random(4_294_967_295, 9_223_372_036_854_775_807)
   def uint64h(), do: random(4_294_967_295, 18_446_744_073_709_551_615)

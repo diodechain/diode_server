@@ -462,7 +462,7 @@ defmodule Network.EdgeHandler do
 
   defp do_portopen(state, portname, flags, pid) do
     mon = Process.monitor(pid)
-    ref = Random.uint63h()
+    ref = Random.uint31h()
     spid = self()
 
     #  Receives an open request from another local connected edge worker.
