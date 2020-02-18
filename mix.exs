@@ -27,6 +27,7 @@ defmodule Diode.Mixfile do
       {:ex_doc, "~> 0.21.2"},
       {:plug_cowboy, "~> 1.0.0"},
       {:plug, "~> 1.0"},
+      {:profiler, "~> 0.1.0"},
       {:poison, "~> 3.0"},
       {:libsecp256k1, "~> 0.1.10"},
       {:keccakf1600, "~> 2.0", hex: :keccakf1600_orig},
