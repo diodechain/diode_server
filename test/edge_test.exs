@@ -41,8 +41,8 @@ defmodule EdgeTest do
     # Test that clients are connected to this node
     {:ok, peer_1} = call(:client_1, :peerid)
     {:ok, peer_2} = call(:client_2, :peerid)
-    assert Wallet.equal?(Store.wallet(), peer_1)
-    assert Wallet.equal?(Store.wallet(), peer_2)
+    assert Wallet.equal?(Diode.miner(), peer_1)
+    assert Wallet.equal?(Diode.miner(), peer_2)
 
     # Test that clients connected match the test file identities
     [id1, id2] = Map.keys(conns)
@@ -99,7 +99,7 @@ defmodule EdgeTest do
 
     tck =
       ticket(
-        server_id: Wallet.address!(Store.wallet()),
+        server_id: Wallet.address!(Diode.miner()),
         total_connections: 1,
         total_bytes: 0,
         local_address: "spam",
@@ -154,7 +154,7 @@ defmodule EdgeTest do
     assert Ticket.device_blob(tck) == Ticket.device_blob(loc2)
 
     assert Secp256k1.verify(
-             Store.wallet(),
+             Diode.miner(),
              Ticket.server_blob(loc2),
              Ticket.server_signature(loc2),
              :kec
@@ -163,8 +163,8 @@ defmodule EdgeTest do
     public = Secp256k1.recover!(Ticket.server_signature(loc2), Ticket.server_blob(loc2), :kec)
     id = Wallet.from_pubkey(public) |> Wallet.address!()
 
-    assert Wallet.address!(Store.wallet()) == Wallet.address!(Wallet.from_pubkey(public))
-    assert id == Wallet.address!(Store.wallet())
+    assert Wallet.address!(Diode.miner()) == Wallet.address!(Wallet.from_pubkey(public))
+    assert id == Wallet.address!(Diode.miner())
 
     obj = Diode.self()
     assert(Object.key(obj) == id)
@@ -177,14 +177,11 @@ defmodule EdgeTest do
     assert(Object.key(node) == id)
 
     # Testing ticket integrity
-    # For live testing: test = :mnesia.dirty_all_keys(:tickets) |> Enum.map(fn(k) -> :mnesia.dirty_read(:tickets, k) end) |> Enum.map(fn([{:tickets, {dev, fleet, epoch}, epoch2, tck}]) -> {Object.Ticket.device_address(tck) == dev} end)
-    :mnesia.dirty_all_keys(:tickets)
-    |> Enum.map(&:mnesia.dirty_read(:tickets, &1))
-    |> Enum.each(fn [{:tickets, {dev, fleet, epoch}, epoch2, tck}] ->
+    Model.TicketSql.tickets_raw()
+    |> Enum.each(fn {dev, fleet, epoch, tck} ->
       assert Object.Ticket.device_address(tck) == dev
       assert Object.Ticket.epoch(tck) == epoch
       assert Object.Ticket.fleet_contract(tck) == fleet
-      assert epoch == epoch2
     end)
 
     # Testing disconnect
@@ -520,7 +517,7 @@ defmodule EdgeTest do
 
     tck =
       ticket(
-        server_id: Wallet.address!(Store.wallet()),
+        server_id: Wallet.address!(Diode.miner()),
         total_connections: state.conns,
         total_bytes: paid_bytes + @ticket_grace * count,
         local_address: "spam",

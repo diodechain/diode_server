@@ -22,13 +22,13 @@ defmodule TestHelper do
   end
 
   def wait(n) do
-    case Chain.block(n) do
-      %Chain.Block{} ->
+    case Chain.peak() >= n do
+      true ->
         :ok
 
-      _other ->
+      false ->
         :io.format("Waiting for block ~p/~p~n", [n, Chain.peak()])
-        Process.sleep(100)
+        Process.sleep(1000)
         wait(n)
     end
   end
@@ -94,16 +94,15 @@ defmodule TestHelper do
   end
 
   def wait_clones(target_count, seconds) do
-    {ret, _} = System.cmd("pgrep", ["-fc", @cookie])
-    {count, _} = Integer.parse(ret)
-
-    if count == target_count do
-      :ok
-    else
-      :io.format("Waiting for clones... got ~p so far~n", [count])
-      Process.sleep(1000)
-      wait_clones(target_count, seconds - 1)
-    end
+    wait_for(
+      fn ->
+        {ret, _} = System.cmd("pgrep", ["-fc", @cookie])
+        {count, _} = Integer.parse(ret)
+        count == target_count
+      end,
+      "clones",
+      seconds
+    )
   end
 
   def kill_clones() do
@@ -126,7 +125,7 @@ defmodule TestHelper do
 
       false ->
         IO.puts("Waiting for #{comment} t-#{timeout}")
-        Process.sleep(100)
+        Process.sleep(1000)
         wait_for(fun, comment, timeout - 1)
     end
   end

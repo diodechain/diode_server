@@ -33,7 +33,8 @@ defmodule Diode.Mixfile do
       {:keccakf1600, "~> 2.0", hex: :keccakf1600_orig},
       {:elixir_make, "~> 0.4", runtime: false},
       {:benchee, "~> 1.0", only: :benchmark},
-      {:debouncer, "~> 0.1"}
+      {:debouncer, "~> 0.1"},
+      {:sqlitex, github: "diodechain/sqlitex"}
     ]
   end
 end

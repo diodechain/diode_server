@@ -21,7 +21,7 @@ defmodule RegistryTest do
   test "future ticket" do
     tck =
       ticket(
-        server_id: Wallet.address!(Store.wallet()),
+        server_id: Wallet.address!(Diode.miner()),
         total_connections: 1,
         total_bytes: 0,
         local_address: "spam",
@@ -41,7 +41,7 @@ defmodule RegistryTest do
   test "zero ticket" do
     tck =
       ticket(
-        server_id: Wallet.address!(Store.wallet()),
+        server_id: Wallet.address!(Diode.miner()),
         total_connections: 1,
         total_bytes: 0,
         local_address: "spam",
@@ -58,7 +58,7 @@ defmodule RegistryTest do
   test "unregistered device" do
     tck =
       ticket(
-        server_id: Wallet.address!(Store.wallet()),
+        server_id: Wallet.address!(Diode.miner()),
         total_connections: 1,
         total_bytes: 0,
         local_address: "spam",
@@ -82,7 +82,7 @@ defmodule RegistryTest do
 
     tck =
       ticket(
-        server_id: Wallet.address!(Store.wallet()),
+        server_id: Wallet.address!(Diode.miner()),
         total_connections: 1,
         total_bytes: 0,
         local_address: "spam",

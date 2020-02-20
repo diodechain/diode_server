@@ -2,7 +2,6 @@
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
 defmodule HeapMerkleTree do
-  # Key / Value Store
   @type key_type :: binary() | integer()
   @type value_type :: term()
 

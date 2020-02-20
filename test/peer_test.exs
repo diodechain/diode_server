@@ -31,9 +31,10 @@ defmodule PeerTest do
     assert 0 == :binary.decode_unsigned(rpc(1, "eth_blockNumber"))
 
     # Building test blocks for syncing
+    size = 40
     assert Chain.peak() == 1
-    for _ <- 1..10, do: Chain.Worker.work()
-    assert Chain.peak() == 11
+    for _ <- 1..size, do: Chain.Worker.work()
+    assert Chain.peak() == size + 1
 
     # Creating peer connection
     pid = Server.ensure_node_connection(PeerHandler, Wallet.new(), "localhost", peerPort(1))

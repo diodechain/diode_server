@@ -215,7 +215,7 @@ defmodule Network.EdgeHandler do
         send!(state, ["response", "getblockquick2", answ])
 
       ["getstateroots", index] ->
-        merkel = Chain.state(index).store
+        merkel = Chain.State.tree(Chain.state(index))
         send!(state, ["response", "getstateroots", MerkleTree.root_hashes(merkel)])
 
       ["getaccount", index, id] ->
@@ -226,7 +226,9 @@ defmodule Network.EdgeHandler do
             send!(state, ["error", "getaccount", "account does not exist"])
 
           account = %Chain.Account{} ->
-            proof = MerkleTree.get_proofs(mstate.store, id)
+            proof =
+              Chain.State.tree(mstate)
+              |> MerkleTree.get_proofs(id)
 
             send!(state, [
               "response",
@@ -234,7 +236,7 @@ defmodule Network.EdgeHandler do
               %{
                 nonce: account.nonce,
                 balance: account.balance,
-                storage_root: MerkleTree.root_hash(Chain.Account.root(account)),
+                storage_root: Chain.Account.root_hash(account),
                 code: Chain.Account.codehash(account)
               },
               proof
@@ -374,7 +376,7 @@ defmodule Network.EdgeHandler do
        ) do
     dl =
       ticket(
-        server_id: Wallet.address!(Store.wallet()),
+        server_id: Wallet.address!(Diode.miner()),
         fleet_contract: fleet_contract,
         total_connections: total_connections,
         total_bytes: total_bytes,
@@ -384,7 +386,7 @@ defmodule Network.EdgeHandler do
       )
 
     if Ticket.device_verify(dl, device_id(state)) do
-      dl = Ticket.server_sign(dl, Wallet.privkey!(Store.wallet()))
+      dl = Ticket.server_sign(dl, Wallet.privkey!(Diode.miner()))
 
       case TicketStore.add(dl) do
         {:ok, bytes} ->
@@ -463,6 +465,7 @@ defmodule Network.EdgeHandler do
   defp do_portopen(state, portname, flags, pid) do
     mon = Process.monitor(pid)
     ref = Random.uint31h()
+    :io.format("REF ~p~n", [ref])
     spid = self()
 
     #  Receives an open request from another local connected edge worker.
@@ -703,6 +706,6 @@ defmodule Network.EdgeHandler do
 
   defp block_header(n) do
     Chain.block(n).header
-    |> Chain.Header.flat()
+    |> Chain.Header.strip_state()
   end
 end

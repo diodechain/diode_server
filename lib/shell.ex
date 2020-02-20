@@ -22,7 +22,7 @@ defmodule Shell do
   """
   def call(address, name, types \\ [], values \\ [], opts \\ [])
       when is_list(types) and is_list(values) do
-    call_from(Store.wallet(), address, name, types, values, opts)
+    call_from(Diode.miner(), address, name, types, values, opts)
   end
 
   def call_from(wallet, address, name, types \\ [], values \\ [], opts \\ [])
@@ -96,6 +96,12 @@ defmodule Shell do
     Chain.peak_state()
     |> Chain.State.ensure_account(address)
     |> Chain.Account.code()
+  end
+
+  def profile_import() do
+    Model.Stats.toggle_print()
+    :observer.start()
+    spawn(fn -> Chain.import_blocks("blocks.dat") end)
   end
 
   def ether(x), do: 1000 * finney(x)

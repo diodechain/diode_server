@@ -1,19 +1,21 @@
 # Diode Server
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
-defmodule MnesiaMerkleTreeTest do
+defmodule MapMerkleTreeTest do
   use ExUnit.Case
-  alias MnesiaMerkleTree, as: MerkleTree
+
+  defp new() do
+    MapMerkleTree.new()
+  end
 
   test "initialize" do
-    MerkleTree.init()
-    tree = MerkleTree.new()
+    tree = new()
     assert MerkleTree.size(tree) == 0
     assert MerkleTree.bucket_count(tree) == 1
   end
 
   test "inserts" do
-    tree = MerkleTree.new()
+    tree = new()
 
     size = 16
 
@@ -56,7 +58,7 @@ defmodule MnesiaMerkleTreeTest do
     }
 
     tree =
-      Enum.reduce(data, MerkleTree.new(), fn {key, value}, tree ->
+      Enum.reduce(data, new(), fn {key, value}, tree ->
         value = :binary.decode_unsigned(value)
         value = <<value::unsigned-size(256)>>
         key = :binary.decode_unsigned(key)
@@ -71,7 +73,7 @@ defmodule MnesiaMerkleTreeTest do
 
   test "no duplicate" do
     tree =
-      MerkleTree.new()
+      new()
       |> MerkleTree.insert_item({"a", 1})
       |> MerkleTree.insert_item({"a", 2})
 
@@ -80,7 +82,7 @@ defmodule MnesiaMerkleTreeTest do
 
   test "proof" do
     size = 20
-    tree0 = MerkleTree.new()
+    tree0 = new()
 
     tree20 =
       Enum.reduce(pairs(size), tree0, fn item, acc ->
@@ -119,7 +121,7 @@ defmodule MnesiaMerkleTreeTest do
 
   test "equality" do
     size = 20
-    tree = MerkleTree.new()
+    tree = new()
 
     tree20 =
       Enum.reduce(pairs(size), tree, fn item, acc ->
@@ -139,7 +141,7 @@ defmodule MnesiaMerkleTreeTest do
     size = 20
     sizeh = div(size, 2)
 
-    tree0 = MerkleTree.new()
+    tree0 = new()
 
     tree20 =
       Enum.reduce(pairs(size), tree0, fn item, acc ->

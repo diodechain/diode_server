@@ -17,7 +17,6 @@ defmodule Chain.GenesisFactory do
     Enum.reduce(accounts, Chain.State.new(), fn {address, user_account}, state ->
       Chain.State.set_account(state, address, user_account)
     end)
-    |> Chain.State.store()
   end
 
   # Normalizes bignum and binary addresses -> binary
@@ -131,7 +130,7 @@ defmodule Chain.GenesisFactory do
       header: %Chain.Header{
         number: -1,
         block_hash: Chain.pre_genesis_hash(),
-        state_hash: Chain.State.hash(state)
+        state_hash: state
       },
       coinbase: miner
     }
@@ -150,7 +149,6 @@ defmodule Chain.GenesisFactory do
       |> Chain.Header.update_hash()
 
     %{block | header: header}
-    |> Chain.Block.store()
   end
 
   defp ether(x) do

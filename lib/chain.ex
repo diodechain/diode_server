@@ -4,6 +4,7 @@
 defmodule Chain do
   alias Chain.BlockCache, as: Block
   alias Chain.Transaction
+  alias Model.ChainSql
   use GenServer
   defstruct window: %{}, final: nil, peak: nil, by_hash: %{}, states: %{}
 
@@ -16,7 +17,6 @@ defmodule Chain do
         }
 
   @window_size 100
-  @cache "chain.db"
   @pregenesis "0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z"
 
   @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
@@ -26,25 +26,16 @@ defmodule Chain do
 
   @spec init(any()) :: {:ok, Chain.t()}
   def init(_) do
-    __MODULE__ = :ets.new(__MODULE__, [:named_table, :compressed, :public])
+    ProcessLru.new(:blocks, 10)
+    __MODULE__ = :ets.new(__MODULE__, [:named_table, :public, {:read_concurrency, true}])
     state = load_blocks()
-    spawn_link(&saver_loop/0) |> Process.register(Chain.Saver)
+
+    Diode.puts("====== Chain    ======")
+    Diode.puts("Peak  Block: #{Block.printable(state.peak)}")
+    Diode.puts("Final Block: #{Block.printable(state.final)}")
+    Diode.puts("")
 
     {:ok, state}
-  end
-
-  @spec saver_loop :: no_return
-  def saver_loop() do
-    :erlang.garbage_collect()
-    Process.send_after(self(), :tick, 5000)
-    store = saver_loop_wait(false)
-
-    if store and not Diode.syncing?() do
-      store_file(Diode.dataDir(@cache), state(), true)
-      Chain.BlockCache.save()
-    end
-
-    saver_loop()
   end
 
   def pre_genesis_hash() do
@@ -55,16 +46,6 @@ defmodule Chain do
     Block.hash(block(0))
   end
 
-  defp saver_loop_wait(store) do
-    receive do
-      :store ->
-        saver_loop_wait(true)
-
-      :tick ->
-        store
-    end
-  end
-
   def sync() do
     call(fn state, _from -> {:reply, :ok, state} end)
   end
@@ -72,11 +53,10 @@ defmodule Chain do
   @doc "Function for unit tests, replaces the current state"
   def set_state(state) do
     call(fn _state, _from ->
-      seed_ets(state)
+      seed(state)
       {:reply, :ok, %{state | by_hash: nil}}
     end)
 
-    Store.seed_transactions(state.by_hash |> Map.values())
     Chain.Worker.update()
     :ok
   end
@@ -148,8 +128,13 @@ defmodule Chain do
   end
 
   def set_final_block(%Chain.Block{} = block) do
+    call(fn state, _from -> {:reply, :ok, set_final_block(state, block)} end)
+  end
+
+  defp set_final_block(state, %Chain.Block{} = block) do
     window = generate_blockquick_window(block)
-    call(fn state, _from -> {:reply, :ok, %{state | final: block, window: window}} end)
+    ChainSql.set_final(block)
+    %{state | final: block, window: window}
   end
 
   @spec peak_block() :: Chain.Block.t()
@@ -164,8 +149,7 @@ defmodule Chain do
 
   @spec block(number()) :: Chain.Block.t() | nil
   def block(n) do
-    [{^n, block}] = :ets.lookup(__MODULE__, n)
-    block
+    ets_lookup_idx(n)
   end
 
   @spec block_by_hash(any()) :: Chain.Block.t() | nil
@@ -174,13 +158,27 @@ defmodule Chain do
   end
 
   def block_by_hash(hash) do
-    case :ets.lookup(__MODULE__, hash) do
-      [] ->
-        nil
+    Model.Stats.tc(:block_by_hash, fn ->
+      do_block_by_hash(hash)
+    end)
+  end
 
-      [{^hash, block}] ->
-        block
-    end
+  defp do_block_by_hash(hash) do
+    ProcessLru.fetch(:blocks, hash, fn ->
+      ets_lookup(hash, fn ->
+        Model.Stats.tc(:sql_block_by_hash, fn ->
+          ChainSql.block_by_hash(hash)
+        end)
+      end)
+    end)
+  end
+
+  def block_by_txhash(txhash) do
+    ChainSql.block_by_txhash(txhash)
+  end
+
+  def transaction(txhash) do
+    ChainSql.transaction(txhash)
   end
 
   # returns all blocks from the current peak
@@ -206,17 +204,37 @@ defmodule Chain do
 
   @spec load_blocks() :: Chain.t()
   defp load_blocks() do
-    chain = %Chain{} = load_file(Diode.dataDir(@cache), &genesis_state/0)
-    seed_ets(chain)
-    chain = %{chain | by_hash: nil}
+    chain =
+      case ChainSql.peak_block() do
+        nil ->
+          genesis_state() |> seed()
 
-    if Map.get(chain, :final, nil) == nil do
-      Map.put(chain, :final, nil)
-      |> Map.put(:window, %{})
-    else
-      chain
+        block ->
+          ets_prefetch()
+          %Chain{peak: block, final: ChainSql.final_block(), by_hash: nil}
+      end
+
+    case Map.get(chain, :final) do
+      nil ->
+        Map.put(chain, :final, nil)
+        |> Map.put(:window, %{})
+
+      final ->
+        %{chain | window: generate_blockquick_window(final)}
     end
     |> update_blockquick(chain.peak)
+  end
+
+  defp seed(state) do
+    ChainSql.truncate_blocks()
+
+    Map.values(state.by_hash)
+    |> Enum.each(fn block ->
+      ChainSql.put_block(block)
+    end)
+
+    ets_prefetch()
+    state
   end
 
   defp is_final_tree?(%Chain{final: nil}, _block) do
@@ -232,11 +250,19 @@ defmodule Chain do
     end
   end
 
+  def update_blockquick() do
+    call(fn chain, _from ->
+      {:reply, :ok, update_blockquick(chain, chain.peak)}
+    end)
+
+    final_block()
+    |> Block.number()
+  end
+
   defp update_blockquick(chain = %Chain{final: nil, peak: peak}, block) do
     if Block.number(peak) > @window_size do
       final = block(@window_size)
-      window = generate_blockquick_window(final)
-      update_blockquick(%{chain | final: final, window: window}, block)
+      update_blockquick(set_final_block(chain, final), block)
     else
       chain
     end
@@ -260,7 +286,7 @@ defmodule Chain do
 
     case ret do
       new_final = %Chain.Block{} ->
-        %{chain | final: new_final, window: generate_blockquick_window(new_final)}
+        set_final_block(chain, new_final)
 
       _too_low_scores ->
         chain
@@ -275,23 +301,8 @@ defmodule Chain do
     end)
   end
 
-  # Seeds the ets table from a map
-  defp seed_ets(state) do
-    :ets.delete_all_objects(__MODULE__)
-
-    Map.values(state.by_hash)
-    |> Enum.each(&insert_ets/1)
-  end
-
-  defp insert_ets(block) do
-    :ets.insert(__MODULE__, {Block.hash(block), block})
-    :ets.insert(__MODULE__, {Block.number(block), block})
-  end
-
   defp genesis_state() do
     {gen, parent} = genesis()
-    Store.set_block_transactions(gen)
-    Store.set_block_transactions(parent)
     hash = Block.hash(gen)
     phash = Block.hash(parent)
 
@@ -316,83 +327,57 @@ defmodule Chain do
         IO.puts("Chain.add_block: Rejected invalid genesis block")
         :rejected
 
-      false == :ets.insert_new(__MODULE__, {block_hash, block}) ->
-        IO.puts("Chain.add_block: Skipping existing block (3)")
-        :stored
-
       true ->
         parent_hash = Block.parent_hash(block)
 
-        # Ensure the block state is on disk
-        block = Chain.Block.store(block)
-
-        GenServer.call(__MODULE__, {:add_block, block, parent_hash, block_hash, relay})
+        GenServer.call(__MODULE__, {:add_block, block, parent_hash, relay})
     end
   end
 
-  def handle_call({:add_block, block, parent_hash, block_hash, relay}, _from, state) do
+  def handle_call({:add_block, block, parent_hash, relay}, _from, state) do
     peak = state.peak
     totalDiff = Block.totalDifficulty(peak) + Block.difficulty(peak) * blockchainDelta()
     peak_hash = Block.hash(peak)
-
-    author = Wallet.words(Block.miner(block))
-
-    prefix =
-      block_hash
-      |> binary_part(0, 5)
-      |> Base16.encode(false)
-
-    info = "chain ##{Block.number(block)}[#{prefix}] @#{author}"
+    info = Block.printable(block)
 
     cond do
       not is_final_tree?(state, block) ->
+        ChainSql.put_new_block(block)
+        ets_add(block)
         IO.puts("Chain.add_block: Skipped    alt #{info}")
         {:reply, :stored, state}
 
       peak_hash != parent_hash and Block.totalDifficulty(block) <= totalDiff ->
+        ChainSql.put_new_block(block)
+        ets_add(block)
         IO.puts("Chain.add_block: Extended   alt #{info}")
         state = update_blockquick(state, block)
         {:reply, :stored, state}
 
       true ->
-        state = update_blockquick(state, block)
         # Update the state
-        state = %{state | peak: block}
-        insert_ets(block)
-
         if peak_hash == parent_hash do
           IO.puts("Chain.add_block: Extending main #{info}")
-          Store.set_block_transactions(block)
+
+          Model.Stats.incr(:block)
+          ChainSql.put_block(block)
+          ets_add(block)
         else
           IO.puts("Chain.add_block: Replacing main #{info}")
 
-          # When the blockchain was shorted delete cache > new block
-          if Block.number(peak) > Block.number(block) do
-            for num <- (Block.number(block) + 1)..Block.number(peak) do
-              :ets.delete(__MODULE__, num)
-            end
-          end
-
-          # Rewrite transactions and block numbers <= new block
-          Store.clear_transactions()
-
-          Enum.each(blocks(block_hash), fn block ->
-            insert_ets(block)
-
-            {:atomic, :ok} =
-              :mnesia.transaction(fn ->
-                Store.set_block_transactions(block)
-              end)
-          end)
+          # Recursively makes a new branch normative
+          ChainSql.put_peak(block)
+          ets_prefetch()
         end
+
+        state = update_blockquick(state, block)
+        state = %{state | peak: block}
 
         # Printing some debug output per transaction
         if Diode.dev_mode?() do
           print_transactions(block)
         end
 
-        # Schedule a job to store the current state
-        send(Chain.Saver, :store)
         # Remove all transactions that have been processed in this block
         # from the outstanding local transaction pool
         Chain.Pool.remove_transactions(block)
@@ -433,31 +418,49 @@ defmodule Chain do
   end
 
   def import_blocks([first | blocks]) do
+    ProcessLru.new(:blocks, 10)
+
     case Block.validate(first) do
       %Chain.Block{} = block ->
         Chain.add_block(block, false)
 
         # replay block backup list
-        Enum.each(blocks, fn oldblock ->
-          with %Chain.Block{} <- Block.parent(oldblock),
-               block_hash <- Block.hash(oldblock) do
-            if Chain.block_by_hash(block_hash) != nil do
-              :skip
-            else
-              case Block.validate(oldblock) do
-                %Chain.Block{} = block ->
-                  throttle_sync(true)
-                  Chain.add_block(block, false)
+        Enum.reduce(blocks, block, fn nextblock, lastblock ->
+          if lastblock != nil do
+            ProcessLru.put(:blocks, Block.hash(lastblock), lastblock)
+          end
 
-                _ ->
-                  :ok
-              end
+          with %Chain.Block{} <- Block.parent(nextblock),
+               block_hash <- Block.hash(nextblock) do
+            case Chain.block_by_hash(block_hash) do
+              %Chain.Block{} = existing ->
+                existing
+
+              nil ->
+                ret =
+                  Model.Stats.tc(:validate_time, fn ->
+                    Block.validate(nextblock)
+                  end)
+
+                case ret do
+                  %Chain.Block{} = block ->
+                    throttle_sync(true)
+
+                    Model.Stats.tc(:addblock_time, fn ->
+                      Chain.add_block(block, false)
+                    end)
+
+                    block
+
+                  _ ->
+                    nil
+                end
             end
           else
             nonblock ->
               :io.format("Chain.import_blocks: Expected parent but got ~p for ~p~n", [
                 nonblock,
-                oldblock
+                nextblock
               ])
 
               throw(:sync_bug)
@@ -467,7 +470,8 @@ defmodule Chain do
         finish_sync()
         true
 
-      _nonblock ->
+      nonblock ->
+        :io.format("Chain.import_blocks: Failed with ~p~n", [nonblock])
         false
     end
   end
@@ -569,26 +573,65 @@ defmodule Chain do
     {Chain.GenesisFactory.testnet(), Chain.GenesisFactory.testnet_parent()}
   end
 
-  @doc """
-    reseed is a debugging function
-  """
-  def reseed() do
-    Enum.each(blocks(), fn block ->
-      n = Block.number(block)
+  #######################
+  # ETS CACHE FUNCTIONS
+  #######################
+  @ets_size 1000
+  defp ets_prefetch() do
+    :ets.delete_all_objects(__MODULE__)
+    for block <- ChainSql.all_blocks(), do: ets_add(block)
+  end
 
-      case :ets.lookup(__MODULE__, n) do
-        [] ->
-          :io.format("reseeding ~p ~p~n", [n, Block.hash(block)])
-          insert_ets(block)
+  defp ets_add(block) do
+    # block = Block.strip_state(block)
+    :ets.insert(__MODULE__, {Block.hash(block), block})
+    :ets.insert(__MODULE__, {Block.number(block), Block.hash(block)})
+    ets_remove_idx(Block.number(block) - @ets_size)
+  end
 
-        [{^n, ^block}] ->
-          :ok
+  defp ets_remove_idx(idx) when idx <= 0 do
+    :ok
+  end
 
-        [{^n, other}] ->
-          :io.format("reseeding wrong ~p ~p != ~p~n", [n, Block.hash(block), Block.hash(other)])
-          # :io.format("~180p~n~180p~n", [block, other])
-          insert_ets(block)
+  defp ets_remove_idx(idx) do
+    case do_ets_lookup(idx) do
+      [{^idx, block_hash}] ->
+        :ets.delete(__MODULE__, idx)
+        :ets.insert(__MODULE__, {block_hash, true})
+
+      _ ->
+        nil
+    end
+  end
+
+  defp ets_lookup_idx(idx) when is_integer(idx) do
+    case do_ets_lookup(idx) do
+      [] -> nil
+      [{^idx, block_hash}] -> block_by_hash(block_hash)
+    end
+  end
+
+  defp ets_lookup(hash, default) when is_binary(hash) do
+    case do_ets_lookup(hash) do
+      [] -> nil
+      [{^hash, true}] -> default.()
+      [{^hash, block}] -> block
+    end
+  end
+
+  defp do_ets_lookup(idx) do
+    {time, ret} = :timer.tc(fn -> :ets.lookup(__MODULE__, idx) end)
+
+    if time > 1000 do
+      # :io.format("Slow ets lookup ~p~n", [time])
+
+      if time > 10000 do
+        :io.format("Slow ets lookup ~p~n", [time])
+        # {:current_stacktrace, trace} = :erlang.process_info(self(), :current_stacktrace)
+        # :io.format("~p~n", [trace])
       end
-    end)
+    end
+
+    ret
   end
 end

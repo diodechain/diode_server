@@ -2,23 +2,17 @@
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
 defmodule TicketStore do
-  alias Object.Ticket, as: Ticket
+  alias Object.Ticket
   alias Chain.BlockCache, as: Block
+  alias Model.TicketSql
   import Ticket
 
-  @spec init() :: :ok
-  def init() do
-    Store.create_table!(:tickets, [:ticket_id, :epoch, :ticket])
-  end
-
   def clear() do
-    {:atomic, :ok} = :mnesia.clear_table(:tickets)
+    TicketSql.delete_all()
   end
 
   def tickets(epoch) do
-    :mnesia.dirty_select(:tickets, [
-      {{:tickets, :_, :"$2", :"$3"}, [{:==, :"$2", epoch}], [:"$3"]}
-    ])
+    TicketSql.tickets(epoch)
   end
 
   # Should be called on each new block
@@ -28,14 +22,7 @@ defmodule TicketStore do
 
     # Cleaning table
     if epoch != Block.epoch(last) do
-      {:atomic, _} =
-        :mnesia.transaction(fn ->
-          # Deleting all tickets for Epochs older than current - 1
-          :mnesia.select(:tickets, [
-            {{:tickets, :"$1", :"$2", :_}, [{:<, :"$2", epoch - 1}], [:"$1"]}
-          ])
-          |> Enum.map(fn key -> :mnesia.delete({:tickets, key}) end)
-        end)
+      TicketSql.delete_old(epoch - 1)
     end
 
     # Submitting traffic tickets not too late
@@ -51,12 +38,7 @@ defmodule TicketStore do
         |> Contract.Registry.submitTicketRawTx()
         |> Chain.Pool.add_transaction(true)
 
-        tickets
-        |> Enum.map(fn tck ->
-          :mnesia.delete(
-            {:tickets, id(Ticket.device_address(tck), Ticket.fleet_contract(tck), epoch - 1)}
-          )
-        end)
+        Enum.map(tickets, fn tck -> TicketSql.delete(tck) end)
       end
     end
   end
@@ -71,23 +53,23 @@ defmodule TicketStore do
     epoch = Chain.epoch()
 
     if epoch - 1 < tepoch do
-      key = id(Ticket.device_address(tck), Ticket.fleet_contract(tck), tepoch)
+      last = find(Ticket.device_address(tck), Ticket.fleet_contract(tck), tepoch)
 
-      case find(key) do
+      case last do
         nil ->
-          write(tck)
+          TicketSql.put_ticket(tck)
           {:ok, Ticket.total_bytes(tck)}
 
         last ->
           if Ticket.total_connections(last) < Ticket.total_connections(tck) or
                Ticket.total_bytes(last) < Ticket.total_bytes(tck) do
-            write(tck)
+            TicketSql.put_ticket(tck)
             {:ok, max(0, Ticket.total_bytes(tck) - Ticket.total_bytes(last))}
           else
             if Ticket.device_address(tck) != Ticket.device_address(last) do
               :io.format("Ticked Signed on Fork Chain~n")
-              :io.format("Last: ~180p~nKey: ~180p~n", [last, key])
-              write(tck)
+              :io.format("Last: ~180p~nTick: ~180p~n", [last, tck])
+              TicketSql.put_ticket(tck)
               {:ok, Ticket.total_bytes(tck)}
             else
               {:too_low, last}
@@ -99,37 +81,7 @@ defmodule TicketStore do
     end
   end
 
-  @spec find(<<_::160>>, <<_::160>>, integer) :: any
-  def find(device, fleet, epoch) do
-    find(id(device, fleet, epoch))
-  end
-
-  def id(tck) do
-    id(Ticket.device_address(tck), Ticket.fleet_contract(tck), Ticket.epoch(tck))
-  end
-
-  def id(device = <<_::160>>, fleet = <<__::160>>, epoch) when is_integer(epoch) do
-    {device, fleet, epoch}
-  end
-
-  defp find(key) do
-    {:atomic, value} =
-      :mnesia.transaction(fn ->
-        case :mnesia.read(:tickets, key) do
-          [] -> nil
-          [{_, ^key, _epoch, value}] -> value
-        end
-      end)
-
-    value
-  end
-
-  defp write(ticket) do
-    {:atomic, :ok} =
-      :mnesia.transaction(fn ->
-        :mnesia.write({:tickets, id(ticket), Ticket.epoch(ticket), ticket})
-      end)
-
-    :ok
+  def find(device = <<_::160>>, fleet = <<__::160>>, epoch) when is_integer(epoch) do
+    TicketSql.find(device, fleet, epoch)
   end
 end

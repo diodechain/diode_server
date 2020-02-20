@@ -41,11 +41,11 @@ defmodule Chain.Worker do
 
   @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
   def start_link(_mode) do
-    GenServer.start_link(__MODULE__, Diode.workerMode(), name: __MODULE__)
+    GenServer.start_link(__MODULE__, Diode.worker_mode(), name: __MODULE__)
   end
 
   def init(mode) do
-    state = %Chain.Worker{creds: Store.wallet(), mode: mode}
+    state = %Chain.Worker{creds: Diode.miner(), mode: mode}
     :erlang.process_flag(:priority, :low)
     {:ok, _ref} = :timer.send_interval(100, :sleep)
     {:ok, activate_timer(state)}

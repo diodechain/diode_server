@@ -136,11 +136,11 @@ defmodule Network.Rpc do
       "eth_getTransactionByHash" ->
         [txh] = params
         txh = Base16.decode(txh)
-        tx = Store.transaction(txh)
+        tx = Chain.transaction(txh)
 
         case tx do
           %Transaction{} ->
-            block = Chain.block_by_hash(Store.transaction_block(txh))
+            block = Chain.block_by_txhash(txh)
             result(transaction_result(tx, block))
 
           nil ->
@@ -280,13 +280,12 @@ defmodule Network.Rpc do
         [txh] = params
         txbin = Base16.decode(txh)
 
-        case Store.transaction_block(txbin) do
+        case Chain.block_by_txhash(txbin) do
           nil ->
             result(nil)
 
-          hash ->
-            block = Chain.block_by_hash(hash)
-            tx = Store.transaction(txbin)
+          block ->
+            tx = Chain.transaction(txbin)
 
             logs =
               Block.logs(block)
@@ -368,7 +367,7 @@ defmodule Network.Rpc do
         # reward =
 
         traces =
-          Block.simulate(block, false)
+          Block.simulate(block)
           |> Block.receipts()
 
         Enum.zip(txs, traces)
@@ -534,13 +533,13 @@ defmodule Network.Rpc do
           [] ->
             snapshot = Chain.state()
             file = :erlang.phash2(snapshot) |> Base16.encode(false)
-            path = Diode.dataDir(file)
+            path = Diode.data_dir(file)
             Chain.store_file(path, snapshot)
             result(file)
 
           [file] ->
-            if Enum.member?(File.ls!(Diode.dataDir()), file) do
-              Chain.load_file(Diode.dataDir(file))
+            if Enum.member?(File.ls!(Diode.data_dir()), file) do
+              Chain.load_file(Diode.data_dir(file))
               |> Chain.set_state()
 
               result("")
@@ -552,8 +551,8 @@ defmodule Network.Rpc do
       "evm_revert" ->
         case params do
           [file] ->
-            if Enum.member?(File.ls!(Diode.dataDir()), file) do
-              Chain.load_file(Diode.dataDir(file))
+            if Enum.member?(File.ls!(Diode.data_dir()), file) do
+              Chain.load_file(Diode.data_dir(file))
               |> Chain.set_state()
 
               result("")

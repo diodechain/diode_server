@@ -89,7 +89,7 @@ defmodule Network.Handler do
               server_port: nil
             }
 
-            if Wallet.equal?(remote_id, Store.wallet()) do
+            if Wallet.equal?(remote_id, Diode.miner()) do
               log(state, "Server: Rejecting self-connection~n")
               {:stop, :normal, state}
             else

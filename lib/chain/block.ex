@@ -2,7 +2,7 @@
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
 defmodule Chain.Block do
-  alias Chain.{Account, Block, BlockCache, State, Transaction, Header}
+  alias Chain.{Block, BlockCache, State, Transaction, Header}
 
   @enforce_keys [:coinbase]
   defstruct transactions: [], header: %Chain.Header{}, receipts: [], coinbase: nil
@@ -50,16 +50,11 @@ defmodule Chain.Block do
       # This is actually a full %Chain.State{} object when has_state?() == true
       block.header.state_hash
     else
-      Chain.State.restore(state_hash(block))
+      Model.ChainSql.state(hash(block))
     end
   end
 
-  def store(%Chain.Block{} = block) do
-    Chain.State.store(state(block))
-    %{block | header: %{block.header | state_hash: state_hash(block)}}
-  end
-
-  @spec valid?(any()) :: boolean()
+  @spec valid?(Chain.Block.t()) :: boolean()
   def valid?(block) do
     case validate(block) do
       %Chain.Block{} -> true
@@ -67,21 +62,35 @@ defmodule Chain.Block do
     end
   end
 
-  @spec validate(any()) :: %Chain.Block{} | {non_neg_integer(), any()}
+  defp test(test, fun) do
+    {test, fun.()}
+  end
+
+  defp tc(test, fun) do
+    Model.Stats.tc(test, fun)
+  end
+
+  @spec validate(Chain.Block.t()) :: Chain.Block.t() | {non_neg_integer(), any()}
   def validate(block) do
     # IO.puts("Block #{number(block)}.: #{length(transactions(block))}txs")
 
-    with {1, %Block{}} <- {1, block},
-         {2, pa = %Block{}} <- {2, parent(block)},
-         {3, true} <- {3, Block.number(block) == Block.number(pa) + 1},
-         {4, true} <- {4, hash_valid?(block)},
-         {5, []} <-
-           {5,
-            Enum.map(transactions(block), &Transaction.validate/1)
-            |> Enum.reject(fn tx -> tx == true end)},
-         {6, true} <- {6, Diode.hash(encode_transactions(transactions(block))) == txhash(block)},
-         {7, sim_block} <- {7, simulate(block)},
-         {8, true} <- {8, state_equal(sim_block, block)} do
+    with {_, %Block{}} <- {:is_block, block},
+         {_, pa = %Block{}} <-
+           test(:has_parent, fn -> parent(block) end),
+         {_, true} <-
+           test(:correct_number, fn -> Block.number(block) == Block.number(pa) + 1 end),
+         {_, true} <- test(:hash_valid, fn -> hash_valid?(block) end),
+         {_, []} <-
+           test(:tx_valid, fn ->
+             Enum.map(transactions(block), &Transaction.validate/1)
+             |> Enum.reject(fn tx -> tx == true end)
+           end),
+         {_, true} <-
+           test(:tx_hash_valid, fn ->
+             Diode.hash(encode_transactions(transactions(block))) == txhash(block)
+           end),
+         {_, sim_block} <- test(:simulate, fn -> simulate(block) end),
+         {_, true} <- test(:state_equal, fn -> state_equal(sim_block, block) end) do
       %{sim_block | header: %{block.header | state_hash: sim_block.header.state_hash}}
     else
       {nr, error} -> {nr, error}
@@ -90,59 +99,11 @@ defmodule Chain.Block do
 
   defp state_equal(sim_block, block) do
     if state_hash(sim_block) != state_hash(block) do
-      # this is for evm_test::replay to produce debug output
-      if Diode.dev_mode?() do
-        {:current_stacktrace, what} = :erlang.process_info(self(), :current_stacktrace)
-        :io.format("state_equal(sim_block, block) == false:~n~p~n", [what])
-
-        state = Chain.State.restore?(state_hash(block))
-
-        if state != nil do
-          IO.puts("Checking state...")
-          dup = MerkleTree.copy(state.store, HeapMerkleTree)
-
-          if MerkleTree.root_hash(dup) != MerkleTree.root_hash(state.store) do
-            IO.puts("Inconsistent")
-          else
-            IO.puts("State is consistent")
-          end
-
-          IO.puts("Checking accounts...")
-
-          Enum.each(Chain.State.accounts(state), fn {_addr, acc} ->
-            dup = MerkleTree.copy(Account.root(acc), HeapMerkleTree)
-
-            if MerkleTree.root_hash(dup) != MerkleTree.root_hash(Account.root(acc)) do
-              IO.puts("Inconsistent Account")
-              :io.format("==> ~p~n==> ~p~n", [dup, Account.root(acc)])
-            end
-          end)
-
-          :io.format("Coinbases ~p ~p~n", [coinbase(block), coinbase(sim_block)])
-
-          dupstate = Chain.Block.state(sim_block)
-
-          if dupstate != nil do
-            diff = Chain.State.difference(dupstate, state)
-            :io.format("Diff: ~180p~n", [diff])
-          end
-
-          send(Chain.Saver, :store)
-        end
-
-        err = %{
-          number: Block.number(block),
-          parent: Block.parent(block),
-          parent_hash: Block.parent_hash(block),
-          sim_state: state(sim_block),
-          block_state: state,
-          sim: sim_block,
-          block: block
-        }
-
-        File.write!("debug.block", BertInt.encode!(err))
-      end
-
+      # can inject code here to produce debug output
+      # state_a = Block.state(sim_block)
+      # state_b = Block.state(block)
+      # diff = Chain.State.difference(state_a, state_b)
+      # :io.format("State non equal:~p~n", [diff])
       false
     else
       true
@@ -163,12 +124,12 @@ defmodule Chain.Block do
 
   @spec hash_in_target?(Chain.Block.t(), binary) :: boolean
   def hash_in_target?(block, hash) do
-    Hash.integer(hash) < BlockCache.hash_target(block)
+    Hash.integer(hash) < hash_target(block)
   end
 
   @spec hash_target(Chain.Block.t()) :: integer
   def hash_target(block) do
-    blockRef = Block.parent(block)
+    blockRef = parent(block)
 
     # Calculating stake weight as
     # ( stake / 1000 )²  but no less than 1
@@ -186,7 +147,7 @@ defmodule Chain.Block do
         |> min(50)
       end
 
-    div(stake * stake * @max_difficulty, Block.difficulty(block))
+    div(stake * stake * @max_difficulty, difficulty(block))
   end
 
   @doc "Creates a new block and stores the generated state in cache file"
@@ -199,50 +160,56 @@ defmodule Chain.Block do
         ) ::
           Chain.Block.t()
   def create(%Block{} = parent, transactions, miner, time, trace? \\ false) do
-    header = %Header{
-      previous_block: hash(parent),
-      number: number(parent) + 1,
-      timestamp: time
-    }
-
-    block = %Block{
-      header: header,
-      coinbase: miner
-    }
-
-    t1 = Time.utc_now()
-
-    {nstate, transactions, receipts} =
-      Enum.reduce(transactions, {state(parent), [], []}, fn %Transaction{} = tx,
-                                                            {%State{} = state, txs, rcpts} ->
-        case Transaction.apply(tx, block, state, trace: trace?) do
-          {:ok, state, rcpt} ->
-            {state, txs ++ [tx], rcpts ++ [rcpt]}
-
-          {:error, message} ->
-            :io.format("Error in transaction: ~p (~p)~n", [message, Transaction.hash(tx)])
-            {state, txs, rcpts}
-        end
+    block =
+      tc(:create_block, fn ->
+        %Block{
+          header: %Header{
+            previous_block: hash(parent),
+            number: number(parent) + 1,
+            timestamp: time
+          },
+          coinbase: miner
+        }
       end)
 
-    t2 = Time.utc_now()
-    diff = Time.diff(t2, t1, :millisecond)
+    {diff, ret} =
+      :timer.tc(fn ->
+        Enum.reduce(transactions, {state(parent), [], []}, fn %Transaction{} = tx,
+                                                              {%State{} = state, txs, rcpts} ->
+          case Transaction.apply(tx, block, state, trace: trace?) do
+            {:ok, state, rcpt} ->
+              {state, txs ++ [tx], rcpts ++ [rcpt]}
 
-    if diff > 50 and header.previous_block != nil do
+            {:error, message} ->
+              :io.format("Error in transaction: ~p (~p)~n", [message, Transaction.hash(tx)])
+              {state, txs, rcpts}
+          end
+        end)
+      end)
+
+    Model.Stats.incr(:create_tx, diff)
+    {nstate, transactions, receipts} = ret
+
+    if diff > 50_000 and block.header.previous_block != nil do
       IO.puts(
-        "Slow block #{length(transactions)}txs: #{diff}ms parent:(#{
-          Base16.encode(header.previous_block)
+        "Slow block #{length(transactions)}txs: #{diff / 1000}ms parent:(#{
+          Base16.encode(block.header.previous_block)
         })"
       )
     end
 
-    header = %Header{
-      header
-      | state_hash: nstate,
-        transaction_hash: Diode.hash(encode_transactions(transactions))
-    }
+    header =
+      tc(:create_header, fn ->
+        %Header{
+          block.header
+          | state_hash: tc(:optimize, fn -> Chain.State.optimize(nstate) end),
+            transaction_hash: Diode.hash(encode_transactions(transactions))
+        }
+      end)
 
-    %Block{block | transactions: transactions, header: header, receipts: receipts}
+    tc(:create_body, fn ->
+      %Block{block | transactions: transactions, header: header, receipts: receipts}
+    end)
   end
 
   @spec encode_transactions(any()) :: binary()
@@ -250,16 +217,18 @@ defmodule Chain.Block do
     BertExt.encode!(Enum.map(transactions, &Transaction.to_rlp/1))
   end
 
-  @spec simulate(Chain.Block.t(), true | false) :: Chain.Block.t()
-  def simulate(%Block{} = block, trace? \\ false) do
-    parent =
-      if Block.number(block) >= 1 do
-        %Block{} = parent(block)
-      else
-        Chain.GenesisFactory.testnet_parent()
-      end
+  @spec simulate(Chain.Block.t()) :: Chain.Block.t()
+  def simulate(%Block{} = block) do
+    tc(:simulate, fn ->
+      parent =
+        if Block.number(block) >= 1 do
+          %Chain.Block{} = parent(block)
+        else
+          Chain.GenesisFactory.testnet_parent()
+        end
 
-    create(parent, transactions(block), miner(block), timestamp(block), trace?)
+      create(parent, transactions(block), miner(block), timestamp(block), false)
+    end)
   end
 
   @spec sign(Block.t(), Wallet.t()) :: Block.t()
@@ -290,12 +259,12 @@ defmodule Chain.Block do
   end
 
   defp do_difficulty(%Block{} = block) do
-    parent = BlockCache.parent(block)
+    parent = parent(block)
 
     if parent == nil do
       @min_difficulty
     else
-      delta = BlockCache.timestamp(block) - BlockCache.timestamp(parent)
+      delta = timestamp(block) - timestamp(parent)
       diff = BlockCache.difficulty(parent)
       step = div(diff, 10)
 
@@ -318,6 +287,8 @@ defmodule Chain.Block do
   def totalDifficulty(%Block{} = block) do
     parent = Block.parent(block)
 
+    # Explicit usage of Block and BlockCache cause otherwise cache filling
+    # becomes self-recursive problem
     if parent == nil do
       Block.difficulty(block)
     else
@@ -419,12 +390,27 @@ defmodule Chain.Block do
   """
   @spec export(Chain.Block.t()) :: Chain.Block.t()
   def export(block) do
-    %Chain.Block{
-      block
-      | coinbase: nil,
-        receipts: [],
-        header: Chain.Header.flat(block.header)
-    }
+    %{strip_state(block) | coinbase: nil, receipts: []}
+  end
+
+  @spec export(Chain.Block.t()) :: Chain.Block.t()
+  def strip_state(block) do
+    %{block | header: Chain.Header.strip_state(block.header)}
+  end
+
+  def printable(nil) do
+    "nil"
+  end
+
+  def printable(block) do
+    author = Wallet.words(Block.miner(block))
+
+    prefix =
+      Block.hash(block)
+      |> binary_part(0, 5)
+      |> Base16.encode(false)
+
+    "##{Block.number(block)}[#{prefix}] @#{author}"
   end
 
   #########################################################

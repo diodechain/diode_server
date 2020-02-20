@@ -5,6 +5,7 @@ defmodule Kademlia do
   use GenServer
   alias Network.PeerHandler, as: Client
   alias Object.Server, as: Server
+  alias Model.KademliaSql
   @replication_factor 3
 
   # 2^256
@@ -26,7 +27,7 @@ defmodule Kademlia do
   end
 
   # def store_device(device_id) do
-  #  store("client/" <> device_id, Store.identity())
+  #  store("client/" <> device_id, Model.CredSql.identity())
   #  # proof ?
   # end
 
@@ -82,8 +83,8 @@ defmodule Kademlia do
 
   def init(:ok) do
     kb =
-      Chain.load_file(Diode.dataDir("kademlia.etf"), fn ->
-        %Kademlia{network: KBuckets.new(Store.wallet())}
+      Chain.load_file(Diode.data_dir("kademlia.etf"), fn ->
+        %Kademlia{network: KBuckets.new(Diode.miner())}
       end)
 
     {:ok, kb, {:continue, :seed}}
@@ -91,7 +92,9 @@ defmodule Kademlia do
 
   @doc "Method used for testing"
   def reset() do
-    call(fn _from, _state -> {:reply, :ok, %Kademlia{network: KBuckets.new(Store.wallet())}} end)
+    call(fn _from, _state ->
+      {:reply, :ok, %Kademlia{network: KBuckets.new(Diode.miner())}}
+    end)
   end
 
   def append(key, value, store_self \\ false) do
@@ -172,7 +175,7 @@ defmodule Kademlia do
   end
 
   def handle_call({:append, key, value, _store_self}, _from, queue) do
-    KademliaStore.append!(key, value)
+    KademliaSql.append!(key, value)
     {:reply, :ok, queue}
   end
 
@@ -181,7 +184,7 @@ defmodule Kademlia do
   end
 
   def handle_info(:save, state) do
-    spawn(fn -> Chain.store_file(Diode.dataDir("kademlia.etf"), state) end)
+    spawn(fn -> Chain.store_file(Diode.data_dir("kademlia.etf"), state) end)
     Process.send_after(self(), :save, 60_000)
     {:noreply, state}
   end
@@ -337,13 +340,13 @@ defmodule Kademlia do
 
     case call do
       [^store_cmd, key, value] ->
-        KademliaStore.store(key, value)
+        KademliaSql.put_object(key, value)
 
       [^find_node_cmd, _key] ->
         []
 
       [^find_value_cmd, key] ->
-        case KademliaStore.find(key) do
+        case KademliaSql.object(key) do
           nil -> []
           value -> {:value, value}
         end

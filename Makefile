@@ -4,8 +4,7 @@
 SHELL := /bin/bash
 TESTS := $(wildcard test/*_test.exs)
 
-.PHONY: evm/evm
-evm/evm:
+evm/evm: $(wildcard evm/**)
 	$(MAKE) -j -C evm
 
 .PHONY: clean
@@ -15,10 +14,8 @@ clean:
 .PHONY: test $(TESTS)
 test:
 	-rm -rf data_test/
-	$(MAKE) _tests
+	$(MAKE) --no-print-directory $(TESTS)
 
-.PHONY: _tests
-_tests: $(TESTS)
-
+.PHONY: $(TESTS)
 $(TESTS):
 	mix test $@

@@ -5,6 +5,7 @@ defmodule Network.PeerHandler do
   use Network.Handler
   alias Chain.BlockCache, as: Block
   alias Object.Server, as: Server
+  alias Model.KademliaSql
 
   # @hello 0
   # @response 1
@@ -143,7 +144,7 @@ defmodule Network.PeerHandler do
     else
       GenServer.cast(
         self(),
-        {:rpc, [Network.PeerHandler.publish(), filter_block(Chain.peak_block())]}
+        {:rpc, [Network.PeerHandler.publish(), Block.export(Chain.peak_block())]}
       )
 
       if Map.has_key?(state, :peer_port) do
@@ -173,7 +174,7 @@ defmodule Network.PeerHandler do
 
   defp handle_msg([@find_value, id], state) do
     reply =
-      case KademliaStore.find(id) do
+      case KademliaSql.object(id) do
         nil ->
           nodes =
             Kademlia.find_node_lookup(id)
@@ -189,7 +190,7 @@ defmodule Network.PeerHandler do
   end
 
   defp handle_msg([@store, key, value], state) do
-    KademliaStore.store(key, value)
+    KademliaSql.put_object(key, value)
     {[@response, @store, "ok"], state}
   end
 
@@ -226,7 +227,7 @@ defmodule Network.PeerHandler do
   end
 
   defp handle_msg([@publish, %Chain.Block{} = block], state) do
-    block = filter_block(block)
+    block = Block.export(block)
 
     case Chain.block_by_hash(Chain.Block.hash(block)) do
       nil ->
@@ -243,7 +244,7 @@ defmodule Network.PeerHandler do
     # if there is a missing parent we're batching 65k blocks at once
     parents =
       Enum.reduce_while(Chain.blocks(parent_hash), [], fn block, blocks ->
-        next = [filter_block(block) | blocks]
+        next = [Block.export(block) | blocks]
 
         if byte_size(:erlang.term_to_binary(next)) > 260_000 do
           {:halt, next}
@@ -334,15 +335,6 @@ defmodule Network.PeerHandler do
       err = "sync failed"
       {:stop, {:validation_error, err}, state}
     end
-  end
-
-  defp filter_block(%Chain.Block{} = block) do
-    %Chain.Block{
-      block
-      | coinbase: nil,
-        receipts: [],
-        header: Chain.Header.flat(block.header)
-    }
   end
 
   defp respond(state, msg) do

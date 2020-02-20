@@ -202,7 +202,7 @@ defmodule Network.Server do
   end
 
   def default_ssl_options(_opts) do
-    w = Store.wallet()
+    w = Diode.miner()
     public = Wallet.pubkey_long!(w)
     private = Wallet.privkey!(w)
     cert = Secp256k1.selfsigned(private, public)

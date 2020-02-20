@@ -4,57 +4,50 @@
 defmodule Chain.State do
   alias Chain.Account
 
-  @enforce_keys [:store]
-  defstruct store: nil
-  @type t :: %Chain.State{store: MnesiaMerkleTree.merkle() | nil}
-
-  def init() do
-    Store.create_table!(:state_accounts, [:hash, :account])
-  end
+  # @enforce_keys [:store]
+  defstruct accounts: %{}, hash: nil
+  @type t :: %Chain.State{accounts: %{}, hash: nil}
 
   def new() do
-    %Chain.State{store: MnesiaMerkleTree.new()}
+    %Chain.State{}
   end
 
-  def restore(state_root) do
-    {:ok, store} = MnesiaMerkleTree.restore(state_root)
-    %Chain.State{store: store}
+  def optimize(%Chain.State{hash: nil, accounts: accounts} = state) do
+    accounts =
+      accounts
+      |> Enum.map(fn {id, acc} -> {id, Account.normalize(acc)} end)
+      |> Map.new()
+
+    state = %{state | accounts: accounts}
+    %{state | hash: hash(state)}
   end
 
-  def difference(%Chain.State{store: a} = state_a, %Chain.State{store: b} = state_b) do
-    diff = MerkleTree.difference(a, b)
-
-    Enum.map(diff, fn {id, _} ->
-      acc_a = Chain.State.account(state_a, id)
-      acc_b = Chain.State.account(state_b, id)
-      {Base16.encode(id), MerkleTree.difference(Account.root(acc_a), Account.root(acc_b))}
-    end)
+  def optimize(%Chain.State{} = state) do
+    state
   end
 
-  def restore?(state_root) do
-    case MnesiaMerkleTree.restore(state_root) do
-      {:ok, store} -> %Chain.State{store: store}
-      {:error, _reason} -> nil
-    end
+  def tree(%Chain.State{accounts: accounts}) do
+    items = Enum.map(accounts, fn {id, acc} -> {id, Account.hash(acc)} end)
+
+    MapMerkleTree.new()
+    |> MerkleTree.insert_items(items)
   end
 
-  def store(state = %Chain.State{store: tree}) do
-    %{state | store: MnesiaMerkleTree.store(tree)}
+  def hash(%Chain.State{hash: nil} = state) do
+    MerkleTree.root_hash(tree(state))
   end
 
-  def hash(%Chain.State{store: tree}) do
-    MerkleTree.root_hash(tree)
+  def hash(%Chain.State{hash: hash}) do
+    hash
   end
 
-  def accounts(%Chain.State{store: store}) do
-    MerkleTree.to_list(store)
-    |> Enum.map(fn {key, value} -> {key, from_key(value)} end)
-    |> Map.new()
+  def accounts(%Chain.State{accounts: accounts}) do
+    accounts
   end
 
   @spec account(Chain.State.t(), <<_::160>>) :: Chain.Account.t() | nil
-  def account(%Chain.State{store: store}, id = <<_::160>>) do
-    from_key(MerkleTree.get(store, id))
+  def account(%Chain.State{accounts: accounts}, id = <<_::160>>) do
+    Map.get(accounts, id)
   end
 
   @spec ensure_account(Chain.State.t(), <<_::160>> | Wallet.t() | non_neg_integer()) ::
@@ -75,26 +68,23 @@ defmodule Chain.State do
   end
 
   @spec set_account(Chain.State.t(), binary(), Chain.Account.t()) :: Chain.State.t()
-  def set_account(state = %Chain.State{store: store}, id = <<_::160>>, account) do
-    account = Chain.Account.normalize(account)
-    hash = Chain.Account.hash(account)
-    store = MerkleTree.insert(store, id, hash)
-
-    {:atomic, :ok} =
-      :mnesia.transaction(fn ->
-        case :mnesia.read(:state_accounts, hash) do
-          [{:state_accounts, ^hash, ^account}] -> :ok
-          [] -> :mnesia.write({:state_accounts, hash, account})
-        end
-      end)
-
-    %{state | store: store}
+  def set_account(state = %Chain.State{accounts: accounts}, id = <<_::160>>, account) do
+    %{state | accounts: Map.put(accounts, id, account), hash: nil}
   end
 
   @spec delete_account(Chain.State.t(), binary()) :: Chain.State.t()
-  def delete_account(state = %Chain.State{store: store}, id = <<_::160>>) do
-    store = MerkleTree.delete(store, id)
-    %{state | store: store}
+  def delete_account(state = %Chain.State{accounts: accounts}, id = <<_::160>>) do
+    %{state | accounts: Map.delete(accounts, id), hash: nil}
+  end
+
+  def difference(%Chain.State{} = state_a, %Chain.State{} = state_b) do
+    diff = MerkleTree.difference(tree(state_a), tree(state_b))
+
+    Enum.map(diff, fn {id, _} ->
+      acc_a = Chain.State.account(state_a, id)
+      acc_b = Chain.State.account(state_b, id)
+      {Base16.encode(id), MerkleTree.difference(Account.root(acc_a), Account.root(acc_b))}
+    end)
   end
 
   # ========================================================
@@ -120,56 +110,9 @@ defmodule Chain.State do
       set_account(state, id, %Chain.Account{
         nonce: acc.nonce,
         balance: acc.balance,
-        storage_root: MnesiaMerkleTree.new() |> MerkleTree.insert_items(acc.data),
+        storage_root: MapMerkleTree.new() |> MerkleTree.insert_items(acc.data),
         code: acc.code
       })
     end)
-  end
-
-  # ========================================================
-  # Internal Mnesia Specific
-  # ========================================================
-  def rewrite_all() do
-    :mnesia.dirty_all_keys(:state_accounts)
-    |> Enum.chunk_every(5)
-    |> Enum.map(fn batch ->
-      :mnesia.transaction(fn ->
-        Enum.map(batch, fn id ->
-          account = Chain.Account.normalize(from_key(id))
-          hash = Chain.Account.hash(account)
-          :mnesia.write({:state_accounts, hash, account})
-        end)
-
-        # IO.puts("Rewrote batch")
-      end)
-    end)
-  end
-
-  def garbage_collect() do
-    known =
-      Enum.reduce(Chain.blocks(), MapSet.new(), fn block, set ->
-        Chain.Block.state(block)
-        |> Chain.State.accounts()
-        |> Enum.map(fn {_, account} -> Chain.Account.hash(account) end)
-        |> MapSet.new()
-        |> MapSet.union(set)
-      end)
-
-    keys = MapSet.new(:mnesia.dirty_all_keys(:state_accounts))
-    garbage = MapSet.difference(keys, known)
-    garbage
-  end
-
-  defp from_key(nil), do: nil
-
-  defp from_key(mnesia_key) when is_binary(mnesia_key) do
-    [{:state_accounts, ^mnesia_key, account}] =
-      if :mnesia.is_transaction() do
-        :mnesia.read(:state_accounts, mnesia_key)
-      else
-        :mnesia.dirty_read(:state_accounts, mnesia_key)
-      end
-
-    account
   end
 end

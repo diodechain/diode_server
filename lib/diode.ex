@@ -6,42 +6,24 @@ require Logger
 defmodule Diode do
   use Application
 
-  def start_mnesia() do
-    Application.start(:sasl)
-    dir = Diode.dataDir()
-
-    Application.put_env(:mnesia, :dir, :binary.bin_to_list(dir))
-    Application.put_env(:mnesia, :dump_log_write_threshold, 5000)
-
-    case :mnesia.create_schema([node()]) do
-      :ok -> :ok
-      {:error, {_, {:already_exists, _}}} -> :ok
-    end
-
-    Application.ensure_all_started(:mnesia)
-    MnesiaMerkleTree.init()
-    Chain.State.init()
-  end
-
   def start(_type, args) do
     import Supervisor.Spec, warn: false
 
     if travis_mode?() do
-      IO.puts("++++++ TRAVIS DETECTED ++++++")
-      :io.format("~0p~n", [:inet.getifaddrs()])
-      :io.format("~0p~n", [:inet.get_rc()])
-      :io.format("~0p~n", [:inet.getaddr('localhost', :inet)])
-      :io.format("~0p~n", [:inet.gethostname()])
+      puts("++++++ TRAVIS DETECTED ++++++")
+      puts("~0p~n", [:inet.getifaddrs()])
+      puts("~0p~n", [:inet.get_rc()])
+      puts("~0p~n", [:inet.getaddr('localhost', :inet)])
+      puts("~0p~n", [:inet.gethostname()])
     end
 
-    IO.puts("====== ENV #{Mix.env()} ======")
     :persistent_term.put(:env, Mix.env())
-    IO.puts("Edge Port: #{edgePort()}")
-    IO.puts("Peer Port: #{peerPort()}")
-    IO.puts("RPC  Port: #{rpcPort()}")
-    IO.puts("Data Dir : #{dataDir()}")
-    IO.puts("")
-    start_mnesia()
+    puts("====== ENV #{Mix.env()} ======")
+    puts("Edge Port: #{edgePort()}")
+    puts("Peer Port: #{peerPort()}")
+    puts("RPC  Port: #{rpcPort()}")
+    puts("Data Dir : #{data_dir()}")
+    puts("")
 
     if dev_mode?() and [] == wallets() do
       wallets =
@@ -50,28 +32,29 @@ defmodule Diode do
       keys = Enum.map(wallets, fn w -> Base16.encode(Wallet.privkey!(w)) end)
       System.put_env("WALLETS", Enum.join(keys, " "))
 
-      IO.puts("====== DEV Accounts ==")
+      puts("====== DEV Accounts ==")
 
       for w <- wallets do
-        IO.puts("#{Wallet.printable(w)} priv #{Base16.encode(Wallet.privkey!(w))}")
+        puts("#{Wallet.printable(w)} priv #{Base16.encode(Wallet.privkey!(w))}")
       end
     else
-      IO.puts("====== Accounts ======")
+      puts("====== Accounts ======")
 
       for w <- wallets() do
-        IO.puts("#{Wallet.printable(w)}")
+        puts("#{Wallet.printable(w)}")
       end
     end
 
-    IO.puts("")
+    puts("")
 
     base_children = [
+      supervisor(Model.Sql, []),
       worker(PubSub, [args]),
-      worker(Store, [args]),
+      worker(Model.CredSql, [args]),
       worker(Chain, [args]),
       worker(Chain.BlockCache, [args]),
       worker(Chain.Pool, [args]),
-      worker(Chain.Worker, [workerMode()])
+      worker(Chain.Worker, [worker_mode()])
     ]
 
     children =
@@ -94,9 +77,11 @@ defmodule Diode do
         base_children ++ network_children
       end
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
     Supervisor.start_link(children, strategy: :one_for_one, name: Diode.Supervisor)
+  end
+
+  def puts(string, format \\ []) do
+    if not test_mode?(), do: :io.format("#{string}~n", format)
   end
 
   defp rpc_api(scheme, opts) do
@@ -120,9 +105,9 @@ defmodule Diode do
   defp start_ssl() do
     case File.read("priv/privkey.pem") do
       {:ok, _} ->
-        IO.puts("++++++  SSL ON  ++++++")
-        IO.puts("RPC  SSL Port: #{rpcsPort()}")
-        IO.puts("")
+        puts("++++++  SSL ON  ++++++")
+        puts("RPC  SSL Port: #{rpcsPort()}")
+        puts("")
 
         rpc_api(:https,
           keyfile: "priv/privkey.pem",
@@ -168,6 +153,7 @@ defmodule Diode do
     true == :persistent_term.get(:trace, false)
   end
 
+  @spec trace(boolean) :: any
   def trace(enabled) when is_boolean(enabled) do
     :persistent_term.put(:trace, enabled)
   end
@@ -189,7 +175,7 @@ defmodule Diode do
 
   @spec miner() :: Wallet.t()
   def miner() do
-    Store.wallet()
+    Model.CredSql.wallet()
   end
 
   def syncing?() do
@@ -220,8 +206,8 @@ defmodule Diode do
     Base16.decode("0x6000000000000000000000000000000000000000")
   end
 
-  @spec dataDir(binary()) :: binary()
-  def dataDir(file \\ "") do
+  @spec data_dir(binary()) :: binary()
+  def data_dir(file \\ "") do
     get_env("DATA_DIR", File.cwd!() <> "/data_" <> Atom.to_string(env()) <> "/") <> file
   end
 
@@ -262,8 +248,8 @@ defmodule Diode do
     |> Enum.reject(fn item -> item == "none" end)
   end
 
-  @spec workerMode() :: :disabled | :poll | integer()
-  def workerMode() do
+  @spec worker_mode() :: :disabled | :poll | integer()
+  def worker_mode() do
     case get_env("WORKER_MODE", "run") do
       "poll" -> :poll
       "disabled" -> :disabled
@@ -275,7 +261,7 @@ defmodule Diode do
 
   def self(hostname) do
     Object.Server.new(hostname, peerPort(), edgePort())
-    |> Object.Server.sign(Wallet.privkey!(Store.wallet()))
+    |> Object.Server.sign(Wallet.privkey!(Diode.miner()))
   end
 
   defp get_env(name, default) do

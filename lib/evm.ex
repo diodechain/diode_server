@@ -216,7 +216,7 @@ defmodule Evm do
   end
 
   def init() do
-    w = Store.wallet()
+    w = Diode.miner()
 
     tx =
       Transaction.sign(
@@ -268,6 +268,10 @@ defmodule Evm do
   end
 
   def eval(evm) do
+    Model.Stats.tc(:eval_time, fn -> eval_timed(evm) end)
+  end
+
+  defp eval_timed(evm) do
     ret = eval_internal(evm)
 
     with {:ok, evm2} <- ret do
@@ -365,7 +369,7 @@ defmodule Evm do
   end
 
   defp do_eval(evm) do
-    do_eval2(evm)
+    Model.Stats.tc(:evm, fn -> do_eval2(evm) end)
   end
 
   defp release_port(port) do
@@ -400,18 +404,20 @@ defmodule Evm do
       0::unsigned-size(256)
     >>
 
-    true = Port.command(port, init_context)
-
-    evm = %{evm | port: port}
-    ret = do_eval2(evm)
-    release_port(port)
-    ret
+    Model.Stats.tc(:evm_init_release, fn ->
+      true = Port.command(port, init_context)
+      evm = %{evm | port: port}
+      ret = do_eval2(evm)
+      release_port(port)
+      ret
+    end)
   end
 
   defp do_eval2(evm) do
+    to = :binary.decode_unsigned(State.address(evm.chain_state))
+    cache_account(state(evm), evm.port, to)
     tx = evm.chain_state.tx
 
-    to = :binary.decode_unsigned(State.address(evm.chain_state))
     value = Transaction.value(tx)
     input = input(evm)
     input_len = byte_size(input)
@@ -419,24 +425,26 @@ defmodule Evm do
     code = code(evm)
     code_len = byte_size(code)
 
-    cache_account(state(evm), evm.port, to)
+    message =
+      Model.Stats.tc(:prep_message, fn ->
+        [
+          <<"r", evm.chain_state.from::unsigned-size(160), to::unsigned-size(160),
+            value::unsigned-size(256), input_len::signed-little-size(64)>>,
+          input,
+          <<
+            gas(evm)::unsigned-little-size(64),
+            # depth
+            0::unsigned-little-size(32),
+            code_len::signed-little-size(64)
+          >>,
+          code
+        ]
+      end)
 
-    message = <<
-      "r",
-      evm.chain_state.from::unsigned-size(160),
-      to::unsigned-size(160),
-      value::unsigned-size(256),
-      input_len::signed-little-size(64),
-      input::binary-size(input_len),
-      gas(evm)::unsigned-little-size(64),
-      # depth
-      0::unsigned-little-size(32),
-      code_len::signed-little-size(64),
-      code::binary-size(code_len)
-    >>
-
-    Port.command(evm.port, message)
-    loop({:cont, evm})
+    Model.Stats.tc(:evm_loop, fn ->
+      Port.command(evm.port, message)
+      loop({:cont, evm})
+    end)
   end
 
   defp cache_account(state, port, address) do
@@ -457,7 +465,7 @@ defmodule Evm do
   defp loop({:cont, evm}) do
     receive do
       {_port, {:data, data}} ->
-        loop(process_data(data, evm))
+        loop(Model.Stats.tc(:process_data, fn -> process_data(data, evm) end))
 
       {'EXIT', _port, _reason} ->
         throw({:evm_crash, evm, 0})
@@ -519,8 +527,8 @@ defmodule Evm do
     state =
       Enum.reduce(updates, state(evm), fn {addr, kvs}, state ->
         acc = Chain.State.ensure_account(state, addr)
-        store = MerkleTree.insert_items(Account.root(acc), Map.to_list(kvs))
-        acc = %{acc | storage_root: store}
+        root = MerkleTree.insert_items(Account.root(acc), Map.to_list(kvs))
+        acc = Chain.Account.put_root(acc, root)
         Chain.State.set_account(state, addr, acc)
       end)
 

@@ -73,7 +73,7 @@ defmodule Chain.Header do
     end
   end
 
-  def flat(header) do
+  def strip_state(header) do
     %{header | state_hash: state_hash(header)}
   end
 end

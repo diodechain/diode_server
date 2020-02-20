@@ -189,10 +189,10 @@ defmodule ChainTest do
           Block.create(
             hd(chain),
             transactions,
-            Store.wallet(),
+            Diode.miner(),
             Rlp.bin2num(block["blockHeader"]["timestamp"])
           )
-          |> Block.sign(Store.wallet())
+          |> Block.sign(Diode.miner())
 
         # assert Block.transactions(head) == transactions
         if Block.transactions(head) != transactions do
@@ -236,10 +236,6 @@ defmodule ChainTest do
     state = Block.state(hd(chain))
 
     reference_accounts = map_accounts(test["postState"])
-
-    :io.format("GOT: ~p~n", [
-      State.accounts(state) |> Enum.map(fn {w, acc} -> {w, to_list(Account.root(acc))} end)
-    ])
 
     for {wallet, account} <- reference_accounts do
       addr = Wallet.address!(wallet)

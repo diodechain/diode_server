@@ -12,7 +12,7 @@ defmodule Chain.BlockCache do
   end
 
   def init(_) do
-    case :ets.file2tab(Diode.dataDir("blockcache.ets") |> :erlang.binary_to_list()) do
+    case :ets.file2tab(Diode.data_dir("blockcache.ets") |> :erlang.binary_to_list()) do
       {:ok, __MODULE__} ->
         {:ok, __MODULE__}
 
@@ -23,7 +23,7 @@ defmodule Chain.BlockCache do
   end
 
   def save() do
-    :ets.tab2file(__MODULE__, Diode.dataDir("blockcache.ets") |> :erlang.binary_to_list())
+    :ets.tab2file(__MODULE__, Diode.data_dir("blockcache.ets") |> :erlang.binary_to_list())
   end
 
   def handle_call({:do_cache, block}, _from, state) do
@@ -103,13 +103,15 @@ defmodule Chain.BlockCache do
   defdelegate number(block), to: Block
   defdelegate parent(block), to: Block
   defdelegate parent_hash(block), to: Block
+  defdelegate printable(block), to: Block
   defdelegate receipts(block), to: Block
   defdelegate receiptsRoot(block), to: Block
   defdelegate sign(block, priv), to: Block
-  defdelegate simulate(block, trace? \\ false), to: Block
+  defdelegate simulate(block), to: Block
   defdelegate size(block), to: Block
   defdelegate state(block), to: Block
   defdelegate state_hash(block), to: Block
+  defdelegate strip_state(block), to: Block
   defdelegate timestamp(block), to: Block
   defdelegate transactionGas(block, transaction), to: Block
   defdelegate transactionIndex(block, transaction), to: Block
