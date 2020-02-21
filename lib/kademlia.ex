@@ -207,14 +207,27 @@ defmodule Kademlia do
   end
 
   # Private call used by PeerHandler when connections fail
-  def handle_cast({:failed_node, node}, state) do
+  def handle_cast({:stable_node, node}, state) do
     case KBuckets.item(state.network, node) do
       nil ->
         {:noreply, state}
 
       item ->
-        {:noreply, %{state | network: do_failed_node(item, state.network)}}
+        network = KBuckets.update_item(state.network, %{item | retries: 0})
+        {:noreply, %{state | network: network}}
     end
+  end
+
+  # Private call used by PeerHandler when connections fail
+  def handle_cast({:failed_node, node}, state) do
+    case KBuckets.item(state.network, node) do
+      nil -> {:noreply, state}
+      item -> {:noreply, %{state | network: do_failed_node(item, state.network)}}
+    end
+  end
+
+  defp do_failed_node(%{object: :self}, network) do
+    network
   end
 
   defp do_failed_node(item, network) do
@@ -229,16 +242,13 @@ defmodule Kademlia do
         # 5 + 5×5 + 5×5×5 + 5×5×5×5 + 5×5×5×5×5 +
         # 5x (5×5×5×5×5×5)
         # This will delete an item after 24h of failures
+        IO.puts("Deleting node #{Wallet.printable(item.node_id)} after 10 retries")
         KBuckets.delete_item(network, item)
 
       failures ->
-        if KBuckets.Item.disabled?(item, now) do
-          factor = min(failures, 5)
-          next = now + round(:math.pow(5, factor))
-          KBuckets.update_item(network, %{item | retries: failures + 1, last_seen: next})
-        else
-          network
-        end
+        factor = min(failures, 5)
+        next = now + round(:math.pow(5, factor))
+        KBuckets.update_item(network, %{item | retries: failures + 1, last_seen: next})
     end
   end
 

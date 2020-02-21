@@ -30,7 +30,10 @@ defmodule Network.PeerHandler do
       Map.merge(state, %{
         calls: :queue.new(),
         blocks: [],
-        random_blocks: 0
+        random_blocks: 0,
+        stable: false,
+        msg_count: 0,
+        start_time: System.os_time(:second)
       })
     )
   end
@@ -93,6 +96,19 @@ defmodule Network.PeerHandler do
     msg = decode(omsg)
 
     # log(state, format("Received ~p bytes on ~p: ~180p", [byte_size(omsg), _sock, msg]))
+
+    state = %{state | msg_count: state.msg_count + 1}
+
+    # We consider this connection stable after at least 5 minutes and 10 messages
+    state =
+      if state.stable == false and
+           state.msg_count > 10 and
+           state.start_time + 300 < System.os_time(:second) do
+        GenServer.cast(Kademlia, {:stable_node, state.node_id})
+        %{state | stable: true}
+      else
+        state
+      end
 
     case handle_msg(msg, state) do
       {reply, state} when not is_atom(reply) ->
