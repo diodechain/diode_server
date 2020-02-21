@@ -106,8 +106,8 @@ defmodule TestHelper do
       :io.format("Waiting for clones... got ~p so far~n", [ret])
 
       basedir = File.cwd!() <> "/clones"
-      filename = "#{basedir}/#{num}.log"
-      :io.format("File: ~p~n", [File.read(filename)])
+      filename = "#{basedir}/1.log"
+      :io.format("File 1: ~p~n", [File.read(filename)])
 
       Process.sleep(1000)
       wait_clones(target_count, seconds - 1)
