@@ -65,21 +65,24 @@ defmodule TestHelper do
       file = File.stream!("#{basedir}/#{num}.log")
 
       spawn_link(fn ->
-        System.cmd(
-          "iex",
-          ["--cookie", @cookie, "-S", "mix", "run"],
-          env: [
-            {"MIX_ENV", "test"},
-            {"DATA_DIR", clonedir},
-            {"RPC_PORT", "#{rpcPort(num)}"},
-            {"RPCS_PORT", "#{rpcsPort(num)}"},
-            {"EDGE_PORT", "#{edgePort(num)}"},
-            {"KADEMLIA_PORT", "#{kademliaPort(num)}"},
-            {"SEED", "none"}
-          ],
-          stderr_to_stdout: true,
-          into: file
-        )
+        ret =
+          System.cmd(
+            "iex",
+            ["--cookie", @cookie, "-S", "mix", "run"],
+            env: [
+              {"MIX_ENV", "test"},
+              {"DATA_DIR", clonedir},
+              {"RPC_PORT", "#{rpcPort(num)}"},
+              {"RPCS_PORT", "#{rpcsPort(num)}"},
+              {"EDGE_PORT", "#{edgePort(num)}"},
+              {"KADEMLIA_PORT", "#{kademliaPort(num)}"},
+              {"SEED", "none"}
+            ],
+            stderr_to_stdout: true,
+            into: file
+          )
+
+        :io.format("System.cmd() => ~p~n", [ret])
       end)
 
       Process.sleep(1000)
@@ -101,6 +104,11 @@ defmodule TestHelper do
       :ok
     else
       :io.format("Waiting for clones... got ~p so far~n", [ret])
+
+      basedir = File.cwd!() <> "/clones"
+      filename = "#{basedir}/#{num}.log"
+      :io.format("File: ~p~n", [File.read(filename)])
+
       Process.sleep(1000)
       wait_clones(target_count, seconds - 1)
     end
