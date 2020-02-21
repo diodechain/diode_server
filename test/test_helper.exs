@@ -81,8 +81,6 @@ defmodule TestHelper do
             stderr_to_stdout: true,
             into: file
           )
-
-        :io.format("System.cmd() => ~p~n", [ret])
       end)
 
       Process.sleep(1000)
@@ -103,12 +101,7 @@ defmodule TestHelper do
     if count == target_count do
       :ok
     else
-      :io.format("Waiting for clones... got ~p so far~n", [ret])
-
-      basedir = File.cwd!() <> "/clones"
-      filename = "#{basedir}/1.log"
-      :io.format("File 1: ~p~n", [File.read(filename)])
-
+      :io.format("Waiting for clones... got ~p so far~n", [count])
       Process.sleep(1000)
       wait_clones(target_count, seconds - 1)
     end

@@ -19,10 +19,6 @@ defmodule PeerTest do
   end
 
   test "sync" do
-    testSync()
-  end
-
-  def testSync() do
     wait_for(
       fn -> Network.Server.get_connections(PeerHandler) == %{} end,
       "connections to drain"
