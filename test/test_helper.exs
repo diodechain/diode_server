@@ -100,6 +100,7 @@ defmodule TestHelper do
     if count == target_count do
       :ok
     else
+      :io.format("Waiting for clones... got ~p so far~n", [ret])
       Process.sleep(1000)
       wait_clones(target_count, seconds - 1)
     end
