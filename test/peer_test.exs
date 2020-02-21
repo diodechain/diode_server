@@ -19,11 +19,7 @@ defmodule PeerTest do
   end
 
   test "sync" do
-    if Diode.travis_mode?() do
-      :ok
-    else
-      testSync()
-    end
+    testSync()
   end
 
   def testSync() do
