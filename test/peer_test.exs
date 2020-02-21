@@ -19,14 +19,6 @@ defmodule PeerTest do
   end
 
   test "sync" do
-    if Diode.travis_mode?() do
-      :ok
-    else
-      testSync()
-    end
-  end
-
-  def testSync() do
     wait_for(
       fn -> Network.Server.get_connections(PeerHandler) == %{} end,
       "connections to drain"

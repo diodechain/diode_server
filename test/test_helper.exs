@@ -34,19 +34,19 @@ defmodule TestHelper do
   end
 
   def edgePort(num) do
-    10000 + num * @max_ports
+    20000 + num * @max_ports
   end
 
   def kademliaPort(num) do
-    10001 + num * @max_ports
+    20001 + num * @max_ports
   end
 
   def rpcPort(num) do
-    10002 + num * @max_ports
+    20002 + num * @max_ports
   end
 
   def rpcsPort(num) do
-    10003 + num * @max_ports
+    20003 + num * @max_ports
   end
 
   def name_clone(n) do
@@ -100,6 +100,7 @@ defmodule TestHelper do
     if count == target_count do
       :ok
     else
+      :io.format("Waiting for clones... got ~p so far~n", [count])
       Process.sleep(1000)
       wait_clones(target_count, seconds - 1)
     end
