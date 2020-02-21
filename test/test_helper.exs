@@ -65,22 +65,21 @@ defmodule TestHelper do
       file = File.stream!("#{basedir}/#{num}.log")
 
       spawn_link(fn ->
-        ret =
-          System.cmd(
-            "iex",
-            ["--cookie", @cookie, "-S", "mix", "run"],
-            env: [
-              {"MIX_ENV", "test"},
-              {"DATA_DIR", clonedir},
-              {"RPC_PORT", "#{rpcPort(num)}"},
-              {"RPCS_PORT", "#{rpcsPort(num)}"},
-              {"EDGE_PORT", "#{edgePort(num)}"},
-              {"KADEMLIA_PORT", "#{kademliaPort(num)}"},
-              {"SEED", "none"}
-            ],
-            stderr_to_stdout: true,
-            into: file
-          )
+        System.cmd(
+          "iex",
+          ["--cookie", @cookie, "-S", "mix", "run"],
+          env: [
+            {"MIX_ENV", "test"},
+            {"DATA_DIR", clonedir},
+            {"RPC_PORT", "#{rpcPort(num)}"},
+            {"RPCS_PORT", "#{rpcsPort(num)}"},
+            {"EDGE_PORT", "#{edgePort(num)}"},
+            {"KADEMLIA_PORT", "#{kademliaPort(num)}"},
+            {"SEED", "none"}
+          ],
+          stderr_to_stdout: true,
+          into: file
+        )
       end)
 
       Process.sleep(1000)
