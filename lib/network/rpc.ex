@@ -473,6 +473,32 @@ defmodule Network.Rpc do
           item -> result(Object.encode_list!(KBuckets.object(item)))
         end
 
+      "dio_codeCount" ->
+        codehash = Base16.decode(hd(params))
+
+        Chain.peak_state()
+        |> Chain.State.accounts()
+        |> Enum.filter(fn {_key, account} -> Chain.Account.codehash(account) == codehash end)
+        |> Enum.count()
+        |> result()
+
+      "dio_codeGroups" ->
+        Chain.peak_state()
+        |> Chain.State.accounts()
+        |> Enum.map(fn {_key, account} -> Chain.Account.codehash(account) end)
+        |> Enum.reduce(%{}, fn hash, map ->
+          Map.update(map, hash, 1, fn x -> x + 1 end)
+        end)
+        |> Json.prepare!(big_x: false)
+        |> result()
+
+      "dio_supply" ->
+        Chain.peak_state()
+        |> Chain.State.accounts()
+        |> Enum.map(fn {_key, account} -> Chain.Account.balance(account) end)
+        |> Enum.sum()
+        |> result()
+
       _ ->
         nil
     end

@@ -30,7 +30,7 @@ defmodule Json do
   defp do_encode(map, conv) when is_map(map) do
     Enum.into(
       Enum.map(Map.to_list(map), fn {key, value} ->
-        {key, do_encode(value, conv)}
+        {do_encode(key, conv), do_encode(value, conv)}
       end),
       %{}
     )
