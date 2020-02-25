@@ -18,7 +18,7 @@ defmodule Diode.Mixfile do
     [
       mod: {Diode, []},
       applications: [:cowboy, :plug, :poison],
-      extra_applications: [:logger, :runtime_tools]
+      extra_applications: [:logger, :runtime_tools, :debouncer]
     ]
   end
 
@@ -31,7 +31,8 @@ defmodule Diode.Mixfile do
       {:libsecp256k1, "~> 0.1.10"},
       {:keccakf1600, "~> 2.0", hex: :keccakf1600_orig},
       {:elixir_make, "~> 0.4", runtime: false},
-      {:benchee, "~> 1.0", only: :benchmark}
+      {:benchee, "~> 1.0", only: :benchmark},
+      {:debouncer, "~> 0.1"}
     ]
   end
 end

@@ -146,7 +146,7 @@ defmodule EdgeTest do
                Ticket.device_signature(tck)
              ]
 
-    # Waiting for Kademlia Debounce to write the object to the file
+    # Waiting for Kademlia Debouncer to write the object to the file
     Process.sleep(1000)
     ["response", "getobject", loc2] = rpc(:client_1, ["getobject", Wallet.address!(clientid(1))])
 

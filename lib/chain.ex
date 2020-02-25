@@ -400,7 +400,7 @@ defmodule Chain do
         # Let the ticketstore know the new block
         PubSub.publish(:rpc, {:rpc, :block, block})
 
-        Debounce.immediate(TicketStore, fn ->
+        Debouncer.immediate(TicketStore, fn ->
           TicketStore.newblock(block)
         end)
 

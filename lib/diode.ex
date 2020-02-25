@@ -66,7 +66,6 @@ defmodule Diode do
     IO.puts("")
 
     base_children = [
-      worker(Debounce, [args]),
       worker(PubSub, [args]),
       worker(Store, [args]),
       worker(Chain, [args]),

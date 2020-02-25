@@ -390,7 +390,7 @@ defmodule Network.EdgeHandler do
         {:ok, bytes} ->
           key = Object.key(dl)
 
-          Debounce.immediate(key, fn ->
+          Debouncer.immediate(key, fn ->
             Kademlia.store(key, Object.encode!(dl))
           end)
 
