@@ -33,6 +33,6 @@ case Mix.env() do
     :ok
 end
 
-if File.exists?("config/diode.exs") do
+if Mix.env() != :test and File.exists?("config/diode.exs") do
   import_config "diode.exs"
 end
