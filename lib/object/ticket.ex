@@ -52,7 +52,7 @@ defmodule Object.Ticket do
   end
 
   def server_sign(tck = ticket(), private) do
-    ticket(tck, server_signature: Secp256k1.sign(private, server_blob(tck)))
+    ticket(tck, server_signature: Secp256k1.sign(private, server_blob(tck), :kec))
   end
 
   @doc """
@@ -96,15 +96,17 @@ defmodule Object.Ticket do
   end
 
   def server_blob(tck = ticket()) do
-    BertExt.encode!([
-      server_id(tck),
+    [
       block_hash(tck),
       fleet_contract(tck),
+      server_id(tck),
       total_connections(tck),
       total_bytes(tck),
-      local_address(tck),
+      Hash.sha3_256(local_address(tck)),
       device_signature(tck)
-    ])
+    ]
+    |> Enum.map(&ABI.encode("bytes32", &1))
+    |> :erlang.iolist_to_binary()
   end
 
   def epoch(ticket), do: block(ticket) |> Block.epoch()

@@ -159,7 +159,7 @@ defmodule EdgeTest do
              Ticket.server_signature(loc2)
            ) == true
 
-    public = Secp256k1.recover!(Ticket.server_signature(loc2), Ticket.server_blob(loc2))
+    public = Secp256k1.recover!(Ticket.server_signature(loc2), Ticket.server_blob(loc2), :kec)
     id = Wallet.from_pubkey(public) |> Wallet.address!()
 
     assert Wallet.address!(Store.wallet()) == Wallet.address!(Wallet.from_pubkey(public))
