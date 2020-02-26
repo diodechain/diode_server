@@ -416,6 +416,93 @@ defmodule Chain do
     fun.(state, from)
   end
 
+  def export_blocks(filename, blocks) do
+    blocks =
+      blocks
+      |> Enum.map(&Block.export/1)
+      |> Enum.filter(fn block -> Block.number(block) > 0 end)
+      |> Enum.sort(fn a, b -> Block.number(a) < Block.number(b) end)
+
+    File.write!(filename, BertInt.encode!(blocks))
+  end
+
+  def import_blocks(filename) when is_binary(filename) do
+    File.read!(filename)
+    |> BertInt.decode!()
+    |> import_blocks()
+  end
+
+  def import_blocks([first | blocks]) do
+    case Block.validate(first) do
+      %Chain.Block{} = block ->
+        Chain.add_block(block, false)
+
+        # replay block backup list
+        Enum.each(blocks, fn oldblock ->
+          with %Chain.Block{} <- Block.parent(oldblock),
+               block_hash <- Block.hash(oldblock) do
+            if Chain.block_by_hash(block_hash) != nil do
+              :skip
+            else
+              case Block.validate(oldblock) do
+                %Chain.Block{} = block ->
+                  throttle_sync(true)
+                  Chain.add_block(block, false)
+
+                _ ->
+                  :ok
+              end
+            end
+          else
+            nonblock ->
+              :io.format("Chain.import_blocks: Expected parent but got ~p for ~p~n", [
+                nonblock,
+                oldblock
+              ])
+
+              throw(:sync_bug)
+          end
+        end)
+
+        finish_sync()
+        true
+
+      _nonblock ->
+        false
+    end
+  end
+
+  def throttle_sync(register \\ false) do
+    # For better resource usage we only let one process sync at full
+    # throttle
+    me = self()
+
+    case Process.whereis(:active_sync) do
+      nil ->
+        if register do
+          Process.register(self(), :active_sync)
+          PubSub.publish(:rpc, {:rpc, :syncing, true})
+        end
+
+        :io.format("Syncing ...~n")
+
+      ^me ->
+        :io.format("Syncing ...~n")
+
+      _other ->
+        :io.format("Syncing slow ...~n")
+        Process.sleep(1000)
+    end
+  end
+
+  defp finish_sync() do
+    if Process.whereis(:active_sync) == self() do
+      Process.unregister(:active_sync)
+      PubSub.publish(:rpc, {:rpc, :syncing, false})
+      :io.format("Finished syncing!~n")
+    end
+  end
+
   def print_transactions(block) do
     for {tx, rcpt} <- Enum.zip([Block.transactions(block), Block.receipts(block)]) do
       status =

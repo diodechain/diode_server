@@ -84,6 +84,7 @@ defmodule Chain.BlockCache do
   defdelegate coinbase(block), to: Block
   defdelegate create(parent, transactions, miner, time, trace? \\ false), to: Block
   defdelegate encode_transactions(transactions), to: Block
+  defdelegate export(block), to: Block
   defdelegate extraData(block), to: Block
   defdelegate gasLimit(block), to: Block
   defdelegate gas_price(block), to: Block

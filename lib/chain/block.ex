@@ -413,6 +413,20 @@ defmodule Chain.Block do
     %{block | header: %{header | nonce: nonce(block) + 1}}
   end
 
+  @doc """
+    export removes additional internal field in the block record
+    and prepares it for export through public apis or to the disk
+  """
+  @spec export(Chain.Block.t()) :: Chain.Block.t()
+  def export(block) do
+    %Chain.Block{
+      block
+      | coinbase: nil,
+        receipts: [],
+        header: Chain.Header.flat(block.header)
+    }
+  end
+
   #########################################################
   ###### FUNCTIONS BELOW THIS LINE ARE STILL JUNK #########
   #########################################################

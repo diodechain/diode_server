@@ -205,7 +205,7 @@ defmodule Network.PeerHandler do
   defp handle_msg([@publish, blocks], state) when is_list(blocks) do
     # For better resource usage we only let one process sync at full
     # throttle
-    throttle_sync(state)
+    Chain.throttle_sync()
 
     # Actual syncing
     Enum.reduce_while(blocks, {"ok", state}, fn block, {_, state} ->
@@ -327,37 +327,12 @@ defmodule Network.PeerHandler do
   end
 
   defp handle_block(_parent, block, state) do
-    case Block.validate(block) do
-      %Chain.Block{} = block ->
-        Chain.add_block(block, false)
-
-        # replay block backup list
-        Enum.each(state.blocks, fn oldblock ->
-          with %Chain.Block{} <- Block.parent(oldblock),
-               block_hash <- Block.hash(oldblock) do
-            if Chain.block_by_hash(block_hash) != nil do
-              log(state, "Chain.add_block: Skipping existing block")
-            else
-              case Block.validate(oldblock) do
-                %Chain.Block{} = block ->
-                  throttle_sync(state, true)
-                  Chain.add_block(block, false)
-
-                _ ->
-                  :ok
-              end
-            end
-          end
-        end)
-
-        finish_sync(state)
-
-        # delete backup list on first successfull block
-        {[@response, @publish, "ok"], %{state | blocks: []}}
-
-      _ ->
-        err = "sync failed: #{inspect(Block.validate(block))}"
-        {:stop, {:validation_error, err}, state}
+    if Chain.import_blocks([block | state.blocks]) do
+      # delete backup list on first successfull block
+      {[@response, @publish, "ok"], %{state | blocks: []}}
+    else
+      err = "sync failed"
+      {:stop, {:validation_error, err}, state}
     end
   end
 
@@ -368,36 +343,6 @@ defmodule Network.PeerHandler do
         receipts: [],
         header: Chain.Header.flat(block.header)
     }
-  end
-
-  defp finish_sync(state) do
-    if Process.whereis(:active_sync) == self() do
-      Process.unregister(:active_sync)
-      PubSub.publish(:rpc, {:rpc, :syncing, false})
-      log(state, "Finished syncing!")
-    end
-  end
-
-  defp throttle_sync(state, register \\ false) do
-    # For better resource usage we only let one process sync at full
-    # throttle
-    case Process.whereis(:active_sync) do
-      nil ->
-        if register do
-          Process.register(self(), :active_sync)
-          PubSub.publish(:rpc, {:rpc, :syncing, true})
-        end
-
-        log(state, "Syncing ...")
-
-      pid ->
-        if pid != self() do
-          log(state, "Syncing slow ...")
-          Process.sleep(1000)
-        else
-          log(state, "Syncing ...")
-        end
-    end
   end
 
   defp respond(state, msg) do
