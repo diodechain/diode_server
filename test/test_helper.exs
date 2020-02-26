@@ -69,7 +69,7 @@ defmodule TestHelper do
           "iex",
           ["--cookie", @cookie, "-S", "mix", "run"],
           env: [
-            {"MIX_ENV", "test_clone"},
+            {"MIX_ENV", "test"},
             {"DATA_DIR", clonedir},
             {"RPC_PORT", "#{rpcPort(num)}"},
             {"RPCS_PORT", "#{rpcsPort(num)}"},
