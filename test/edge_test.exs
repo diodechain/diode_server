@@ -710,7 +710,7 @@ defmodule EdgeTest do
 
   defp client(n) do
     cert = "./test/pems/device#{n}_certificate.pem"
-    {:ok, socket} = :ssl.connect('localhost', 41045, options(cert), 5000)
+    {:ok, socket} = :ssl.connect('localhost', Diode.edgePort(), options(cert), 5000)
     wallet = clientid(n)
     key = Wallet.privkey!(wallet)
     fleet = <<0::160>>
