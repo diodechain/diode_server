@@ -156,7 +156,8 @@ defmodule EdgeTest do
     assert Secp256k1.verify(
              Store.wallet(),
              Ticket.server_blob(loc2),
-             Ticket.server_signature(loc2)
+             Ticket.server_signature(loc2),
+             :kec
            ) == true
 
     public = Secp256k1.recover!(Ticket.server_signature(loc2), Ticket.server_blob(loc2), :kec)

@@ -81,17 +81,23 @@ defmodule Secp256k1 do
   end
 
   @spec verify(public_key() | Wallet.t(), binary(), signature()) :: boolean()
-  def verify(public, msg, signature) when is_binary(public) do
+  def verify(public, msg, signature, algo \\ :sha)
+
+  def verify(public, msg, signature, algo) when is_binary(public) do
     # :ok == :libsecp256k1.ecdsa_verify(msg, signature_bitcoin_to_x509(signature), public)
     # Verify with openssl for now
     x509 = signature_bitcoin_to_x509(signature)
-    :crypto.verify(:ecdsa, :sha256, msg, x509, [public, :crypto.ec_curve(:secp256k1)])
+
+    :crypto.verify(:ecdsa, :sha256, {:digest, hash(algo, msg)}, x509, [
+      public,
+      :crypto.ec_curve(:secp256k1)
+    ])
   end
 
-  def verify(public = wallet(), msg, signature) do
-    signer = recover!(signature, msg)
+  def verify(public = wallet(), msg, signature, algo) do
+    signer = recover!(signature, msg, algo)
 
-    verify(signer, msg, signature) &&
+    verify(signer, msg, signature, algo) &&
       Wallet.address!(Wallet.from_pubkey(signer)) == Wallet.address!(public)
   end
 
