@@ -18,9 +18,12 @@ case Mix.env() do
   :test ->
     System.put_env("SEED", "none")
     System.put_env("WORKER_MODE", "poll")
-    System.put_env("RPC_PORT", "18001")
-    System.put_env("EDGE_PORT", "18002")
-    System.put_env("PEER_PORT", "18003")
+
+    if System.get_env("RPC_PORT") == nil do
+      System.put_env("RPC_PORT", "18001")
+      System.put_env("EDGE_PORT", "18002")
+      System.put_env("PEER_PORT", "18003")
+    end
 
   :dev ->
     System.put_env("WORKER_MODE", "poll")
