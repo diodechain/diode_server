@@ -37,7 +37,7 @@ defmodule Diode do
     IO.puts("====== ENV #{Mix.env()} ======")
     :persistent_term.put(:env, Mix.env())
     IO.puts("Edge Port: #{edgePort()}")
-    IO.puts("Peer Port: #{kademliaPort()}")
+    IO.puts("Peer Port: #{peerPort()}")
     IO.puts("RPC  Port: #{rpcPort()}")
     IO.puts("Data Dir : #{dataDir()}")
     IO.puts("")
@@ -87,7 +87,7 @@ defmodule Diode do
         network_children = [
           # Starting External Interfaces
           Network.Server.child(edgePort(), Network.EdgeHandler),
-          Network.Server.child(kademliaPort(), Network.PeerHandler),
+          Network.Server.child(peerPort(), Network.PeerHandler),
           worker(Kademlia, [args])
         ]
 
@@ -246,9 +246,9 @@ defmodule Diode do
     get_env_int("EDGE_PORT", 41045)
   end
 
-  @spec kademliaPort() :: integer()
-  def kademliaPort() do
-    get_env_int("KADEMLIA_PORT", 51054)
+  @spec peerPort() :: integer()
+  def peerPort() do
+    get_env_int("PEER_PORT", 51054)
   end
 
   def seeds() do
@@ -274,7 +274,7 @@ defmodule Diode do
   def self(), do: self(host())
 
   def self(hostname) do
-    Object.Server.new(hostname, kademliaPort(), edgePort())
+    Object.Server.new(hostname, peerPort(), edgePort())
     |> Object.Server.sign(Wallet.privkey!(Store.wallet()))
   end
 

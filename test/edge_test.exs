@@ -156,10 +156,11 @@ defmodule EdgeTest do
     assert Secp256k1.verify(
              Store.wallet(),
              Ticket.server_blob(loc2),
-             Ticket.server_signature(loc2)
+             Ticket.server_signature(loc2),
+             :kec
            ) == true
 
-    public = Secp256k1.recover!(Ticket.server_signature(loc2), Ticket.server_blob(loc2))
+    public = Secp256k1.recover!(Ticket.server_signature(loc2), Ticket.server_blob(loc2), :kec)
     id = Wallet.from_pubkey(public) |> Wallet.address!()
 
     assert Wallet.address!(Store.wallet()) == Wallet.address!(Wallet.from_pubkey(public))
@@ -709,7 +710,7 @@ defmodule EdgeTest do
 
   defp client(n) do
     cert = "./test/pems/device#{n}_certificate.pem"
-    {:ok, socket} = :ssl.connect('localhost', 41045, options(cert), 5000)
+    {:ok, socket} = :ssl.connect('localhost', Diode.edgePort(), options(cert), 5000)
     wallet = clientid(n)
     key = Wallet.privkey!(wallet)
     fleet = <<0::160>>

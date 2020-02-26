@@ -37,7 +37,7 @@ defmodule TestHelper do
     20000 + num * @max_ports
   end
 
-  def kademliaPort(num) do
+  def peerPort(num) do
     20001 + num * @max_ports
   end
 
@@ -74,7 +74,7 @@ defmodule TestHelper do
             {"RPC_PORT", "#{rpcPort(num)}"},
             {"RPCS_PORT", "#{rpcsPort(num)}"},
             {"EDGE_PORT", "#{edgePort(num)}"},
-            {"KADEMLIA_PORT", "#{kademliaPort(num)}"},
+            {"PEER_PORT", "#{peerPort(num)}"},
             {"SEED", "none"}
           ],
           stderr_to_stdout: true,
