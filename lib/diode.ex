@@ -137,7 +137,7 @@ defmodule Diode do
     end
   end
 
-  @spec env :: :prod | :test | :dev
+  @spec env :: :prod | :test | :test_clone | :dev
   def env() do
     :persistent_term.get(:env)
   end
@@ -148,7 +148,7 @@ defmodule Diode do
 
   @spec dev_mode? :: boolean
   def dev_mode?() do
-    env() == :dev or env() == :test
+    env() == :dev or test_mode?()
   end
 
   def travis_mode?() do
@@ -160,7 +160,7 @@ defmodule Diode do
 
   @spec test_mode? :: boolean
   def test_mode?() do
-    env() == :test
+    env() == :test or env() == :test_clone
   end
 
   @spec trace? :: boolean

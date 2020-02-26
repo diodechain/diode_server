@@ -22,6 +22,10 @@ case Mix.env() do
     System.put_env("EDGE_PORT", "18002")
     System.put_env("PEER_PORT", "18003")
 
+  :test_clone ->
+    System.put_env("SEED", "none")
+    System.put_env("WORKER_MODE", "poll")
+
   :dev ->
     System.put_env("WORKER_MODE", "poll")
     System.put_env("SEED", "none")
