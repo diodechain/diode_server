@@ -96,16 +96,7 @@ defmodule Object.Ticket do
   end
 
   def server_blob(tck = ticket()) do
-    [
-      block_hash(tck),
-      fleet_contract(tck),
-      server_id(tck),
-      total_connections(tck),
-      total_bytes(tck),
-      Hash.sha3_256(local_address(tck)),
-      device_signature(tck)
-    ]
-    |> Enum.map(&ABI.encode("bytes32", &1))
+    [device_blob(tck), device_signature(tck)]
     |> :erlang.iolist_to_binary()
   end
 
