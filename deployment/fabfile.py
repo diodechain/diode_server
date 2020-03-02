@@ -14,7 +14,8 @@ env.diode="/opt/diode"
 
 # Install on Ubuntu 18.04
 def install():
-  put(".inputrc", "~")
+  #with lcd("~"):
+    #put(".inputrc", "~")
 
   # Elixir + Base System
   if not exists("/usr/bin/elixir"):
@@ -22,7 +23,7 @@ def install():
     run("dpkg -i erlang-solutions_1.0_all.deb")
     run("apt update")
     run("apt upgrade -y")
-    run("apt install -y screen git snap g++ make autoconf esl-erlang elixir libtool libgmp-dev daemontools libboost-system-dev")
+    run("apt install -y screen git snap g++ make autoconf esl-erlang elixir libtool libgmp-dev daemontools libboost-system-dev libsqlite3-dev")
     run("apt autoremove")
 
   # Application
@@ -30,7 +31,7 @@ def install():
   with cd(env.diode):
     run("git init")
     run("git config receive.denyCurrentBranch ignore")
-    local("git push -f ssh://{user}@{host}{path}".format(user=env.user, host=env.host, path=env.diode))
+    local("git push -f ssh://{user}@{host}{path} master".format(user=env.user, host=env.host, path=env.diode))
     run("git checkout master")
     run("cp githooks/post-receive .git/hooks/")
     run("cp deployment/diode.service /etc/systemd/system/diode.service")
