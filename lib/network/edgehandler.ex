@@ -198,6 +198,9 @@ defmodule Network.EdgeHandler do
       ["getblockquick", last_block, window_size]
       when is_integer(last_block) and
              is_integer(window_size) ->
+        # this will throw if the block does not exist
+        block_header(last_block)
+
         answ =
           get_blockquick_seq(last_block, window_size)
           |> Enum.map(fn num ->
@@ -331,9 +334,14 @@ defmodule Network.EdgeHandler do
     state = account_incoming(state, raw_msg)
     msg = decode(state, raw_msg)
 
-    # log(state, "handle: ~0p", [msg])
-    state = handle_msg(msg, state)
-    {:noreply, state}
+    try do
+      state = handle_msg(msg, state)
+      {:noreply, state}
+    catch
+      :notfound ->
+        log(state, "connection closed because non existing block was requested.")
+        {:stop, :normal, state}
+    end
   end
 
   def handle_info({:topic, topic, message}, state) do
@@ -705,7 +713,9 @@ defmodule Network.EdgeHandler do
   end
 
   defp block_header(n) do
-    Chain.block(n).header
-    |> Chain.Header.strip_state()
+    case Chain.block(n) do
+      nil -> throw(:notfound)
+      block -> Chain.Header.strip_state(block.header)
+    end
   end
 end
