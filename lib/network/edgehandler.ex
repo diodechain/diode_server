@@ -473,7 +473,7 @@ defmodule Network.EdgeHandler do
   defp do_portopen(state, portname, flags, pid) do
     mon = Process.monitor(pid)
     ref = Random.uint31h()
-    :io.format("REF ~p~n", [ref])
+    # :io.format("REF ~p~n", [ref])
     spid = self()
 
     #  Receives an open request from another local connected edge worker.

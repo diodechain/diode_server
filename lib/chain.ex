@@ -134,7 +134,14 @@ defmodule Chain do
   defp set_final_block(state, %Chain.Block{} = block) do
     window = generate_blockquick_window(block)
     ChainSql.set_final(block)
-    %{state | final: block, window: window}
+    state = %{state | final: block, window: window}
+
+    if is_final_tree?(state, state.peak) do
+      state
+    else
+      ChainSql.put_peak(block)
+      %{state | peak: block}
+    end
   end
 
   @spec peak_block() :: Chain.Block.t()
@@ -344,15 +351,16 @@ defmodule Chain do
       not is_final_tree?(state, block) ->
         ChainSql.put_new_block(block)
         ets_add(block)
-        IO.puts("Chain.add_block: Skipped    alt #{info}")
+        IO.puts("Chain.add_block: Skipped    alt #{info} | (@#{Block.printable(peak)}")
         {:reply, :stored, state}
 
       peak_hash != parent_hash and Block.totalDifficulty(block) <= totalDiff ->
         ChainSql.put_new_block(block)
         ets_add(block)
-        IO.puts("Chain.add_block: Extended   alt #{info}")
+        IO.puts("Chain.add_block: Extended   alt #{info} | (@#{Block.printable(peak)}")
         state = update_blockquick(state, block)
-        {:reply, :stored, state}
+        # we're keeping peak constant here to obey Block.totalDifficulty(block) <= totalDiff
+        {:reply, :stored, %{state | peak: peak}}
 
       true ->
         # Update the state

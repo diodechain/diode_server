@@ -29,6 +29,12 @@ defmodule Model.ChainSql do
       """)
 
       query!(db, """
+          CREATE INDEX IF NOT EXISTS block_number ON blocks (
+            number
+          )
+      """)
+
+      query!(db, """
           CREATE TABLE IF NOT EXISTS transactions (
             txhash BLOB PRIMARY KEY,
             blhash BLOB,

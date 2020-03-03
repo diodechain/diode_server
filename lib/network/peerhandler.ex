@@ -212,10 +212,11 @@ defmodule Network.PeerHandler do
     Enum.reduce_while(blocks, {"ok", state}, fn block, {_, state} ->
       case handle_msg([@publish, block], state) do
         {response, state} ->
-          if state.random_blocks == 0 do
+          # If we receive a batch that contains a random block, we skip the batch, and
+          # when blocks have been reset we hast reached a known block
+          if state.random_blocks == 0 and state.blocks != [] do
             {:cont, {response, state}}
           else
-            # If we receive a batch that contains a random block, we skip the batch
             {:halt, {[@response, @publish, "ok"], state}}
           end
 
@@ -234,7 +235,7 @@ defmodule Network.PeerHandler do
         handle_block(Block.parent(block), block, state)
 
       _ ->
-        log(state, "Chain.add_block: Skipping existing block")
+        log(state, "Chain.add_block: Skipping existing block #{Block.printable(block)}")
         # delete backup list on first successfull block
         {[@response, @publish, "ok"], %{state | blocks: []}}
     end

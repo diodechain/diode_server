@@ -38,6 +38,7 @@ defmodule Model.Sql do
   defp init_connection(conn) do
     query!(conn, "PRAGMA journal_mode = WAL")
     query!(conn, "PRAGMA synchronous = NORMAL")
+    query!(conn, "PRAGMA OPTIMIZE", call_timeout: :infinity)
   end
 
   def init(_args) do
