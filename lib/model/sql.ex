@@ -5,12 +5,14 @@ defmodule Model.Sql do
 
   defp databases() do
     [
+      {Db.Cache, "cache.sq3"},
       {Db.Default, "blockchain.sq3"},
       {Db.Tickets, "tickets.sq3"},
       {Db.Creds, "wallet.sq3"}
     ]
   end
 
+  defp map_mod(Chain.BlockCache), do: Db.Cache
   defp map_mod(Model.CredSql), do: Db.Creds
   defp map_mod(Model.TicketSql), do: Db.Tickets
   defp map_mod(Model.KademliaSql), do: Db.Tickets

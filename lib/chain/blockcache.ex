@@ -2,6 +2,7 @@
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
 defmodule Chain.BlockCache do
+  alias Model.Sql
   alias Chain.Block
   use GenServer
 
@@ -11,19 +12,31 @@ defmodule Chain.BlockCache do
     GenServer.start_link(__MODULE__, arg, name: __MODULE__)
   end
 
-  def init(_) do
-    case :ets.file2tab(Diode.data_dir("blockcache.ets") |> :erlang.binary_to_list()) do
-      {:ok, __MODULE__} ->
-        {:ok, __MODULE__}
-
-      {:error, _reason} ->
-        __MODULE__ = :ets.new(__MODULE__, [:named_table, :compressed, :public])
-        {:ok, __MODULE__}
-    end
+  defp query!(sql, params \\ []) do
+    Sql.query!(__MODULE__, sql, params)
   end
 
-  def save() do
-    :ets.tab2file(__MODULE__, Diode.data_dir("blockcache.ets") |> :erlang.binary_to_list())
+  defp with_transaction(fun) do
+    Sql.with_transaction(__MODULE__, fun)
+  end
+
+  def init(_) do
+    with_transaction(fn db ->
+      Sql.query!(db, """
+          CREATE TABLE IF NOT EXISTS blockcache (
+            hash BLOB PRIMARY KEY,
+            data BLOB
+          )
+      """)
+    end)
+
+    __MODULE__ = :ets.new(__MODULE__, [:named_table, :compressed, :public])
+
+    Enum.each(query!("SELECT hash, data FROM blockcache"), fn [hash: hash, data: data] ->
+      :ets.insert(__MODULE__, {hash, BertInt.decode!(data)})
+    end)
+
+    {:ok, __MODULE__}
   end
 
   def handle_call({:do_cache, block}, _from, state) do
@@ -31,6 +44,7 @@ defmodule Chain.BlockCache do
   end
 
   def reset() do
+    query!("DELETE FROM blockcache")
     :ets.delete_all_objects(__MODULE__)
   end
 
@@ -58,6 +72,13 @@ defmodule Chain.BlockCache do
           # :io.format("miss: ~p~n", [Base16.encode(hash)])
           cache = create_cache(block)
           :ets.insert(__MODULE__, {hash, cache})
+
+          spawn(fn ->
+            query!("INSERT INTO blockcache (hash, data) VALUES(?1, ?2)",
+              bind: [hash, BertInt.encode!(cache)]
+            )
+          end)
+
           cache
         else
           GenServer.call(__MODULE__, {:do_cache, block}, 20_000)
