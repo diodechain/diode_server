@@ -18,6 +18,7 @@ defmodule Model.Sql do
   defp map_mod(_), do: Db.Default
 
   def start_link() do
+    Application.put_env(:sqlitex, :call_timeout, 30_000)
     {:ok, pid} = Supervisor.start_link(__MODULE__, [], name: __MODULE__)
     Model.MerkleSql.init()
     Model.ChainSql.init()
