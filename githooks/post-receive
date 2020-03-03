@@ -3,5 +3,4 @@ unset GIT_DIR
 DIODE=/opt/diode
 cd $DIODE && git checkout -f
 svc -d $DIODE
-./clean.sh
 svc -u $DIODE

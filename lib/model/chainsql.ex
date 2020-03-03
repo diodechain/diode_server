@@ -181,7 +181,12 @@ defmodule Model.ChainSql do
   end
 
   def all_blocks() do
-    Sql.query!(__MODULE__, "SELECT data FROM blocks WHERE number NOT NULL ORDER BY number DESC")
+    Sql.query!(__MODULE__, "SELECT data FROM blocks WHERE number NOT NULL ORDER BY number ASC")
+    |> Enum.map(fn [data: data] -> BertInt.decode!(data) end)
+  end
+
+  def alt_blocks() do
+    Sql.query!(__MODULE__, "SELECT data FROM blocks WHERE number IS NULL")
     |> Enum.map(fn [data: data] -> BertInt.decode!(data) end)
   end
 

@@ -149,7 +149,7 @@ defmodule Chain do
 
   @spec block(number()) :: Chain.Block.t() | nil
   def block(n) do
-    ets_lookup_idx(n)
+    ets_lookup_idx(n, fn -> ChainSql.block(n) end)
   end
 
   @spec block_by_hash(any()) :: Chain.Block.t() | nil
@@ -580,6 +580,12 @@ defmodule Chain do
   defp ets_prefetch() do
     :ets.delete_all_objects(__MODULE__)
     for block <- ChainSql.all_blocks(), do: ets_add(block)
+    for block <- ChainSql.alt_blocks(), do: ets_add_alt(block)
+  end
+
+  defp ets_add_alt(block) do
+    # block = Block.strip_state(block)
+    :ets.insert(__MODULE__, {Block.hash(block), true})
   end
 
   defp ets_add(block) do
@@ -604,9 +610,9 @@ defmodule Chain do
     end
   end
 
-  defp ets_lookup_idx(idx) when is_integer(idx) do
+  defp ets_lookup_idx(idx, default) when is_integer(idx) do
     case do_ets_lookup(idx) do
-      [] -> nil
+      [] -> default.()
       [{^idx, block_hash}] -> block_by_hash(block_hash)
     end
   end

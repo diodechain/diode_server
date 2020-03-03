@@ -143,9 +143,19 @@ defmodule Network.Server do
         receive do
           {:EXIT, ^other_pid, :disconnect} ->
             :ok
+
+          {:EXIT, ^other_pid, other_reason} ->
+            :io.format("~p process exited for unexpected reason: ~p~n", [
+              state.protocol,
+              other_reason
+            ])
         after
           500 ->
-            throw(:inconsistent_process)
+            if Process.alive?(other_pid) do
+              throw(:inconsistent_process)
+            else
+              :io.format("~p process exited without reason~n", [state.protocol])
+            end
         end
     end
 

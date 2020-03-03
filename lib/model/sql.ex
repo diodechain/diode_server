@@ -42,7 +42,8 @@ defmodule Model.Sql do
 
     children =
       Enum.map(databases(), fn {atom, file} ->
-        worker(Sqlitex.Server, [Diode.data_dir(file) |> to_charlist(), [name: atom]], id: atom)
+        opts = [name: atom, db_timeout: 30_000, stmt_cache_size: 50]
+        worker(Sqlitex.Server, [Diode.data_dir(file) |> to_charlist(), opts], id: atom)
       end)
 
     children = children ++ [worker(Stats, [], id: Stats)]
