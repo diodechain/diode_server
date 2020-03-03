@@ -602,7 +602,14 @@ defmodule Network.Rpc do
         if num > Chain.peak() do
           throw(:notfound)
         else
-          Chain.block(num)
+          case Chain.block(num) do
+            nil ->
+              IO.puts("should happen with block #{num}: #{Chain.block(num)}")
+              nil
+
+            block ->
+              block
+          end
         end
     end
   end

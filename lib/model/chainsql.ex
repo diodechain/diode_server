@@ -57,6 +57,19 @@ defmodule Model.ChainSql do
     end)
   end
 
+  def set_normative_all() do
+    set_normative_all(peak_block())
+  end
+
+  defp set_normative_all(nil) do
+    :ok
+  end
+
+  defp set_normative_all(block) do
+    put_block_number(__MODULE__, block)
+    set_normative_all(Block.parent(block))
+  end
+
   defp set_normative(db, block) do
     hash = Block.hash(block)
 

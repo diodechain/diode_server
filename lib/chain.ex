@@ -360,6 +360,7 @@ defmodule Chain do
         IO.puts("Chain.add_block: Extended   alt #{info} | (@#{Block.printable(peak)}")
         state = update_blockquick(state, block)
         # we're keeping peak constant here to obey Block.totalDifficulty(block) <= totalDiff
+        ChainSql.put_peak(peak)
         {:reply, :stored, %{state | peak: peak}}
 
       true ->

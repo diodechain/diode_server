@@ -90,7 +90,7 @@ defmodule Model.Sql do
   end
 
   def with_transaction(mod, fun) do
-    {:ok, result} = Sqlitex.Server.with_transaction(map_mod(mod), fun)
+    {:ok, result} = Sqlitex.Server.with_transaction(map_mod(mod), fun, call_timeout: :infinity)
     result
   end
 end
