@@ -343,7 +343,7 @@ defmodule Chain do
 
   def handle_call({:add_block, block, parent_hash, relay}, _from, state) do
     peak = state.peak
-    totalDiff = Block.totalDifficulty(peak) + Block.difficulty(peak) * blockchainDelta()
+    totalDiff = Block.total_difficulty(peak) + Block.difficulty(peak) * blockchainDelta()
     peak_hash = Block.hash(peak)
     info = Block.printable(block)
 
@@ -354,12 +354,12 @@ defmodule Chain do
         IO.puts("Chain.add_block: Skipped    alt #{info} | (@#{Block.printable(peak)}")
         {:reply, :stored, state}
 
-      peak_hash != parent_hash and Block.totalDifficulty(block) <= totalDiff ->
+      peak_hash != parent_hash and Block.total_difficulty(block) <= totalDiff ->
         ChainSql.put_new_block(block)
         ets_add(block)
         IO.puts("Chain.add_block: Extended   alt #{info} | (@#{Block.printable(peak)}")
         state = update_blockquick(state, block)
-        # we're keeping peak constant here to obey Block.totalDifficulty(block) <= totalDiff
+        # we're keeping peak constant here to obey Block.total_difficulty(block) <= totalDiff
         ChainSql.put_peak(peak)
         {:reply, :stored, %{state | peak: peak}}
 

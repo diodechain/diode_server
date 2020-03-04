@@ -283,8 +283,8 @@ defmodule Chain.Block do
     end
   end
 
-  @spec totalDifficulty(Block.t()) :: non_neg_integer()
-  def totalDifficulty(%Block{} = block) do
+  @spec total_difficulty(Block.t()) :: non_neg_integer()
+  def total_difficulty(%Block{} = block) do
     parent = Block.parent(block)
 
     # Explicit usage of Block and BlockCache cause otherwise cache filling
@@ -292,7 +292,7 @@ defmodule Chain.Block do
     if parent == nil do
       Block.difficulty(block)
     else
-      BlockCache.totalDifficulty(parent) + Block.difficulty(block)
+      BlockCache.total_difficulty(parent) + Block.difficulty(block)
     end
   end
 
@@ -323,8 +323,8 @@ defmodule Chain.Block do
     # Contract.Registry.epoch(block)
   end
 
-  @spec gasUsed(Block.t()) :: non_neg_integer()
-  def gasUsed(%Block{} = block) do
+  @spec gas_used(Block.t()) :: non_neg_integer()
+  def gas_used(%Block{} = block) do
     Enum.reduce(receipts(block), 0, fn receipt, acc -> acc + receipt.gas_used end)
   end
 
@@ -423,9 +423,6 @@ defmodule Chain.Block do
     byte_size(BertInt.encode!(block))
   end
 
-  @spec logsBloom(Block.t()) :: <<_::528>>
-  def logsBloom(%Block{} = _block) do
-    "0x0000000000000000000000000000000000000000000000000000000000000000"
   end
 
   def coinbase(block = %Block{coinbase: nil}) do
@@ -441,8 +438,12 @@ defmodule Chain.Block do
     Chain.gasLimit()
   end
 
-  @spec extraData(Block.t()) :: <<_::528>>
-  def extraData(%Block{} = _block) do
+  @spec logs_bloom(Block.t()) :: <<_::528>>
+  def logs_bloom(%Block{} = _block) do
+    "0x0000000000000000000000000000000000000000000000000000000000000000"
+  end
+  @spec extra_data(Block.t()) :: <<_::528>>
+  def extra_data(%Block{} = _block) do
     "0x0000000000000000000000000000000000000000000000000000000000000000"
   end
 

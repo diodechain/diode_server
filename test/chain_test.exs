@@ -199,10 +199,10 @@ defmodule ChainTest do
           IO.puts("\tTransaction mismatch in block #{length(chain)}!")
         end
 
-        # assert Block.gasUsed(head) == Rlp.bin2num(block["blockHeader"]["gasUsed"])
-        if Block.gasUsed(head) != Rlp.bin2num(block["blockHeader"]["gasUsed"]) do
+        # assert Block.gas_used(head) == Rlp.bin2num(block["blockHeader"]["gasUsed"])
+        if Block.gas_used(head) != Rlp.bin2num(block["blockHeader"]["gasUsed"]) do
           IO.puts(
-            "\tGas difference! #{Block.gasUsed(head)} != #{
+            "\tGas difference! #{Block.gas_used(head)} != #{
               Rlp.bin2num(block["blockHeader"]["gasUsed"])
             }"
           )

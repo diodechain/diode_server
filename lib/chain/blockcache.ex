@@ -6,7 +6,7 @@ defmodule Chain.BlockCache do
   alias Chain.Block
   use GenServer
 
-  defstruct difficulty: 0, totalDifficulty: 0, epoch: 0
+  defstruct difficulty: 0, total_difficulty: 0, epoch: 0
 
   def start_link(arg) do
     GenServer.start_link(__MODULE__, arg, name: __MODULE__)
@@ -51,7 +51,7 @@ defmodule Chain.BlockCache do
   def create_cache(block) do
     %Chain.BlockCache{
       difficulty: Block.difficulty(block),
-      totalDifficulty: Block.totalDifficulty(block),
+      total_difficulty: Block.total_difficulty(block),
       epoch: Block.epoch(block)
     }
   end
@@ -90,8 +90,8 @@ defmodule Chain.BlockCache do
     cache(block).difficulty
   end
 
-  def totalDifficulty(block) do
-    cache(block).totalDifficulty
+  def total_difficulty(block) do
+    cache(block).total_difficulty
   end
 
   def epoch(block) do
@@ -106,7 +106,7 @@ defmodule Chain.BlockCache do
   defdelegate create(parent, transactions, miner, time, trace? \\ false), to: Block
   defdelegate encode_transactions(transactions), to: Block
   defdelegate export(block), to: Block
-  defdelegate extraData(block), to: Block
+  defdelegate extra_data(block), to: Block
   defdelegate gasLimit(block), to: Block
   defdelegate gas_price(block), to: Block
   defdelegate gasUsed(block), to: Block
@@ -118,7 +118,7 @@ defmodule Chain.BlockCache do
   defdelegate header(block), to: Block
   defdelegate increment_nonce(block), to: Block
   defdelegate logs(block), to: Block
-  defdelegate logsBloom(block), to: Block
+  defdelegate logs_bloom(block), to: Block
   defdelegate miner(block), to: Block
   defdelegate nonce(block), to: Block
   defdelegate number(block), to: Block
