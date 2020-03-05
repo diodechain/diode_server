@@ -2,11 +2,16 @@
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
 defmodule Chain.BlockCache do
+  alias Chain.BlockCache
   alias Model.Sql
   alias Chain.Block
   use GenServer
 
-  defstruct difficulty: 0, total_difficulty: 0, epoch: 0
+  defstruct blockquick_window: nil,
+            difficulty: nil,
+            total_difficulty: nil,
+            epoch: nil,
+            last_final: nil
 
   def start_link(arg) do
     GenServer.start_link(__MODULE__, arg, name: __MODULE__)
@@ -14,6 +19,10 @@ defmodule Chain.BlockCache do
 
   defp query!(sql, params \\ []) do
     Sql.query!(__MODULE__, sql, params)
+  end
+
+  defp query_async!(sql, params) do
+    Sql.query_async!(__MODULE__, sql, params)
   end
 
   defp with_transaction(fun) do
@@ -48,10 +57,22 @@ defmodule Chain.BlockCache do
     :ets.delete_all_objects(__MODULE__)
   end
 
+  def warmup() do
+    for n <- 0..Chain.peak() do
+      if rem(n, 1000) == 0 do
+        Diode.puts("Cache Warmup #{n}")
+      end
+
+      cache(Chain.block(n))
+    end
+  end
+
   def create_cache(block) do
-    %Chain.BlockCache{
-      difficulty: Block.difficulty(block),
-      total_difficulty: Block.total_difficulty(block),
+    parent = Block.parent(block)
+
+    %BlockCache{
+      difficulty: Block.difficulty(block, parent),
+      total_difficulty: Block.total_difficulty(block, parent),
       epoch: Block.epoch(block)
     }
   end
@@ -60,34 +81,77 @@ defmodule Chain.BlockCache do
   #   %Chain.BlockCache{}
   # end
 
+  def cache?(block) do
+    case :ets.lookup(__MODULE__, Block.hash(block)) do
+      [{_hash, cache}] -> cache
+      [] -> nil
+    end
+  end
+
   def cache(block) do
     hash = Block.hash(block)
 
-    case :ets.lookup(__MODULE__, Block.hash(block)) do
-      [{^hash, cache}] ->
-        cache
-
-      [] ->
+    case cache?(block) do
+      nil ->
         if :erlang.whereis(__MODULE__) == self() do
           # :io.format("miss: ~p~n", [Base16.encode(hash)])
-          cache = create_cache(block)
-          :ets.insert(__MODULE__, {hash, cache})
-
-          spawn(fn ->
-            query!("INSERT INTO blockcache (hash, data) VALUES(?1, ?2)",
-              bind: [hash, BertInt.encode!(cache)]
-            )
-          end)
-
-          cache
+          put_cache(hash, create_cache(block))
         else
-          GenServer.call(__MODULE__, {:do_cache, block}, 20_000)
+          GenServer.call(__MODULE__, {:do_cache, block}, 60_000)
+        end
+
+      cache ->
+        cache
+    end
+  end
+
+  defp put_cache(hash, cache) do
+    query_async!("INSERT INTO blockcache (hash, data) VALUES(?1, ?2)",
+      bind: [hash, BertInt.encode!(cache)]
+    )
+
+    :ets.insert(__MODULE__, {hash, cache})
+
+    cache
+  end
+
+  defp do_get_cache(block, name) do
+    do_get_cache(block, name, fn -> apply(Block, name, [block]) end)
+  end
+
+  defp do_get_cache(block, name, fun) do
+    case cache?(block) do
+      nil ->
+        # apply(Block, name, [block])
+        fun.()
+
+      cache ->
+        case Map.get(cache, name) do
+          nil ->
+            value = fun.()
+            cache = Map.put(cache, name, value)
+            put_cache(Block.hash(block), cache)
+            value
+
+          value ->
+            value
         end
     end
   end
 
   def difficulty(block) do
     cache(block).difficulty
+  end
+
+  def last_final(block) do
+    hash = do_get_cache(block, :last_final, fn -> Block.last_final(block) |> Block.hash() end)
+    final = Chain.block_by_hash(hash)
+    # IO.puts("final #{Base16.encode(hash)} == #{Block.printable(final)}")
+    final
+  end
+
+  def blockquick_window(block) do
+    do_get_cache(block, :blockquick_window)
   end
 
   def total_difficulty(block) do
@@ -102,20 +166,21 @@ defmodule Chain.BlockCache do
   ####################### DELEGATES #######################
   #########################################################
 
-  defdelegate coinbase(block), to: Block
   defdelegate create(parent, transactions, miner, time, trace? \\ false), to: Block
+  defdelegate coinbase(block), to: Block
   defdelegate encode_transactions(transactions), to: Block
   defdelegate export(block), to: Block
   defdelegate extra_data(block), to: Block
   defdelegate gasLimit(block), to: Block
   defdelegate gas_price(block), to: Block
-  defdelegate gasUsed(block), to: Block
+  defdelegate gas_used(block), to: Block
   defdelegate has_state?(block), to: Block
   defdelegate hash(block), to: Block
   defdelegate hash_in_target?(block, hash), to: Block
   defdelegate hash_target(block), to: Block
   defdelegate hash_valid?(block), to: Block
   defdelegate header(block), to: Block
+  defdelegate in_final_window?(block), to: Block
   defdelegate increment_nonce(block), to: Block
   defdelegate logs(block), to: Block
   defdelegate logs_bloom(block), to: Block
@@ -140,6 +205,6 @@ defmodule Chain.BlockCache do
   defdelegate transactions(block), to: Block
   defdelegate transactionStatus(block, transaction), to: Block
   defdelegate txhash(block), to: Block
-  defdelegate validate(block), to: Block
+  defdelegate validate(block, parent), to: Block
   defdelegate valid?(block), to: Block
 end

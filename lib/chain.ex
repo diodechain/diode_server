@@ -6,17 +6,14 @@ defmodule Chain do
   alias Chain.Transaction
   alias Model.ChainSql
   use GenServer
-  defstruct window: %{}, final: nil, peak: nil, by_hash: %{}, states: %{}
+  defstruct peak: nil, by_hash: %{}, states: %{}
 
   @type t :: %Chain{
-          window: %{binary() => integer()},
-          final: Chain.Block.t(),
           peak: Chain.Block.t(),
           by_hash: %{binary() => Chain.Block.t()} | nil,
           states: Map.t()
         }
 
-  @window_size 100
   @pregenesis "0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z"
 
   @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
@@ -27,15 +24,20 @@ defmodule Chain do
   @spec init(any()) :: {:ok, Chain.t()}
   def init(_) do
     ProcessLru.new(:blocks, 10)
+    EtsLru.new(Chain.Lru, 1000)
     __MODULE__ = :ets.new(__MODULE__, [:named_table, :public, {:read_concurrency, true}])
     state = load_blocks()
 
     Diode.puts("====== Chain    ======")
     Diode.puts("Peak  Block: #{Block.printable(state.peak)}")
-    Diode.puts("Final Block: #{Block.printable(state.final)}")
+    Diode.puts("Final Block: #{Block.printable(Block.last_final(state.peak))}")
     Diode.puts("")
 
     {:ok, state}
+  end
+
+  def window_size() do
+    100
   end
 
   def pre_genesis_hash() do
@@ -124,24 +126,7 @@ defmodule Chain do
 
   @spec final_block() :: Chain.Block.t()
   def final_block() do
-    call(fn state, _from -> {:reply, state.final, state} end)
-  end
-
-  def set_final_block(%Chain.Block{} = block) do
-    call(fn state, _from -> {:reply, :ok, set_final_block(state, block)} end)
-  end
-
-  defp set_final_block(state, %Chain.Block{} = block) do
-    window = generate_blockquick_window(block)
-    ChainSql.set_final(block)
-    state = %{state | final: block, window: window}
-
-    if is_final_tree?(state, state.peak) do
-      state
-    else
-      ChainSql.put_peak(block)
-      %{state | peak: block}
-    end
+    call(fn state, _from -> {:reply, Block.last_final(state.peak), state} end)
   end
 
   @spec peak_block() :: Chain.Block.t()
@@ -165,6 +150,10 @@ defmodule Chain do
   end
 
   def block_by_hash(hash) do
+    # :erlang.system_flag(:backtrace_depth, 3)
+    # {:current_stacktrace, what} = :erlang.process_info(self(), :current_stacktrace)
+    # :io.format("block_by_hash: ~p~n", [what])
+
     Model.Stats.tc(:block_by_hash, fn ->
       do_block_by_hash(hash)
     end)
@@ -174,7 +163,11 @@ defmodule Chain do
     ProcessLru.fetch(:blocks, hash, fn ->
       ets_lookup(hash, fn ->
         Model.Stats.tc(:sql_block_by_hash, fn ->
-          ChainSql.block_by_hash(hash)
+          EtsLru.fetch(Chain.Lru, hash, fn ->
+            block = ChainSql.block_by_hash(hash)
+            :io.format("block = ~p ~p~n", [Block.number(block), Base16.encode(hash)])
+            block
+          end)
         end)
       end)
     end)
@@ -211,25 +204,14 @@ defmodule Chain do
 
   @spec load_blocks() :: Chain.t()
   defp load_blocks() do
-    chain =
-      case ChainSql.peak_block() do
-        nil ->
-          genesis_state() |> seed()
-
-        block ->
-          ets_prefetch()
-          %Chain{peak: block, final: ChainSql.final_block(), by_hash: nil}
-      end
-
-    case Map.get(chain, :final) do
+    case ChainSql.peak_block() do
       nil ->
-        Map.put(chain, :final, nil)
-        |> Map.put(:window, %{})
+        genesis_state() |> seed()
 
-      final ->
-        %{chain | window: generate_blockquick_window(final)}
+      block ->
+        ets_prefetch()
+        %Chain{peak: block, by_hash: nil}
     end
-    |> update_blockquick(chain.peak)
   end
 
   defp seed(state) do
@@ -242,70 +224,6 @@ defmodule Chain do
 
     ets_prefetch()
     state
-  end
-
-  defp is_final_tree?(%Chain{final: nil}, _block) do
-    # We don't have any final yet during bootstrap so let's pass all blocks
-    true
-  end
-
-  defp is_final_tree?(chain = %Chain{final: final}, block) do
-    cond do
-      Block.hash(final) == Block.hash(block) -> true
-      Block.number(final) >= Block.number(block) -> false
-      true -> is_final_tree?(chain, Block.parent(block))
-    end
-  end
-
-  def update_blockquick() do
-    call(fn chain, _from ->
-      {:reply, :ok, update_blockquick(chain, chain.peak)}
-    end)
-
-    final_block()
-    |> Block.number()
-  end
-
-  defp update_blockquick(chain = %Chain{final: nil, peak: peak}, block) do
-    if Block.number(peak) > @window_size do
-      final = block(@window_size)
-      update_blockquick(set_final_block(chain, final), block)
-    else
-      chain
-    end
-  end
-
-  defp update_blockquick(chain = %Chain{final: final, window: window}, new_block) do
-    scores = %{}
-    threshold = div(@window_size, 2)
-
-    ret =
-      blocks(new_block)
-      |> Enum.take(Block.number(new_block) - Block.number(final))
-      |> Enum.reduce_while(scores, fn block, scores ->
-        if Map.values(scores) |> Enum.sum() > threshold do
-          {:halt, block}
-        else
-          miner = Block.coinbase(block)
-          {:cont, Map.put(scores, miner, Map.get(window, miner, 0))}
-        end
-      end)
-
-    case ret do
-      new_final = %Chain.Block{} ->
-        set_final_block(chain, new_final)
-
-      _too_low_scores ->
-        chain
-    end
-  end
-
-  def generate_blockquick_window(final_block) do
-    blocks(final_block)
-    |> Enum.take(@window_size)
-    |> Enum.reduce(%{}, fn block, scores ->
-      Map.update(scores, Block.coinbase(block), 1, fn i -> i + 1 end)
-    end)
   end
 
   defp genesis_state() do
@@ -348,19 +266,10 @@ defmodule Chain do
     info = Block.printable(block)
 
     cond do
-      not is_final_tree?(state, block) ->
-        ChainSql.put_new_block(block)
-        ets_add(block)
-        IO.puts("Chain.add_block: Skipped    alt #{info} | (@#{Block.printable(peak)}")
-        {:reply, :stored, state}
-
       peak_hash != parent_hash and Block.total_difficulty(block) <= totalDiff ->
         ChainSql.put_new_block(block)
-        ets_add(block)
+        ets_add_alt(block)
         IO.puts("Chain.add_block: Extended   alt #{info} | (@#{Block.printable(peak)}")
-        state = update_blockquick(state, block)
-        # we're keeping peak constant here to obey Block.total_difficulty(block) <= totalDiff
-        ChainSql.put_peak(peak)
         {:reply, :stored, %{state | peak: peak}}
 
       true ->
@@ -379,7 +288,6 @@ defmodule Chain do
           ets_prefetch()
         end
 
-        state = update_blockquick(state, block)
         state = %{state | peak: block}
 
         # Printing some debug output per transaction
@@ -429,50 +337,42 @@ defmodule Chain do
   def import_blocks([first | blocks]) do
     ProcessLru.new(:blocks, 10)
 
-    case Block.validate(first) do
+    case Block.validate(first, Block.parent(first)) do
       %Chain.Block{} = block ->
         Chain.add_block(block, false)
 
         # replay block backup list
-        Enum.reduce(blocks, block, fn nextblock, lastblock ->
+        Enum.reduce_while(blocks, block, fn nextblock, lastblock ->
           if lastblock != nil do
             ProcessLru.put(:blocks, Block.hash(lastblock), lastblock)
           end
 
-          with %Chain.Block{} <- Block.parent(nextblock),
-               block_hash <- Block.hash(nextblock) do
-            case Chain.block_by_hash(block_hash) do
-              %Chain.Block{} = existing ->
-                existing
+          block_hash = Block.hash(nextblock)
 
-              nil ->
-                ret =
-                  Model.Stats.tc(:validate_time, fn ->
-                    Block.validate(nextblock)
+          case Chain.block_by_hash(block_hash) do
+            %Chain.Block{} = existing ->
+              {:cont, existing}
+
+            nil ->
+              ret =
+                Model.Stats.tc(:validate, fn ->
+                  Block.validate(nextblock, lastblock)
+                end)
+
+              case ret do
+                %Chain.Block{} = block ->
+                  throttle_sync(true)
+
+                  Model.Stats.tc(:addblock, fn ->
+                    Chain.add_block(block, false)
                   end)
 
-                case ret do
-                  %Chain.Block{} = block ->
-                    throttle_sync(true)
+                  {:cont, block}
 
-                    Model.Stats.tc(:addblock_time, fn ->
-                      Chain.add_block(block, false)
-                    end)
-
-                    block
-
-                  _ ->
-                    nil
-                end
-            end
-          else
-            nonblock ->
-              :io.format("Chain.import_blocks: Expected parent but got ~p for ~p~n", [
-                nonblock,
-                nextblock
-              ])
-
-              throw(:sync_bug)
+                nonblock ->
+                  :io.format("Chain.import_blocks(2): Failed with ~p~n", [nonblock])
+                  {:halt, nil}
+              end
           end
         end)
 
@@ -611,7 +511,6 @@ defmodule Chain do
   defp ets_remove_idx(idx) do
     case do_ets_lookup(idx) do
       [{^idx, block_hash}] ->
-        :ets.delete(__MODULE__, idx)
         :ets.insert(__MODULE__, {block_hash, true})
 
       _ ->

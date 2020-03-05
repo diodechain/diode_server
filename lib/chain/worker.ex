@@ -136,7 +136,7 @@ defmodule Chain.Worker do
     hash = Block.hash(block) |> Hash.integer()
     state = %{state | working: false}
 
-    if hash < target and Chain.add_block(block) == :added do
+    if hash < target and Block.valid?(block) and Chain.add_block(block) == :added do
       do_update(state)
     else
       %{state | candidate: block}

@@ -51,8 +51,8 @@ defmodule Diode do
       supervisor(Model.Sql, []),
       worker(PubSub, [args]),
       worker(Model.CredSql, [args]),
-      worker(Chain, [args]),
       worker(Chain.BlockCache, [args]),
+      worker(Chain, [args]),
       worker(Chain.Pool, [args]),
       worker(Chain.Worker, [worker_mode()])
     ]

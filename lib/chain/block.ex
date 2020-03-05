@@ -14,14 +14,21 @@ defmodule Chain.Block do
           coinbase: any()
         }
 
-  # @min_difficulty 131072
   @min_difficulty 65536
   @max_difficulty 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
 
   def header(%Block{header: header}), do: header
   def txhash(%Block{header: header}), do: header.transaction_hash
 
-  def parent(%Block{} = block), do: Chain.block_by_hash(parent_hash(block))
+  def parent(block, parent \\ nil)
+
+  def parent(
+        %Block{header: %Header{previous_block: hash}},
+        %Block{header: %Header{block_hash: hash}} = parent
+      ),
+      do: parent
+
+  def parent(%Block{} = block, nil), do: Chain.block_by_hash(parent_hash(block))
   def parent_hash(%Block{header: header}), do: header.previous_block
   def nonce(%Block{header: header}), do: header.nonce
   def miner(%Block{header: header}), do: Header.recover_miner(header)
@@ -56,7 +63,7 @@ defmodule Chain.Block do
 
   @spec valid?(Chain.Block.t()) :: boolean()
   def valid?(block) do
-    case validate(block) do
+    case validate(block, parent(block)) do
       %Chain.Block{} -> true
       _ -> false
     end
@@ -70,15 +77,26 @@ defmodule Chain.Block do
     Model.Stats.tc(test, fun)
   end
 
-  @spec validate(Chain.Block.t()) :: Chain.Block.t() | {non_neg_integer(), any()}
-  def validate(block) do
+  @blockquick_margin div(Chain.window_size(), 10)
+  def in_final_window?(block), do: in_final_window?(block, parent(block))
+
+  def in_final_window?(block, parent) do
+    Block.number(last_final(block, parent)) + Chain.window_size() - @blockquick_margin >=
+      Block.number(block)
+  end
+
+  @spec validate(Chain.Block.t(), Chain.Block.t()) :: Chain.Block.t() | {non_neg_integer(), any()}
+  def validate(%Block{} = block, %Block{} = parent) do
     # IO.puts("Block #{number(block)}.: #{length(transactions(block))}txs")
+    BlockCache.cache(block)
 
     with {_, %Block{}} <- {:is_block, block},
-         {_, pa = %Block{}} <-
-           test(:has_parent, fn -> parent(block) end),
          {_, true} <-
-           test(:correct_number, fn -> Block.number(block) == Block.number(pa) + 1 end),
+           test(:has_parent, fn -> Block.parent_hash(block) == Block.hash(parent) end),
+         {_, true} <-
+           test(:correct_number, fn -> Block.number(block) == Block.number(parent) + 1 end),
+         {_, true} <-
+           test(:last_final_window, fn -> in_final_window?(block, parent) end),
          {_, true} <- test(:hash_valid, fn -> hash_valid?(block) end),
          {_, []} <-
            test(:tx_valid, fn ->
@@ -95,6 +113,10 @@ defmodule Chain.Block do
     else
       {nr, error} -> {nr, error}
     end
+  end
+
+  def validate(_block, nil) do
+    {:has_parent, false}
   end
 
   defp state_equal(sim_block, block) do
@@ -141,13 +163,13 @@ defmodule Chain.Block do
       if blockRef == nil do
         1
       else
-        Contract.Registry.minerValue(0, Block.coinbase(block), blockRef)
+        Contract.Registry.minerValue(0, BlockCache.coinbase(block), blockRef)
         |> div(Shell.ether(1000))
         |> max(1)
         |> min(50)
       end
 
-    div(stake * stake * @max_difficulty, difficulty(block))
+    div(stake * stake * @max_difficulty, BlockCache.difficulty(block))
   end
 
   @doc "Creates a new block and stores the generated state in cache file"
@@ -249,18 +271,17 @@ defmodule Chain.Block do
     end)
   end
 
-  @spec difficulty(Block.t()) :: non_neg_integer()
-  def difficulty(%Block{} = block) do
+  # The second parameter is an optimizaton for cache bootstrap
+  @spec difficulty(Block.t(), Block.t() | nil) :: non_neg_integer()
+  def difficulty(%Block{} = block, parent \\ nil) do
     if Diode.dev_mode?() do
       1
     else
-      do_difficulty(block)
+      do_difficulty(block, parent(block, parent))
     end
   end
 
-  defp do_difficulty(%Block{} = block) do
-    parent = parent(block)
-
+  defp do_difficulty(%Block{} = block, parent) do
     if parent == nil do
       @min_difficulty
     else
@@ -283,16 +304,17 @@ defmodule Chain.Block do
     end
   end
 
-  @spec total_difficulty(Block.t()) :: non_neg_integer()
-  def total_difficulty(%Block{} = block) do
-    parent = Block.parent(block)
+  # The second parameter is an optimizaton for cache bootstrap
+  @spec total_difficulty(Block.t(), Block.t() | nil) :: non_neg_integer()
+  def total_difficulty(%Block{} = block, parent \\ nil) do
+    parent = parent(block, parent)
 
     # Explicit usage of Block and BlockCache cause otherwise cache filling
     # becomes self-recursive problem
     if parent == nil do
       Block.difficulty(block)
     else
-      BlockCache.total_difficulty(parent) + Block.difficulty(block)
+      BlockCache.total_difficulty(parent) + Block.difficulty(block, parent)
     end
   end
 
@@ -393,7 +415,7 @@ defmodule Chain.Block do
     %{strip_state(block) | coinbase: nil, receipts: []}
   end
 
-  @spec export(Chain.Block.t()) :: Chain.Block.t()
+  @spec strip_state(Chain.Block.t()) :: Chain.Block.t()
   def strip_state(block) do
     %{block | header: Chain.Header.strip_state(block.header)}
   end
@@ -413,16 +435,72 @@ defmodule Chain.Block do
     "##{Block.number(block)}[#{prefix}] @#{author}"
   end
 
-  #########################################################
-  ###### FUNCTIONS BELOW THIS LINE ARE STILL JUNK #########
-  #########################################################
+  def blockquick_window(block, parent \\ nil)
 
-  @spec size(Block.t()) :: non_neg_integer()
-  def size(%Block{} = block) do
-    # TODO, needs fixed external format
-    byte_size(BertInt.encode!(block))
+  def blockquick_window(%Block{header: %Header{number: num}}, _) when num <= 100 do
+    [
+      598_746_696_357_369_325_966_849_036_647_255_306_831_025_787_168,
+      841_993_309_363_539_165_963_431_397_261_483_173_734_566_208_300,
+      1_180_560_991_557_918_668_394_274_720_728_086_333_958_947_256_920
+    ]
+    |> List.duplicate(34)
+    |> List.flatten()
+    |> Enum.take(100)
   end
 
+  def blockquick_window(%Block{} = block, parent) do
+    [_ | window] = parent(block, parent) |> BlockCache.blockquick_window()
+    window ++ [Block.coinbase(block)]
+  end
+
+  def blockquick_scores(%Block{} = block) do
+    BlockCache.blockquick_window(block)
+    |> Enum.reduce(%{}, fn coinbase, scores ->
+      Map.update(scores, coinbase, 1, fn i -> i + 1 end)
+    end)
+  end
+
+  # Hash of block 108
+  # @anchor_hash <<0, 0, 98, 184, 252, 38, 6, 88, 88, 30, 209, 143, 24, 89, 71, 244, 92, 85, 98, 72,
+  #                89, 223, 184, 74, 232, 251, 127, 33, 26, 134, 11, 117>>
+  @spec last_final(Chain.Block.t(), Chain.Block.t() | nil) :: Chain.Block.t()
+  def last_final(block, parent \\ nil)
+
+  def last_final(%Block{header: %Header{number: number}} = block, _) when number < 1 do
+    block
+  end
+
+  def last_final(%Block{} = block, parent) do
+    parent = parent(block, parent)
+    prev_final = BlockCache.last_final(parent)
+    window = blockquick_scores(prev_final)
+
+    threshold = div(Chain.window_size(), 2)
+
+    gap = Block.number(block) - Block.number(prev_final)
+
+    miners =
+      blockquick_window(block, parent)
+      |> Enum.reverse()
+      |> Enum.take(gap)
+
+    # Iterating in reverse to find the most recent match
+    ret =
+      Enum.reduce_while(miners, %{}, fn miner, scores ->
+        if Map.values(scores) |> Enum.sum() > threshold do
+          {:halt, block}
+        else
+          {:cont, Map.put(scores, miner, Map.get(window, miner, 0))}
+        end
+      end)
+
+    case ret do
+      new_final = %Chain.Block{} ->
+        new_final
+
+      _too_low_scores ->
+        prev_final
+    end
   end
 
   def coinbase(block = %Block{coinbase: nil}) do
@@ -438,10 +516,21 @@ defmodule Chain.Block do
     Chain.gasLimit()
   end
 
+  #########################################################
+  ###### FUNCTIONS BELOW THIS LINE ARE STILL JUNK #########
+  #########################################################
+
+  @spec size(Block.t()) :: non_neg_integer()
+  def size(%Block{} = block) do
+    # TODO, needs fixed external format
+    byte_size(BertInt.encode!(block))
+  end
+
   @spec logs_bloom(Block.t()) :: <<_::528>>
   def logs_bloom(%Block{} = _block) do
     "0x0000000000000000000000000000000000000000000000000000000000000000"
   end
+
   @spec extra_data(Block.t()) :: <<_::528>>
   def extra_data(%Block{} = _block) do
     "0x0000000000000000000000000000000000000000000000000000000000000000"

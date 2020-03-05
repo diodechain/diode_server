@@ -25,7 +25,8 @@ defmodule Model.Stats do
 
   def tc(metric, fun) do
     {time, ret} = :timer.tc(fun)
-    incr(metric, time)
+    incr("#{metric}_time", time)
+    incr("#{metric}_cnt")
     ret
   end
 

@@ -188,7 +188,7 @@ defmodule Network.Rpc do
           "receiptsRoot" => Block.receiptsRoot(block),
           "difficulty" => Block.difficulty(block),
           "totalDifficulty" => Block.total_difficulty(block),
-          "extraData" => Block.extraData(block),
+          "extraData" => Block.extra_data(block),
           "size" => Block.size(block),
           "gasLimit" => Block.gasLimit(block),
           "gasUsed" => Block.gas_used(block),

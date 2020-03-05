@@ -19,6 +19,14 @@ defmodule Hash do
     <<hash::unsigned-big-size(256)>>
   end
 
+  def printable(nil) do
+    "nil"
+  end
+
+  def printable(binary) do
+    Base16.encode(binary)
+  end
+
   def to_address(hash = <<_::160>>) do
     hash
   end

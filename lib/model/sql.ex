@@ -56,8 +56,10 @@ defmodule Model.Sql do
 
   def query(mod, sql, params \\ []) do
     Stats.incr(:query)
+
     # Stats.incr({:query, String.first(sql)})
     # :io.format("~p~n", [sql])
+
     Stats.tc(:query_time, fn ->
       Sqlitex.Server.query(map_mod(mod), sql, params)
     end)
@@ -66,6 +68,10 @@ defmodule Model.Sql do
   def query!(mod, sql, params \\ []) do
     {:ok, ret} = query(mod, sql, params)
     ret
+  end
+
+  def query_async!(mod, sql, params \\ []) do
+    Sqlitex.Server.query_async(map_mod(mod), sql, params)
   end
 
   def fetch!(mod, sql, param1) do

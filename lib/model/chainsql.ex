@@ -132,7 +132,7 @@ defmodule Model.ChainSql do
     state = %Chain.State{} = Block.state(block)
     state_data = BertInt.encode!(state)
     block_hash = Block.hash(block)
-    data = Block.export(block) |> BertInt.encode!()
+    data = Block.strip_state(block) |> BertInt.encode!()
 
     with_transaction(fn db ->
       ret =
