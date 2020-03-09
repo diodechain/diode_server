@@ -102,9 +102,9 @@ defmodule Chain do
     15
   end
 
-  @spec blockchainDelta() :: 5
+  @spec blockchainDelta() :: non_neg_integer()
   def blockchainDelta() do
-    5
+    1
   end
 
   @spec peak() :: integer()
