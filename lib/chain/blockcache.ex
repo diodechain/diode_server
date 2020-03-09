@@ -120,10 +120,10 @@ defmodule Chain.BlockCache do
   end
 
   defp do_get_cache(block, name, fun) do
-    case cache?(block) do
-      nil ->
-        # apply(Block, name, [block])
-        fun.()
+    case cache(block) do
+      # nil ->
+      # apply(Block, name, [block])
+      # fun.()
 
       cache ->
         case Map.get(cache, name) do
