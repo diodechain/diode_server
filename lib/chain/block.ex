@@ -96,6 +96,8 @@ defmodule Chain.Block do
          {_, true} <-
            test(:correct_number, fn -> Block.number(block) == Block.number(parent) + 1 end),
          {_, true} <-
+           test(:diverse, fn -> Block.number(block) < 11000 or is_diverse?(block, parent) end),
+         {_, true} <-
            test(:last_final_window, fn -> in_final_window?(block, parent) end),
          {_, true} <- test(:hash_valid, fn -> hash_valid?(block) end),
          {_, []} <-
@@ -458,6 +460,21 @@ defmodule Chain.Block do
     |> Enum.reduce(%{}, fn coinbase, scores ->
       Map.update(scores, coinbase, 1, fn i -> i + 1 end)
     end)
+  end
+
+  @spec is_diverse?(Chain.Block.t(), nil | Chain.Block.t()) :: boolean
+  def is_diverse?(%Block{} = block, parent) do
+    parent = parent(block, parent)
+
+    miners =
+      blockquick_window(block, parent)
+      |> Enum.reverse()
+      |> Enum.take(4)
+
+    case miners do
+      [a, a, a, a] -> false
+      _other -> true
+    end
   end
 
   # Hash of block 108
