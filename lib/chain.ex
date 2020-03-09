@@ -112,6 +112,17 @@ defmodule Chain do
     Block.number(peak_block())
   end
 
+  def set_peak(%Chain.Block{} = block) do
+    call(
+      fn state, _from ->
+        ChainSql.put_peak(block)
+        ets_prefetch()
+        {:reply, :ok, %{state | peak: block}}
+      end,
+      :infinity
+    )
+  end
+
   def epoch() do
     Block.epoch(peak_block())
   end
