@@ -58,16 +58,21 @@ defmodule Model.ChainSql do
   end
 
   def set_normative_all() do
-    set_normative_all(peak_block())
+    peak = peak_block()
+
+    with_transaction(fn db ->
+      query!(db, "UPDATE blocks SET number = null", [])
+      set_normative_all(db, peak)
+    end)
   end
 
-  defp set_normative_all(nil) do
+  defp set_normative_all(_db, nil) do
     :ok
   end
 
-  defp set_normative_all(block) do
+  defp set_normative_all(db, block) do
     put_block_number(__MODULE__, block)
-    set_normative_all(Block.parent(block))
+    set_normative_all(db, Block.parent(block))
   end
 
   defp set_normative(db, block) do
@@ -77,7 +82,15 @@ defmodule Model.ChainSql do
       [[hash: ^hash]] ->
         :done
 
-      _ ->
+      [] ->
+        put_block_number(db, block)
+        set_normative(db, Block.parent(block))
+
+      _others ->
+        query!(db, "UPDATE blocks SET number = null WHERE number = ?1",
+          bind: [Block.number(block)]
+        )
+
         put_block_number(db, block)
         set_normative(db, Block.parent(block))
     end
