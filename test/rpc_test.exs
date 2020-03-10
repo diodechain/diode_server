@@ -71,43 +71,85 @@ defmodule RpcTest do
     assert Account.balance(to_acc2) - Account.balance(to_acc) == 1000 * length(txs)
   end
 
+  test "receipt" do
+    tx = prepare_transaction()
+
+    hash = Transaction.hash(tx) |> Base16.encode()
+    from = Transaction.from(tx) |> Base16.encode()
+    to = Transaction.to(tx) |> Base16.encode()
+
+    ret = rpc("eth_getTransactionReceipt", [hash])
+
+    assert {200,
+            %{
+              "id" => 1,
+              "jsonrpc" => "2.0",
+              "result" => %{
+                "blockNumber" => "0x03",
+                "contractAddress" => nil,
+                "cumulativeGasUsed" => "0x01005c",
+                "from" => ^from,
+                "gasUsed" => "0x5208",
+                "logs" => [],
+                "logsBloom" =>
+                  "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "status" => "0x01",
+                "to" => ^to,
+                "transactionHash" => ^hash,
+                "transactionIndex" => "0x01"
+              }
+            }} = ret
+  end
+
+  test "getblock" do
+    tx = prepare_transaction()
+    hash = Transaction.hash(tx) |> Base16.encode()
+    ret = rpc("eth_getBlockByNumber", [Chain.peak(), false])
+
+    assert {200,
+            %{
+              "id" => 1,
+              "jsonrpc" => "2.0",
+              "result" => %{
+                "transactions" => txs
+              }
+            }} = ret
+
+    assert Enum.member?(txs, hash)
+  end
+
   defp to_rlp(tx) do
     tx |> Transaction.to_rlp() |> Rlp.encode!() |> Base16.encode()
   end
 
-  # %{id: id, method: "trace_replayBlockTransactions", params: [^block_quantity, ["trace"]]} ->
-  #   {:ok,
-  #    [
-  #      %{
-  #        id: id,
-  #        jsonrpc: "2.0",
-  #        result: [
-  #          %{
-  #            "output" => "0x",
-  #            "stateDiff" => nil,
-  #            "trace" => [
-  #              %{
-  #                "action" => %{
-  #                  "callType" => "call",
-  #                  "from" => from_address_hash,
-  #                  "gas" => "0x475ec8",
-  #                  "input" =>
-  #                    "0x10855269000000000000000000000000862d67cb0773ee3f8ce7ea89b328ffea861ab3ef",
-  #                  "to" => to_address_hash,
-  #                  "value" => "0x0"
-  #                },
-  #                "result" => %{"gasUsed" => "0x6c7a", "output" => "0x"},
-  #                "subtraces" => 0,
-  #                "traceAddress" => [],
-  #                "type" => "call"
-  #              }
-  #            ],
-  #            "transactionHash" => transaction_hash,
-  #            "vmTrace" => nil
-  #          }
-  #        ]
-  #      }
-  #    ]}
+  defp prepare_transaction() do
+    [from, to] = Diode.wallets() |> Enum.reverse() |> Enum.take(2)
+
+    # before = Chain.peak_state()
+
+    # from_acc = State.ensure_account(before, from)
+    # to_acc = State.ensure_account(before, to)
+    # nonce = from_acc |> Account.nonce()
+
+    Worker.set_mode(:disabled)
+
+    to = Wallet.address!(to)
+
+    tx =
+      Rpc.create_transaction(from, <<"">>, %{
+        "value" => 1000,
+        # "nonce" => nonce + i,
+        "to" => to,
+        "gasPrice" => 0
+      })
+
+    {200, %{"result" => txhash}} = rpc("eth_sendRawTransaction", [to_rlp(tx)])
+    assert txhash == Base16.encode(Transaction.hash(tx))
+
+    Worker.set_mode(:poll)
+    Worker.work()
+    tx
+  end
 
   def rpc(method, params) do
     Rpc.handle_jsonrpc(%{"method" => method, "params" => params, "id" => 1})

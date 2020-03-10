@@ -201,7 +201,10 @@ defmodule Model.ChainSql do
   end
 
   def block_by_txhash(txhash) do
-    fetch!("SELECT blhash FROM transactions WHERE txhash = ?1", txhash)
+    fetch!(
+      "SELECT data FROM blocks WHERE hash = (SELECT blhash FROM transactions WHERE txhash = ?1)",
+      txhash
+    )
   end
 
   def truncate_blocks() do
