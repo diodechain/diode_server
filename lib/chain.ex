@@ -272,12 +272,11 @@ defmodule Chain do
 
   def handle_call({:add_block, block, parent_hash, relay}, _from, state) do
     peak = state.peak
-    totalDiff = Block.total_difficulty(peak) + Block.difficulty(peak) * blockchainDelta()
     peak_hash = Block.hash(peak)
     info = Block.printable(block)
 
     cond do
-      peak_hash != parent_hash and Block.total_difficulty(block) <= totalDiff ->
+      peak_hash != parent_hash and Block.total_difficulty(block) <= Block.total_difficulty(peak) ->
         ChainSql.put_new_block(block)
         ets_add_alt(block)
         IO.puts("Chain.add_block: Extended   alt #{info} | (@#{Block.printable(peak)}")
