@@ -266,7 +266,13 @@ defmodule Chain do
       true ->
         parent_hash = Block.parent_hash(block)
 
-        GenServer.call(__MODULE__, {:add_block, block, parent_hash, relay})
+        ret = GenServer.call(__MODULE__, {:add_block, block, parent_hash, relay})
+
+        if ret == :added do
+          Chain.Worker.update()
+        end
+
+        ret
     end
   end
 

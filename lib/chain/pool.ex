@@ -31,8 +31,6 @@ defmodule Chain.Pool do
     call(fn pool = %{transactions: transactions}, _from ->
       {:reply, :ok, %{pool | transactions: Map.drop(transactions, keys)}}
     end)
-
-    Chain.Worker.update()
   end
 
   @spec add_transaction(Transaction.t()) :: :ok
