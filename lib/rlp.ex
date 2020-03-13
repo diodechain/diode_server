@@ -55,6 +55,17 @@ defmodule Rlp do
     do_encode!("")
   end
 
+  defp do_encode!(struct) when is_struct(struct) do
+    do_encode!(
+      Map.from_struct(struct)
+      |> Enum.map(fn {key, value} -> [Atom.to_string(key), value] end)
+    )
+  end
+
+  defp do_encode!(map) when is_map(map) do
+    encode!(Map.to_list(map))
+  end
+
   defp do_encode!(tuple) when is_tuple(tuple) do
     encode!(:erlang.tuple_to_list(tuple))
   end

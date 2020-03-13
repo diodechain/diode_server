@@ -198,21 +198,10 @@ defmodule EdgeTest do
   test "port" do
     check_counters()
     # Checking wrong port_id usage
-    assert rpc(:client_1, ["portopen", "wrongid", 3000]) == [
-             "error",
-             "portopen",
-             "invalid address"
-           ]
-
-    assert rpc(:client_1, ["portopen", "12345678901234567890", 3000]) == [
-             "error",
-             "portopen",
-             "not found"
-           ]
+    assert rpc(:client_1, ["portopen", "wrongid", 3000]) == ["invalid address"]
+    assert rpc(:client_1, ["portopen", "12345678901234567890", 3000]) == ["not found"]
 
     assert rpc(:client_1, ["portopen", Wallet.address!(clientid(1)), 3000]) == [
-             "error",
-             "portopen",
              "can't connect to yourself"
            ]
 
@@ -409,7 +398,7 @@ defmodule EdgeTest do
 
     # Test blockquick with gap
     window_size = 10
-    headers = rpc(:client_1, ["getblockquick", 30, window_size])
+    [headers] = rpc(:client_1, ["getblockquick", 30, window_size])
 
     Enum.reduce(headers, peak - 9, fn [head, _miner], num ->
       assert head["number"] == num
@@ -486,6 +475,10 @@ defmodule EdgeTest do
     :binary.encode_unsigned(num)
   end
 
+  defp to_num(num) do
+    :binary.decode_unsigned(num)
+  end
+
   defp ensure_client(atom, n) do
     :io.format("ensure_client(~p)~n", [atom])
 
@@ -516,8 +509,8 @@ defmodule EdgeTest do
 
   defp create_ticket(socket, state = %{unpaid_bytes: ub, paid_bytes: pb}) do
     if ub >= pb + @ticket_grace and not :persistent_term.get(:no_tickets) do
-      state = do_create_ticket(socket, state)
-      handle_ticket(socket, state)
+      {req, state} = do_create_ticket(socket, state)
+      handle_ticket(socket, state, req)
     else
       state
     end
@@ -547,17 +540,19 @@ defmodule EdgeTest do
       Ticket.device_signature(tck)
     ]
 
-    msg = Rlp.encode!(data)
+    req = req_id()
+    msg = Rlp.encode!([req, data])
     if socket != nil, do: :ok = :ssl.send(socket, msg)
 
-    %{
-      state
-      | paid_bytes: state.paid_bytes + @ticket_grace * count,
-        unpaid_bytes: state.unpaid_bytes + byte_size(msg)
-    }
+    {req,
+     %{
+       state
+       | paid_bytes: state.paid_bytes + @ticket_grace * count,
+         unpaid_bytes: state.unpaid_bytes + byte_size(msg)
+     }}
   end
 
-  def handle_ticket(socket, state = %{events: events}) do
+  def handle_ticket(socket, state = %{events: events}, req) do
     msg =
       receive do
         {:ssl, _, msg} -> msg
@@ -566,21 +561,21 @@ defmodule EdgeTest do
       end
 
     case Rlp.decode!(msg) do
-      ["response", "ticket", "thanks!", _bytes] ->
+      [^req, ["response", "ticket", "thanks!", _bytes]] ->
         %{state | unpaid_bytes: state.unpaid_bytes + byte_size(msg)}
 
-      ["response", "ticket", "too_low", _peak, conns, bytes, _address, _signature] ->
+      [^req, ["response", "ticket", "too_low", _peak, conns, bytes, _address, _signature]] ->
         state = %{
           state
-          | conns: conns,
-            paid_bytes: bytes,
+          | conns: to_num(conns),
+            paid_bytes: to_num(bytes),
             unpaid_bytes: bytes + state.unpaid_bytes + byte_size(msg)
         }
 
         create_ticket(socket, state)
 
       _ ->
-        handle_ticket(socket, %{state | events: :queue.in(msg, events)})
+        handle_ticket(socket, %{state | events: :queue.in(msg, events)}, req)
     end
   end
 
@@ -593,8 +588,8 @@ defmodule EdgeTest do
     end
 
     receive do
-      {:ssl, _, msg} ->
-        clientloop(socket, handle_msg(msg, state))
+      {:ssl, _, rlp} ->
+        clientloop(socket, handle_msg(rlp, state))
 
       {:ssl_closed, _} ->
         IO.puts("Remote closed the connection, #{inspect(state)}")
@@ -671,11 +666,11 @@ defmodule EdgeTest do
     end
   end
 
-  defp handle_msg(msg, state) do
-    state = %{state | unpaid_bytes: state.unpaid_bytes + byte_size(msg)}
+  defp handle_msg(rlp, state) do
+    state = %{state | unpaid_bytes: state.unpaid_bytes + byte_size(rlp)}
 
-    [req | _rest] = Rlp.decode!(msg)
-    :io.format("handle_msg: ~p~n", [Rlp.decode!(msg)])
+    msg = [req | _rest] = Rlp.decode!(rlp)
+    :io.format("handle_msg: ~p~n", [msg])
 
     case Map.get(state.recv_id, req) do
       nil ->
@@ -725,7 +720,7 @@ defmodule EdgeTest do
   defp crecv(pid) do
     case call(pid, :recv) do
       {:ok, crecv} ->
-        {:ok, Rlp.decode!(crecv)}
+        {:ok, crecv}
 
       error ->
         error
@@ -735,7 +730,7 @@ defmodule EdgeTest do
   defp crecv(pid, req) do
     case call(pid, {:recv, req}) do
       {:ok, crecv} ->
-        {:ok, Rlp.decode!(crecv)}
+        {:ok, crecv}
 
       error ->
         error

@@ -139,8 +139,8 @@ defmodule Network.EdgeV2 do
 
   def handle_msg(msg, state) do
     case msg do
-      ["hello", vsn | flags] ->
-        if vsn != 1_000 do
+      ["hello", vsn | flags] when is_binary(vsn) ->
+        if to_num(vsn) != 1_000 do
           {error("version not supported"), state}
         else
           state1 =
@@ -208,20 +208,22 @@ defmodule Network.EdgeV2 do
       ["getblockpeak"] ->
         response(Chain.peak())
 
-      ["getblock", index] when is_integer(index) ->
-        response(Chain.block(index))
+      ["getblock", index] when is_binary(index) ->
+        response(Chain.block(to_num(index)))
 
-      ["getblockheader", index] when is_integer(index) ->
-        response(block_header(index))
+      ["getblockheader", index] when is_binary(index) ->
+        response(block_header(to_num(index)))
 
-      ["getblockheader2", index] when is_integer(index) ->
-        header = block_header(index)
+      ["getblockheader2", index] when is_binary(index) ->
+        header = block_header(to_num(index))
         pubkey = Chain.Header.recover_miner(header) |> Wallet.pubkey!()
         response(header, pubkey)
 
       ["getblockquick", last_block, window_size]
-      when is_integer(last_block) and
-             is_integer(window_size) ->
+      when is_binary(last_block) and
+             is_binary(window_size) ->
+        window_size = to_num(window_size)
+        last_block = to_num(last_block)
         # this will throw if the block does not exist
         block_header(last_block)
 
@@ -234,17 +236,17 @@ defmodule Network.EdgeV2 do
         |> response()
 
       ["getblockquick2", last_block, window_size]
-      when is_integer(last_block) and
-             is_integer(window_size) ->
-        get_blockquick_seq(last_block, window_size)
+      when is_binary(last_block) and
+             is_binary(window_size) ->
+        get_blockquick_seq(to_num(last_block), to_num(window_size))
         |> response()
 
       ["getstateroots", index] ->
-        merkel = Chain.State.tree(Chain.state(index))
+        merkel = Chain.State.tree(Chain.state(to_num(index)))
         response(MerkleTree.root_hashes(merkel))
 
       ["getaccount", index, id] ->
-        mstate = Chain.state(index)
+        mstate = Chain.state(to_num(index))
 
         case Chain.State.account(mstate, id) do
           nil ->
@@ -267,7 +269,7 @@ defmodule Network.EdgeV2 do
         end
 
       ["getaccountroots", index, id] ->
-        mstate = Chain.state(index)
+        mstate = Chain.state(to_num(index))
 
         case Chain.State.account(mstate, id) do
           nil -> error("account does not exist")
@@ -275,7 +277,7 @@ defmodule Network.EdgeV2 do
         end
 
       ["getaccountvalue", index, id, key] ->
-        mstate = Chain.state(index)
+        mstate = Chain.state(to_num(index))
 
         case Chain.State.account(mstate, id) do
           nil -> error("account does not exist")
@@ -283,10 +285,10 @@ defmodule Network.EdgeV2 do
         end
 
       ["portopen", device_id, port, flags] ->
-        portopen(state, device_id, port, flags)
+        portopen(state, device_id, to_num(port), flags)
 
       ["portopen", device_id, port] ->
-        portopen(state, device_id, port, "rw")
+        portopen(state, device_id, to_num(port), "rw")
 
       ["response", "portopen", ref, "ok"] ->
         GenServer.call(state.pid, fn _from, state ->
@@ -358,10 +360,10 @@ defmodule Network.EdgeV2 do
     # should be [request_id, method_params, opts]
     case msg do
       [request_id, method_params, opts] ->
-        handle_request(state, :binary.decode_unsigned(request_id), method_params, opts)
+        handle_request(state, to_num(request_id), method_params, opts)
 
       [request_id, method_params] ->
-        handle_request(state, :binary.decode_unsigned(request_id), method_params, [])
+        handle_request(state, to_num(request_id), method_params, [])
 
       _other ->
         log(state, "connection closed because wrong message received.")
@@ -520,6 +522,8 @@ defmodule Network.EdgeV2 do
 
   defp random_ref() do
     Random.uint31h()
+    |> to_bin()
+
     # :io.format("REF ~p~n", [ref])
   end
 
@@ -768,5 +772,13 @@ defmodule Network.EdgeV2 do
       nil -> throw(:notfound)
       block -> Chain.Header.strip_state(block.header)
     end
+  end
+
+  defp to_num(bin) do
+    :binary.decode_unsigned(bin)
+  end
+
+  defp to_bin(num) do
+    :binary.encode_unsigned(num)
   end
 end
