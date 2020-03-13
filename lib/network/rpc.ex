@@ -95,8 +95,11 @@ defmodule Network.Rpc do
         result(map_size(peers))
 
       "net_edgeCount" ->
-        peers = Network.Server.get_connections(Network.EdgeHandler)
-        result(map_size(peers))
+        peers =
+          map_size(Network.Server.get_connections(Network.EdgeV1)) +
+            map_size(Network.Server.get_connections(Network.EdgeV2))
+
+        result(peers)
 
       "eth_sendRawTransaction" ->
         [hextx] = params

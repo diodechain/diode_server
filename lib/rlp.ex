@@ -2,12 +2,14 @@
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
 defmodule Rlp do
+  @type rlp() :: binary() | [rlp()]
+
   @spec encode!(nil | binary() | maybe_improper_list() | non_neg_integer() | tuple()) :: binary()
   def encode!(term) do
     :erlang.iolist_to_binary(do_encode!(term))
   end
 
-  @spec decode!(binary()) :: binary() | [binary()]
+  @spec decode!(binary()) :: rlp()
   def decode!(bin) do
     {term, ""} = do_decode!(bin)
     term

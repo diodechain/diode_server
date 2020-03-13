@@ -37,7 +37,7 @@ defmodule PeerTest do
     assert Chain.peak() == size + 1
 
     # Creating peer connection
-    pid = Server.ensure_node_connection(PeerHandler, Wallet.new(), "localhost", peerPort(1))
+    pid = Server.ensure_node_connection(PeerHandler, Wallet.new(), "localhost", peer_port(1))
     assert GenServer.call(pid, :ping) == :pong
 
     # Waiting for the connection to settle
@@ -63,7 +63,7 @@ defmodule PeerTest do
     {:ok, {_head, _opt, body}} =
       :httpc.request(
         :post,
-        {'http://localhost:#{rpcPort(num)}', [], 'application/json',
+        {'http://localhost:#{rpc_port(num)}', [], 'application/json',
          '{"id":1, "method":"#{method}", "params":[#{params}]}'},
         [timeout: 5000],
         []

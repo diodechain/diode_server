@@ -19,9 +19,9 @@ defmodule Diode do
     end
 
     puts("====== ENV #{Mix.env()} ======")
-    puts("Edge Port: #{edgePort()}")
-    puts("Peer Port: #{peerPort()}")
-    puts("RPC  Port: #{rpcPort()}")
+    puts("Edge Port: #{edge_port()}")
+    puts("Peer Port: #{peer_port()}")
+    puts("RPC  Port: #{rpc_port()}")
     puts("Data Dir : #{data_dir()}")
     puts("")
 
@@ -61,7 +61,7 @@ defmodule Diode do
       if Mix.env() == :benchmark do
         base_children
       else
-        {:ok, _pid} = rpc_api(:http, port: rpcPort())
+        {:ok, _pid} = rpc_api(:http, port: rpc_port())
 
         if not dev_mode?() do
           start_ssl()
@@ -69,8 +69,9 @@ defmodule Diode do
 
         network_children = [
           # Starting External Interfaces
-          Network.Server.child(edgePort(), Network.EdgeHandler),
-          Network.Server.child(peerPort(), Network.PeerHandler),
+          Network.Server.child(edge2_port(), Network.EdgeV2),
+          Network.Server.child(edge_port(), Network.EdgeV1),
+          Network.Server.child(peer_port(), Network.PeerHandler),
           worker(Kademlia, [args])
         ]
 
@@ -106,14 +107,14 @@ defmodule Diode do
     case File.read("priv/privkey.pem") do
       {:ok, _} ->
         puts("++++++  SSL ON  ++++++")
-        puts("RPC  SSL Port: #{rpcsPort()}")
+        puts("RPC  SSL Port: #{rpcs_port()}")
         puts("")
 
         rpc_api(:https,
           keyfile: "priv/privkey.pem",
           certfile: "priv/cert.pem",
           cacertfile: "priv/fullchain.pem",
-          port: rpcsPort(),
+          port: rpcs_port(),
           otp_app: Diode
         )
 
@@ -218,22 +219,27 @@ defmodule Diode do
     end)
   end
 
-  @spec rpcPort() :: integer()
-  def rpcPort() do
+  @spec rpc_port() :: integer()
+  def rpc_port() do
     get_env_int("RPC_PORT", 8545)
   end
 
-  def rpcsPort() do
+  def rpcs_port() do
     get_env_int("RPCS_PORT", 8443)
   end
 
-  @spec edgePort() :: integer()
-  def edgePort() do
+  @spec edge_port() :: integer()
+  def edge_port() do
     get_env_int("EDGE_PORT", 41045)
   end
 
-  @spec peerPort() :: integer()
-  def peerPort() do
+  @spec edge_port() :: integer()
+  def edge2_port() do
+    get_env_int("EDGE2_PORT", 41046)
+  end
+
+  @spec peer_port() :: integer()
+  def peer_port() do
     get_env_int("PEER_PORT", 51054)
   end
 
@@ -260,7 +266,7 @@ defmodule Diode do
   def self(), do: self(host())
 
   def self(hostname) do
-    Object.Server.new(hostname, peerPort(), edgePort())
+    Object.Server.new(hostname, peer_port(), edge_port())
     |> Object.Server.sign(Wallet.privkey!(Diode.miner()))
   end
 

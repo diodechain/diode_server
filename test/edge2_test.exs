@@ -4,7 +4,7 @@
 defmodule EdgeTest do
   use ExUnit.Case, async: false
   alias Network.Server, as: Server
-  alias Network.EdgeV1, as: EdgeHandler
+  alias Network.EdgeV2, as: EdgeHandler
   alias Object.Ticket, as: Ticket
   import Ticket
   import TestHelper
@@ -21,6 +21,7 @@ defmodule EdgeTest do
     IO.puts("Starting clients")
     Diode.ticket_grace(@ticket_grace)
     :persistent_term.put(:no_tickets, false)
+    Process.put(:req_id, 0)
     ensure_clients()
 
     on_exit(fn ->
@@ -57,8 +58,8 @@ defmodule EdgeTest do
     # Test byte counter matches
     assert call(:client_1, :bytes) == {:ok, 102}
     assert call(:client_2, :bytes) == {:ok, 102}
-    assert rpc(:client_1, ["bytes"]) == ["response", "bytes", 102]
-    assert rpc(:client_2, ["bytes"]) == ["response", "bytes", 102]
+    assert rpc(:client_1, ["bytes"]) == [102 |> to_bin()]
+    assert rpc(:client_2, ["bytes"]) == [102 |> to_bin()]
   end
 
   test "getblock" do
@@ -168,8 +169,8 @@ defmodule EdgeTest do
 
     obj = Diode.self()
     assert(Object.key(obj) == id)
-    enc = Json.encode!(Object.encode_list!(obj))
-    assert obj == Object.decode_list!(Json.decode!(enc))
+    enc = Rlp.encode!(Object.encode_list!(obj))
+    assert obj == Object.decode_list!(Rlp.decode!(enc))
 
     # Getnode
     ["response", "getnode", node] = rpc(:client_1, ["getnode", id])
@@ -218,12 +219,14 @@ defmodule EdgeTest do
     check_counters()
     # Connecting to "right" port id
     client2id = Wallet.address!(clientid(2))
-    assert csend(:client_1, ["portopen", client2id, 3000]) == {:ok, :ok}
-    {:ok, ["portopen", 3000, ref1, access_id]} = crecv(:client_2)
+    req1 = req_id()
+    port = to_bin(3000)
+    assert csend(:client_1, ["portopen", client2id, port], req1) == {:ok, :ok}
+    {:ok, [req2, ["portopen", ^port, ref1, access_id]]} = crecv(:client_2)
     assert access_id == Wallet.address!(clientid(1))
 
-    assert csend(:client_2, ["response", "portopen", ref1, "ok"]) == {:ok, :ok}
-    {:ok, ["response", "portopen", "ok", ref2]} = crecv(:client_1)
+    assert csend(:client_2, ["response", "portopen", ref1, "ok"], req2) == {:ok, :ok}
+    {:ok, ["response", "ok", ref2]} = crecv(:client_1, req1)
     assert ref1 == ref2
 
     for n <- 1..50 do
@@ -371,7 +374,7 @@ defmodule EdgeTest do
     end
 
     # Closing port ref1
-    assert rpc(:client_1, ["portclose", ref1]) == ["response", "portclose", "ok"]
+    assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
 
     # Other port ref3 still working
     assert rpc(:client_1, ["portsend", ref3, "ping from 3!"]) == ["response", "portsend", "ok"]
@@ -406,7 +409,7 @@ defmodule EdgeTest do
 
     # Test blockquick with gap
     window_size = 10
-    ["response", "getblockquick", headers] = rpc(:client_1, ["getblockquick", 30, window_size])
+    headers = rpc(:client_1, ["getblockquick", 30, window_size])
 
     Enum.reduce(headers, peak - 9, fn [head, _miner], num ->
       assert head["number"] == num
@@ -417,7 +420,7 @@ defmodule EdgeTest do
 
     # Test blockquick with gap
     window_size = 20
-    ["response", "getblockquick", headers] = rpc(:client_1, ["getblockquick", 30, window_size])
+    headers = rpc(:client_1, ["getblockquick", 30, window_size])
 
     Enum.reduce(headers, peak - 19, fn [head, _miner], num ->
       assert head["number"] == num
@@ -429,8 +432,7 @@ defmodule EdgeTest do
     # Test blockquick without gap
     window_size = 20
 
-    ["response", "getblockquick", headers] =
-      rpc(:client_1, ["getblockquick", peak - 10, window_size])
+    headers = rpc(:client_1, ["getblockquick", peak - 10, window_size])
 
     Enum.reduce(headers, peak - 9, fn [head, _miner], num ->
       assert head["number"] == num
@@ -443,13 +445,15 @@ defmodule EdgeTest do
   defp check_counters() do
     # Checking counters
     {:ok, bytes} = call(:client_2, :bytes)
-    assert rpc(:client_2, ["bytes"]) == ["response", "bytes", bytes]
+    assert rpc(:client_2, ["bytes"]) == [bytes |> to_bin()]
 
     {:ok, bytes} = call(:client_1, :bytes)
-    assert rpc(:client_1, ["bytes"]) == ["response", "bytes", bytes]
+    assert rpc(:client_1, ["bytes"]) == [bytes |> to_bin()]
   end
 
   defp kill(atom) do
+    :io.format("Killing ~p~n", [atom])
+
     case Process.whereis(atom) do
       nil ->
         :ok
@@ -472,22 +476,29 @@ defmodule EdgeTest do
   end
 
   defp ensure_clients() do
+    :io.format("ensure_clients()~n")
     ensure_client(:client_1, 1)
     ensure_client(:client_2, 2)
     :ok
   end
 
+  defp to_bin(num) do
+    :binary.encode_unsigned(num)
+  end
+
   defp ensure_client(atom, n) do
+    :io.format("ensure_client(~p)~n", [atom])
+
     try do
       case rpc(atom, ["ping"]) do
-        ["response", "ping", "pong"] -> :ok
+        ["pong"] -> :ok
         _ -> true = Process.register(client(n), atom)
       end
     rescue
       ArgumentError -> true = Process.register(client(n), atom)
     end
 
-    assert rpc(atom, ["ping"]) == ["response", "ping", "pong"]
+    assert rpc(atom, ["ping"]) == ["pong"]
   end
 
   def check(_cert, event, state) do
@@ -536,7 +547,7 @@ defmodule EdgeTest do
       Ticket.device_signature(tck)
     ]
 
-    msg = Json.encode!(data)
+    msg = Rlp.encode!(data)
     if socket != nil, do: :ok = :ssl.send(socket, msg)
 
     %{
@@ -554,7 +565,7 @@ defmodule EdgeTest do
         1500 -> throw(:missing_ticket_reply)
       end
 
-    case Json.decode!(msg) do
+    case Rlp.decode!(msg) do
       ["response", "ticket", "thanks!", _bytes] ->
         %{state | unpaid_bytes: state.unpaid_bytes + byte_size(msg)}
 
@@ -614,7 +625,27 @@ defmodule EdgeTest do
           clientloop(socket, state)
         end
 
+      {pid, {:recv, req_id}} ->
+        list = :queue.to_list(state.data)
+        item = Enum.find(list, nil, fn [req | _rest] -> req == req_id end)
+
+        state =
+          if item == nil do
+            %{state | recv_id: Map.put(state.recv_id, req_id, pid)}
+          else
+            list = List.delete(list, item)
+            send(pid, {:ret, item})
+            %{state | data: :queue.from_list(list)}
+          end
+
+        if socket == nil and :queue.is_empty(state.data) do
+          :ok
+        else
+          clientloop(socket, state)
+        end
+
       {pid, :quit} ->
+        :io.format("Got quit!~n")
         send(pid, {:ret, :ok})
 
       {pid, :bytes} ->
@@ -643,33 +674,68 @@ defmodule EdgeTest do
   defp handle_msg(msg, state) do
     state = %{state | unpaid_bytes: state.unpaid_bytes + byte_size(msg)}
 
-    case state.recv do
+    [req | _rest] = Rlp.decode!(msg)
+    :io.format("handle_msg: ~p~n", [Rlp.decode!(msg)])
+
+    case Map.get(state.recv_id, req) do
       nil ->
-        %{state | data: :queue.in(msg, state.data)}
+        case state.recv do
+          nil ->
+            %{state | data: :queue.in(msg, state.data)}
+
+          from ->
+            send(from, {:ret, msg})
+            %{state | recv: nil}
+        end
 
       from ->
         send(from, {:ret, msg})
-        %{state | recv: nil}
+        %{state | recv_id: Map.delete(state.recv_id, req)}
     end
   end
 
   defp rpc(pid, data) do
-    with {:ok, _} <- csend(pid, data),
-         {:ok, crecv} <- crecv(pid) do
-      crecv
+    :io.format("rpc(~p, ~p)~n", [pid, data])
+    req = req_id()
+
+    with {:ok, _} <- csend(pid, data, req),
+         {:ok, crecv} <- crecv(pid, req) do
+      tl(Enum.at(crecv, 1))
     else
       {:error, reason} -> {:error, reason}
     end
   end
 
-  def csend(pid, data) do
-    call(pid, {:send, Json.encode!(data)})
+  defp req_id() do
+    :io.format("req_id()~n")
+
+    ret =
+      Process.put(:req_id, Process.get(:req_id, 0) + 1)
+      |> to_bin()
+
+    :io.format("req_id()= ~p~n", [ret])
+    ret
+  end
+
+  def csend(pid, data, req \\ req_id()) do
+    :io.format("csend(~p, ~p, ~p)~n", [pid, data, req])
+    call(pid, {:send, Rlp.encode!([req | [data]])})
   end
 
   defp crecv(pid) do
     case call(pid, :recv) do
       {:ok, crecv} ->
-        Json.decode(crecv)
+        {:ok, Rlp.decode!(crecv)}
+
+      error ->
+        error
+    end
+  end
+
+  defp crecv(pid, req) do
+    case call(pid, {:recv, req}) do
+      {:ok, crecv} ->
+        {:ok, Rlp.decode!(crecv)}
 
       error ->
         error
@@ -677,6 +743,7 @@ defmodule EdgeTest do
   end
 
   defp call(pid, cmd, timeout \\ 5000) do
+    :io.format("call(~p, ~p ~p)~n", [pid, cmd, timeout])
     send(pid, {self(), cmd})
 
     receive do
@@ -706,8 +773,9 @@ defmodule EdgeTest do
   end
 
   defp client(n) do
+    :io.format("client(~p)~n", [n])
     cert = "./test/pems/device#{n}_certificate.pem"
-    {:ok, socket} = :ssl.connect('localhost', Diode.edge_port(), options(cert), 5000)
+    {:ok, socket} = :ssl.connect('localhost', Diode.edge2_port(), options(cert), 5000)
     wallet = clientid(n)
     key = Wallet.privkey!(wallet)
     fleet = <<0::160>>
@@ -721,6 +789,7 @@ defmodule EdgeTest do
     state = %{
       data: :queue.new(),
       recv: nil,
+      recv_id: %{},
       key: key,
       unpaid_bytes: bytes,
       paid_bytes: bytes,

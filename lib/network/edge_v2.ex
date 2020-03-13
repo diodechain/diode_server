@@ -1,7 +1,7 @@
 # Diode Server
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
-defmodule Network.EdgeHandler do
+defmodule Network.EdgeV2 do
   use Network.Handler
   alias Object.Ticket, as: Ticket
   import Ticket, only: :macros
@@ -26,7 +26,7 @@ defmodule Network.EdgeHandler do
 
     @type t :: %Port{
             state: :open | :pre_open,
-            ref: reference(),
+            ref: integer(),
             from: nil | {pid(), reference()},
             clients: [PortClient.t()],
             portname: any(),
@@ -43,24 +43,24 @@ defmodule Network.EdgeHandler do
   """
   defmodule PortCollection do
     defstruct refs: %{}
-    @type t :: %PortCollection{refs: %{reference() => Port.t()}}
+    @type t :: %PortCollection{refs: %{integer() => Port.t()}}
 
     @spec put(PortCollection.t(), Port.t()) :: PortCollection.t()
     def put(pc, port) do
       %{pc | refs: Map.put(pc.refs, port.ref, port)}
     end
 
-    @spec delete(PortCollection.t(), reference()) :: PortCollection.t()
+    @spec delete(PortCollection.t(), integer()) :: PortCollection.t()
     def delete(pc, ref) do
       %{pc | refs: Map.delete(pc.refs, ref)}
     end
 
-    @spec get(PortCollection.t(), reference(), any()) :: Port.t() | nil
+    @spec get(PortCollection.t(), integer(), any()) :: Port.t() | nil
     def get(pc, ref, default \\ nil) do
       Map.get(pc.refs, ref, default)
     end
 
-    @spec get_clientref(PortCollection.t(), reference()) :: {PortClient.t(), Port.t()} | nil
+    @spec get_clientref(PortCollection.t(), integer()) :: {PortClient.t(), Port.t()} | nil
     def get_clientref(pc, cref) do
       Enum.find_value(pc.refs, fn {_ref, port} ->
         Enum.find_value(port.clients, fn
@@ -102,7 +102,8 @@ defmodule Network.EdgeHandler do
           ports: PortCollection.t(),
           unpaid_bytes: integer(),
           unpaid_rx_bytes: integer(),
-          last_ticket: integer()
+          last_ticket: integer(),
+          pid: pid()
         }
 
   def do_init(state) do
@@ -115,7 +116,8 @@ defmodule Network.EdgeHandler do
         extra_flags: [],
         unpaid_bytes: 0,
         unpaid_rx_bytes: 0,
-        last_ticket: nil
+        last_ticket: nil,
+        pid: self()
       })
 
     log(state, "accepted connection")
@@ -139,7 +141,7 @@ defmodule Network.EdgeHandler do
     case msg do
       ["hello", vsn | flags] ->
         if vsn != 1_000 do
-          send(state, ["error", "hello", "version not supported"])
+          {error("version not supported"), state}
         else
           state1 =
             Enum.reduce(flags, state, fn flag, state ->
@@ -150,50 +152,72 @@ defmodule Network.EdgeHandler do
             end)
 
           # If compression has been enabled then on the next frame
-          state = send!(state, ["response", "hello", "ok"])
-          %{state | compression: state1.compression, extra_flags: state1.extra_flags}
+          state = %{state | compression: state1.compression, extra_flags: state1.extra_flags}
+          {response("ok"), state}
         end
 
       ["ticket" | rest = [_block, _fc, _tc, _tb, _la, _ds]] ->
         handle_ticket(rest, state)
 
-      ["ping"] ->
-        send!(state, ["response", "ping", "pong"])
-
       ["bytes"] ->
-        send!(state, ["response", "bytes", state.unpaid_bytes])
+        {response(state.unpaid_bytes), state}
+
+      ["portsend", ref, data] ->
+        case PortCollection.get(state.ports, ref) do
+          nil ->
+            error("port does not exist")
+
+          %Port{state: :open, clients: clients} ->
+            for client <- clients do
+              if client.write do
+                GenServer.cast(client.pid, fn cstate ->
+                  {:noreply, send_socket(cstate, [random_ref(), "portsend", client.ref, data])}
+                end)
+              end
+            end
+
+            response("ok")
+        end
+
+      _other ->
+        :async
+    end
+  end
+
+  def handle_async_msg(msg, state) do
+    case msg do
+      ["ping"] ->
+        response("pong")
 
       ["getobject", key] ->
         value =
           case Kademlia.find_value(key) do
             nil -> nil
-            binary -> Json.prepare!(Object.encode_list!(Object.decode!(binary)), all_hex: true)
+            binary -> Object.encode_list!(Object.decode!(binary))
           end
 
-        send!(state, ["response", "getobject", value])
+        response(value)
 
       ["getnode", node] ->
-        ret =
-          case Kademlia.find_node(node) do
-            nil -> nil
-            item -> Object.encode_list!(KBuckets.object(item))
-          end
-
-        send!(state, ["response", "getnode", ret])
+        case Kademlia.find_node(node) do
+          nil -> nil
+          item -> Object.encode_list!(KBuckets.object(item))
+        end
+        |> response()
 
       ["getblockpeak"] ->
-        send!(state, ["response", "getblockpeak", Chain.peak()])
+        response(Chain.peak())
 
       ["getblock", index] when is_integer(index) ->
-        send!(state, ["response", "getblock", Chain.block(index)])
+        response(Chain.block(index))
 
       ["getblockheader", index] when is_integer(index) ->
-        send!(state, ["response", "getblockheader", block_header(index)])
+        response(block_header(index))
 
       ["getblockheader2", index] when is_integer(index) ->
         header = block_header(index)
         pubkey = Chain.Header.recover_miner(header) |> Wallet.pubkey!()
-        send!(state, ["response", "getblockheader2", header, pubkey])
+        response(header, pubkey)
 
       ["getblockquick", last_block, window_size]
       when is_integer(last_block) and
@@ -201,41 +225,37 @@ defmodule Network.EdgeHandler do
         # this will throw if the block does not exist
         block_header(last_block)
 
-        answ =
-          get_blockquick_seq(last_block, window_size)
-          |> Enum.map(fn num ->
-            header = block_header(num)
-            miner = Chain.Header.recover_miner(header) |> Wallet.pubkey!()
-            {header, miner}
-          end)
-
-        send!(state, ["response", "getblockquick", answ])
+        get_blockquick_seq(last_block, window_size)
+        |> Enum.map(fn num ->
+          header = block_header(num)
+          miner = Chain.Header.recover_miner(header) |> Wallet.pubkey!()
+          {header, miner}
+        end)
+        |> response()
 
       ["getblockquick2", last_block, window_size]
       when is_integer(last_block) and
              is_integer(window_size) ->
-        answ = get_blockquick_seq(last_block, window_size)
-        send!(state, ["response", "getblockquick2", answ])
+        get_blockquick_seq(last_block, window_size)
+        |> response()
 
       ["getstateroots", index] ->
         merkel = Chain.State.tree(Chain.state(index))
-        send!(state, ["response", "getstateroots", MerkleTree.root_hashes(merkel)])
+        response(MerkleTree.root_hashes(merkel))
 
       ["getaccount", index, id] ->
         mstate = Chain.state(index)
 
         case Chain.State.account(mstate, id) do
           nil ->
-            send!(state, ["error", "getaccount", "account does not exist"])
+            error("account does not exist")
 
           account = %Chain.Account{} ->
             proof =
               Chain.State.tree(mstate)
               |> MerkleTree.get_proofs(id)
 
-            send!(state, [
-              "response",
-              "getaccount",
+            response(
               %{
                 nonce: account.nonce,
                 balance: account.balance,
@@ -243,109 +263,114 @@ defmodule Network.EdgeHandler do
                 code: Chain.Account.codehash(account)
               },
               proof
-            ])
+            )
         end
 
       ["getaccountroots", index, id] ->
         mstate = Chain.state(index)
 
         case Chain.State.account(mstate, id) do
-          nil ->
-            send!(state, ["error", "getaccountroots", "account does not exist"])
-
-          acc ->
-            send!(state, [
-              "response",
-              "getaccountroots",
-              MerkleTree.root_hashes(Chain.Account.root(acc))
-            ])
+          nil -> error("account does not exist")
+          acc -> response(MerkleTree.root_hashes(Chain.Account.root(acc)))
         end
 
       ["getaccountvalue", index, id, key] ->
         mstate = Chain.state(index)
 
         case Chain.State.account(mstate, id) do
-          nil ->
-            send!(state, ["error", "getaccountvalue", "account does not exist"])
-
-          acc ->
-            send!(state, [
-              "response",
-              "getaccountvalue",
-              MerkleTree.get_proofs(Chain.Account.root(acc), key)
-            ])
+          nil -> error("account does not exist")
+          acc -> response(MerkleTree.get_proofs(Chain.Account.root(acc), key))
         end
 
       ["portopen", device_id, port, flags] ->
         portopen(state, device_id, port, flags)
 
       ["portopen", device_id, port] ->
-        portopen(state, device_id, port)
+        portopen(state, device_id, port, "rw")
 
       ["response", "portopen", ref, "ok"] ->
-        port = %Port{state: :pre_open} = PortCollection.get(state.ports, ref)
-        GenServer.reply(port.from, {:ok, ref})
-        ports = PortCollection.put(state.ports, %Port{port | state: :open, from: nil})
-        send!(%{state | ports: ports})
+        GenServer.call(state.pid, fn _from, state ->
+          port = %Port{state: :pre_open} = PortCollection.get(state.ports, ref)
+          GenServer.reply(port.from, {:ok, ref})
+          ports = PortCollection.put(state.ports, %Port{port | state: :open, from: nil})
+          {:reply, :ok, %{state | ports: ports}}
+        end)
+
+        nil
 
       ["error", "portopen", ref, reason] ->
         port = %Port{state: :pre_open} = PortCollection.get(state.ports, ref)
         GenServer.reply(port.from, {:error, reason})
-        portclose(state, port, false)
 
-      ["portsend", ref, data] ->
-        case PortCollection.get(state.ports, ref) do
-          nil ->
-            send!(state, ["error", "portsend", "port does not exist"])
+        GenServer.call(state.pid, fn _from, state ->
+          {:reply, :ok, portclose(state, port, false)}
+        end)
 
-          %Port{state: :open, clients: clients} ->
-            for client <- clients do
-              if client.write do
-                GenServer.cast(client.pid, fn cstate ->
-                  {:noreply, send!(cstate, ["portsend", client.ref, data])}
-                end)
-              end
-            end
-
-            send!(state, ["response", "portsend", "ok"])
-        end
+        nil
 
       ["portclose", ref] ->
         case PortCollection.get(state.ports, ref) do
           nil ->
-            send!(state, ["error", "portclose", "port does not exit"])
+            error("port does not exit")
 
           port = %Port{state: :open} ->
-            send!(state, ["response", "portclose", "ok"])
-            |> portclose(port, false)
+            GenServer.call(state.pid, fn _from, state ->
+              {:reply, :ok, portclose(state, port, false)}
+            end)
+
+            response("ok")
         end
 
       nil ->
         log(state, "Unhandled message: ~40s~n", [truncate(msg)])
-        send!(state, ["error", 400, "that is not json"])
+        error(400, "that is not rlp")
 
       _ ->
         log(state, "Unhandled message: ~40s~n", [truncate(msg)])
-        send!(state, ["error", 401, "bad input"])
+        error(401, "bad input")
     end
+  end
+
+  defp response(arg) do
+    response_array([arg])
+  end
+
+  defp response(arg, arg2) do
+    response_array([arg, arg2])
+  end
+
+  defp response_array(args) do
+    ["response" | args]
+  end
+
+  defp error(code, message) do
+    ["error", code, message]
+  end
+
+  defp error(message) do
+    ["error", message]
   end
 
   def handle_info({:ssl, _socket, raw_msg}, state) do
     state = account_incoming(state, raw_msg)
     msg = decode(state, raw_msg)
 
-    try do
-      state = handle_msg(msg, state)
-      {:noreply, state}
-    catch
-      :notfound ->
-        log(state, "connection closed because non existing block was requested.")
+    # should be [request_id, method_params, opts]
+    case msg do
+      [request_id, method_params, opts] ->
+        handle_request(state, :binary.decode_unsigned(request_id), method_params, opts)
+
+      [request_id, method_params] ->
+        handle_request(state, :binary.decode_unsigned(request_id), method_params, [])
+
+      _other ->
+        log(state, "connection closed because wrong message received.")
         {:stop, :normal, state}
     end
   end
 
   def handle_info({:topic, topic, message}, state) do
-    state = send!(state, [topic, message])
+    state = send_socket(state, [random_ref(), topic, message])
     {:noreply, state}
   end
 
@@ -378,6 +403,29 @@ defmodule Network.EdgeHandler do
     {:noreply, state}
   end
 
+  defp handle_request(state, request_id, method_params, _opts) do
+    case handle_msg(method_params, state) do
+      :async ->
+        pid = self()
+
+        spawn_link(fn ->
+          result = handle_async_msg(method_params, state)
+
+          GenServer.cast(pid, fn state2 ->
+            {:noreply, send_socket(state2, [request_id, result])}
+          end)
+        end)
+
+        {:noreply, state}
+
+      {result, state} ->
+        {:noreply, send_socket(state, [request_id, result])}
+
+      result ->
+        {:noreply, send_socket(state, result)}
+    end
+  end
+
   defp handle_ticket(
          [block, fleet_contract, total_connections, total_bytes, local_address, device_signature],
          state
@@ -404,16 +452,14 @@ defmodule Network.EdgeHandler do
             Kademlia.store(key, Object.encode!(dl))
           end)
 
-          %{state | unpaid_bytes: state.unpaid_bytes - bytes, last_ticket: Time.utc_now()}
-          |> send!(["response", "ticket", "thanks!", bytes])
+          {response("thanks!", bytes),
+           %{state | unpaid_bytes: state.unpaid_bytes - bytes, last_ticket: Time.utc_now()}}
 
         {:too_old, min} ->
-          send!(state, ["response", "ticket", "too_old", min])
+          response("too_old", min)
 
         {:too_low, last} ->
-          send!(state, [
-            "response",
-            "ticket",
+          response_array([
             "too_low",
             Ticket.block_hash(last),
             Ticket.total_connections(last),
@@ -424,7 +470,7 @@ defmodule Network.EdgeHandler do
       end
     else
       log(state, "Received invalid ticket!")
-      send!(state, ["error", "ticket", "signature mismatch"])
+      error("signature mismatch")
     end
   end
 
@@ -442,22 +488,24 @@ defmodule Network.EdgeHandler do
     |> truncate()
   end
 
-  defp portopen(state, device_id, portname, flags \\ "rw") do
+  defp portopen(state, device_id, portname, flags) do
+    address = device_address(state)
+
     cond do
-      device_id == Wallet.address!(device_id(state)) ->
-        send!(state, ["error", "portopen", "can't connect to yourself"])
+      device_id == address ->
+        error("can't connect to yourself")
 
       validate_flags(flags) == false ->
-        send!(state, ["error", "portopen", "invalid flags"])
+        error("invalid flags")
 
       true ->
         with <<bin::binary-size(20)>> <- device_id,
              w <- Wallet.from_address(bin),
              [pid] <- PubSub.subscribers({:edge, Wallet.address!(w)}) do
-          do_portopen(state, portname, flags, pid)
+          do_portopen(address, state.pid, portname, flags, pid)
         else
-          [] -> send!(state, ["error", "portopen", "not found"])
-          _other -> send!(state, ["error", "portopen", "invalid address"])
+          [] -> error("not found")
+          _other -> error("invalid address")
         end
     end
   end
@@ -470,10 +518,14 @@ defmodule Network.EdgeHandler do
   defp validate_flags("ws"), do: true
   defp validate_flags(_), do: false
 
-  defp do_portopen(state, portname, flags, pid) do
-    mon = Process.monitor(pid)
-    ref = Random.uint31h()
+  defp random_ref() do
+    Random.uint31h()
     # :io.format("REF ~p~n", [ref])
+  end
+
+  defp do_portopen(device_address, this, portname, flags, pid) do
+    mon = Process.monitor(pid)
+    ref = random_ref()
     spid = self()
 
     #  Receives an open request from another local connected edge worker.
@@ -505,7 +557,8 @@ defmodule Network.EdgeHandler do
 
               case PortCollection.find_sharedport(state2.ports, port) do
                 nil ->
-                  state2 = send!(state2, ["portopen", portname, ref, device_address(state)])
+                  state2 =
+                    send_socket(state2, [random_ref(), "portopen", portname, ref, device_address])
 
                   ports = PortCollection.put(state2.ports, port)
                   {:noreply, %{state2 | ports: ports}}
@@ -522,14 +575,12 @@ defmodule Network.EdgeHandler do
         end)
       catch
         kind, what ->
-          log(state, "Remote port failed ack on portopen: #{inspect({kind, what})}")
-          {:error, "#{inspect(kind)}"}
+          IO.puts("Remote port failed ack on portopen: #{inspect({kind, what})}")
+          {:error, "#{inspect(kind, what)}"}
       end
 
     case resp do
       {:ok, cref} ->
-        state = send!(state, ["response", "portopen", "ok", ref])
-
         client = %PortClient{
           pid: pid,
           mon: mon,
@@ -537,13 +588,18 @@ defmodule Network.EdgeHandler do
           write: String.contains?(flags, "w")
         }
 
-        ports = PortCollection.put(state.ports, %Port{state: :open, clients: [client], ref: ref})
+        GenServer.call(this, fn _from, state ->
+          ports =
+            PortCollection.put(state.ports, %Port{state: :open, clients: [client], ref: ref})
 
-        %{state | ports: ports}
+          {:reply, :ok, %{state | ports: ports}}
+        end)
+
+        response("ok", ref)
 
       {:error, reason} ->
         Process.demonitor(mon, [:flush])
-        send!(state, ["error", "portopen", reason, ref])
+        error("#{reason} #{ref}")
     end
   end
 
@@ -556,7 +612,7 @@ defmodule Network.EdgeHandler do
       Process.demonitor(client.mon, [:flush])
     end
 
-    state = if action, do: send!(state, ["portclose", port.ref]), else: state
+    state = if action, do: send_socket(state, [random_ref(), "portclose", port.ref]), else: state
     %{state | ports: PortCollection.delete(state.ports, port.ref)}
   end
 
@@ -578,7 +634,7 @@ defmodule Network.EdgeHandler do
 
     state =
       if action do
-        send!(state, ["portclose", ref])
+        send_socket(state, [random_ref(), "portclose", ref])
       else
         state
       end
@@ -597,16 +653,11 @@ defmodule Network.EdgeHandler do
   end
 
   defp decode(state, msg) do
-    msg =
-      case state.compression do
-        nil -> msg
-        :zlib -> :zlib.unzip(msg)
-      end
-
-    case Json.decode(msg) do
-      {:ok, obj} -> obj
-      _ -> nil
+    case state.compression do
+      nil -> msg
+      :zlib -> :zlib.unzip(msg)
     end
+    |> Rlp.decode!()
   end
 
   defp encode(nil) do
@@ -614,11 +665,11 @@ defmodule Network.EdgeHandler do
   end
 
   defp encode(msg) do
-    Json.encode!(msg)
+    Rlp.encode!(msg)
   end
 
-  defp send!(state = %{unpaid_bytes: b, unpaid_rx_bytes: rx}, data \\ nil) do
-    # log(state, "send: ~p", [data])
+  defp send_socket(state = %{unpaid_bytes: b, unpaid_rx_bytes: rx}, data) do
+    log(state, "send: ~p", [data])
 
     msg =
       if b > Diode.ticket_grace() do
@@ -628,11 +679,11 @@ defmodule Network.EdgeHandler do
         encode(data)
       end
 
-    if msg != "", do: :ok = do_send!(state, msg)
+    if msg != "", do: :ok = do_send_socket(state, msg)
     %{state | unpaid_bytes: b + byte_size(msg) + rx, unpaid_rx_bytes: 0}
   end
 
-  defp do_send!(state, msg) do
+  defp do_send_socket(state, msg) do
     msg =
       case state.compression do
         nil -> msg
