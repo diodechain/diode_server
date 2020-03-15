@@ -1,7 +1,7 @@
 # Diode Server
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
-defmodule EdgeTest do
+defmodule Edge2Test do
   use ExUnit.Case, async: false
   alias Network.Server, as: Server
   alias Network.EdgeV2, as: EdgeHandler
@@ -120,10 +120,8 @@ defmodule EdgeTest do
              Ticket.device_signature(tck)
            ]) ==
              [
-               "response",
-               "ticket",
                "thanks!",
-               0
+               ""
              ]
 
     # Submitting a second ticket with the same count should fail
@@ -214,8 +212,8 @@ defmodule EdgeTest do
     {:ok, [req2, ["portopen", ^port, ref1, access_id]]} = crecv(:client_2)
     assert access_id == Wallet.address!(clientid(1))
 
-    assert csend(:client_2, ["response", "portopen", ref1, "ok"], req2) == {:ok, :ok}
-    {:ok, ["response", "ok", ref2]} = crecv(:client_1, req1)
+    assert csend(:client_2, ["response", ref1, "ok"], req2) == {:ok, :ok}
+    {:ok, [_req, ["response", "ok", ref2]]} = crecv(:client_1, req1)
     assert ref1 == ref2
 
     for n <- 1..50 do
@@ -223,32 +221,28 @@ defmodule EdgeTest do
 
       # Sending traffic
       msg = String.duplicate("ping from 2!", n * n)
-      assert rpc(:client_2, ["portsend", ref1, msg]) == ["response", "portsend", "ok"]
-      assert crecv(:client_1) == {:ok, ["portsend", ref1, msg]}
+      assert rpc(:client_2, ["portsend", ref1, msg]) == ["ok"]
+      assert {:ok, [_req, ["portsend", ^ref1, ^msg]]} = crecv(:client_1)
 
       check_counters()
 
       # Both ways
       msg = String.duplicate("ping from 1!", n * n)
-      assert rpc(:client_1, ["portsend", ref1, msg]) == ["response", "portsend", "ok"]
-      assert crecv(:client_2) == {:ok, ["portsend", ref1, msg]}
+      assert rpc(:client_1, ["portsend", ref1, msg]) == ["ok"]
+      assert {:ok, [_req, ["portsend", ^ref1, ^msg]]} = crecv(:client_2)
     end
 
     check_counters()
     # Closing port
-    assert rpc(:client_1, ["portclose", ref1]) == ["response", "portclose", "ok"]
-    assert crecv(:client_2) == {:ok, ["portclose", ref1]}
+    assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
+    assert {:ok, [_req, ["portclose", ^ref1]]} = crecv(:client_2)
 
     # Sending to closed port
     assert rpc(:client_2, ["portsend", ref1, "ping from 2!"]) == [
-             "error",
-             "portsend",
              "port does not exist"
            ]
 
     assert rpc(:client_1, ["portsend", ref1, "ping from 1!"]) == [
-             "error",
-             "portsend",
              "port does not exist"
            ]
   end
@@ -401,7 +395,8 @@ defmodule EdgeTest do
     [headers] = rpc(:client_1, ["getblockquick", 30, window_size])
 
     Enum.reduce(headers, peak - 9, fn [head, _miner], num ->
-      assert head["number"] == num
+      head = Enum.map(head, fn [key, value] -> {String.to_atom(key), value} end)
+      assert to_num(head[:number]) == num
       num + 1
     end)
 
@@ -409,10 +404,11 @@ defmodule EdgeTest do
 
     # Test blockquick with gap
     window_size = 20
-    headers = rpc(:client_1, ["getblockquick", 30, window_size])
+    [headers] = rpc(:client_1, ["getblockquick", 30, window_size])
 
     Enum.reduce(headers, peak - 19, fn [head, _miner], num ->
-      assert head["number"] == num
+      head = Enum.map(head, fn [key, value] -> {String.to_atom(key), value} end)
+      assert to_num(head[:number]) == num
       num + 1
     end)
 
@@ -421,10 +417,11 @@ defmodule EdgeTest do
     # Test blockquick without gap
     window_size = 20
 
-    headers = rpc(:client_1, ["getblockquick", peak - 10, window_size])
+    [headers] = rpc(:client_1, ["getblockquick", peak - 10, window_size])
 
     Enum.reduce(headers, peak - 9, fn [head, _miner], num ->
-      assert head["number"] == num
+      head = Enum.map(head, fn [key, value] -> {String.to_atom(key), value} end)
+      assert to_num(head[:number]) == num
       num + 1
     end)
 
@@ -502,6 +499,8 @@ defmodule EdgeTest do
   end
 
   def clientboot(socket, state) do
+    Process.put(:req_id, 1000)
+
     receive do
       :go -> clientloop(socket, state)
     end

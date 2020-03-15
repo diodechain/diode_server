@@ -290,7 +290,8 @@ defmodule Network.EdgeV2 do
       ["portopen", device_id, port] ->
         portopen(state, device_id, to_num(port), "rw")
 
-      ["response", "portopen", ref, "ok"] ->
+      # "portopen" response
+      ["response", ref, "ok"] ->
         GenServer.call(state.pid, fn _from, state ->
           port = %Port{state: :pre_open} = PortCollection.get(state.ports, ref)
           GenServer.reply(port.from, {:ok, ref})
@@ -300,7 +301,8 @@ defmodule Network.EdgeV2 do
 
         nil
 
-      ["error", "portopen", ref, reason] ->
+      # "portopen" error
+      ["error", ref, reason] ->
         port = %Port{state: :pre_open} = PortCollection.get(state.ports, ref)
         GenServer.reply(port.from, {:error, reason})
 
@@ -436,10 +438,10 @@ defmodule Network.EdgeV2 do
       ticket(
         server_id: Wallet.address!(Diode.miner()),
         fleet_contract: fleet_contract,
-        total_connections: total_connections,
-        total_bytes: total_bytes,
+        total_connections: to_num(total_connections),
+        total_bytes: to_num(total_bytes),
         local_address: local_address,
-        block_number: block,
+        block_number: to_num(block),
         device_signature: device_signature
       )
 
@@ -562,7 +564,10 @@ defmodule Network.EdgeV2 do
               case PortCollection.find_sharedport(state2.ports, port) do
                 nil ->
                   state2 =
-                    send_socket(state2, [random_ref(), "portopen", portname, ref, device_address])
+                    send_socket(state2, [
+                      random_ref(),
+                      ["portopen", portname, ref, device_address]
+                    ])
 
                   ports = PortCollection.put(state2.ports, port)
                   {:noreply, %{state2 | ports: ports}}
