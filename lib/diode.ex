@@ -8,6 +8,7 @@ defmodule Diode do
 
   def start(_type, args) do
     import Supervisor.Spec, warn: false
+    :persistent_term.put(:env, Mix.env())
 
     if travis_mode?() do
       puts("++++++ TRAVIS DETECTED ++++++")
@@ -17,7 +18,6 @@ defmodule Diode do
       puts("~0p~n", [:inet.gethostname()])
     end
 
-    :persistent_term.put(:env, Mix.env())
     puts("====== ENV #{Mix.env()} ======")
     puts("Edge Port: #{edgePort()}")
     puts("Peer Port: #{peerPort()}")
