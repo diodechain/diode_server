@@ -51,6 +51,11 @@ defmodule Rlp do
     bin
   end
 
+  def list2map(list) do
+    Enum.map(list, fn [key, value] -> {key, value} end)
+    |> Map.new()
+  end
+
   defp do_encode!(nil) do
     do_encode!("")
   end
@@ -63,7 +68,12 @@ defmodule Rlp do
   end
 
   defp do_encode!(map) when is_map(map) do
-    encode!(Map.to_list(map))
+    encode!(
+      Map.to_list(map)
+      |> Enum.map(fn {key, value} ->
+        [if(is_atom(key), do: Atom.to_string(key), else: key), value]
+      end)
+    )
   end
 
   defp do_encode!(tuple) when is_tuple(tuple) do
@@ -99,6 +109,10 @@ defmodule Rlp do
       end
 
     [head, bin]
+  end
+
+  defp do_encode!(bits) when is_bitstring(bits) do
+    for <<x::size(1) <- bits>>, do: if(x == 1, do: "1", else: "0"), into: ""
   end
 
   defp do_encode!(0) do

@@ -56,14 +56,14 @@ defmodule Edge2Test do
     end
 
     # Test byte counter matches
-    assert call(:client_1, :bytes) == {:ok, 102}
-    assert call(:client_2, :bytes) == {:ok, 102}
-    assert rpc(:client_1, ["bytes"]) == [102 |> to_bin()]
-    assert rpc(:client_2, ["bytes"]) == [102 |> to_bin()]
+    assert call(:client_1, :bytes) == {:ok, 75}
+    assert call(:client_2, :bytes) == {:ok, 75}
+    assert rpc(:client_1, ["bytes"]) == [75 |> to_bin()]
+    assert rpc(:client_2, ["bytes"]) == [75 |> to_bin()]
   end
 
   test "getblock" do
-    assert rpc(:client_1, ["getblockpeak"]) == ["response", "getblockpeak", Chain.peak()]
+    assert rpc(:client_1, ["getblockpeak"]) == [Chain.peak() |> to_bin()]
   end
 
   test "getaccount" do
@@ -72,10 +72,12 @@ defmodule Edge2Test do
 
     {addr, acc} = hd(Chain.GenesisFactory.genesis_accounts())
 
-    ["response", "getaccount", ret, _proof] = rpc(:client_1, ["getaccount", Chain.peak(), addr])
+    [ret, _proof] = rpc(:client_1, ["getaccount", Chain.peak(), addr])
+
+    ret = Rlp.list2map(ret)
 
     assert ret["code"] == Chain.Account.codehash(acc)
-    assert ret["balance"] == acc.balance
+    assert to_num(ret["balance"]) == acc.balance
   end
 
   test "getaccountvalue" do
@@ -84,349 +86,348 @@ defmodule Edge2Test do
 
     {addr, _balance} = hd(Chain.GenesisFactory.genesis_accounts())
 
-    ["response", "getaccountvalue", ret] =
-      rpc(:client_1, ["getaccountvalue", Chain.peak(), addr, 0])
+    [ret] = rpc(:client_1, ["getaccountvalue", Chain.peak(), addr, 0])
 
     # Should be empty
     assert length(ret) == 2
   end
 
-  test "ticket" do
-    :persistent_term.put(:no_tickets, true)
-    {:ok, _} = call(:client_1, :quit)
-    {:ok, _} = call(:client_2, :quit)
-    TicketStore.clear()
-    ensure_clients()
-
-    tck =
-      ticket(
-        server_id: Wallet.address!(Diode.miner()),
-        total_connections: 1,
-        total_bytes: 0,
-        local_address: "spam",
-        block_number: Chain.peak(),
-        fleet_contract: <<0::unsigned-size(160)>>
-      )
-      |> Ticket.device_sign(clientkey(1))
-
-    # The first ticket submission should work
-    assert rpc(:client_1, [
-             "ticket",
-             Ticket.block_number(tck) |> to_bin(),
-             Ticket.fleet_contract(tck),
-             Ticket.total_connections(tck) |> to_bin(),
-             Ticket.total_bytes(tck) |> to_bin(),
-             Ticket.local_address(tck),
-             Ticket.device_signature(tck)
-           ]) ==
-             [
-               "thanks!",
-               ""
-             ]
-
-    # Submitting a second ticket with the same count should fail
-    assert rpc(:client_1, [
-             "ticket",
-             Ticket.block_number(tck) |> to_bin(),
-             Ticket.fleet_contract(tck),
-             Ticket.total_connections(tck),
-             Ticket.total_bytes(tck),
-             Ticket.local_address(tck),
-             Ticket.device_signature(tck)
-           ]) ==
-             [
-               "too_low",
-               Ticket.block_hash(tck),
-               Ticket.total_connections(tck) |> to_bin(),
-               Ticket.total_bytes(tck) |> to_bin(),
-               Ticket.local_address(tck),
-               Ticket.device_signature(tck)
-             ]
-
-    # Waiting for Kademlia Debouncer to write the object to the file
-    Process.sleep(1000)
-
-    #   Record.defrecord(:ticket,
-    #   server_id: nil,
-    #   block_number: nil,
-    #   fleet_contract: nil,
-    #   total_connections: nil,
-    #   total_bytes: nil,
-    #   local_address: nil,
-    #   device_signature: nil,
-    #   server_signature: nil
-    # )
-    [ticket] = rpc(:client_1, ["getobject", Wallet.address!(clientid(1))])
-
-    loc2 = Object.decode_rlp_list!(ticket)
-    assert Ticket.device_blob(tck) == Ticket.device_blob(loc2)
-
-    assert Secp256k1.verify(
-             Diode.miner(),
-             Ticket.server_blob(loc2),
-             Ticket.server_signature(loc2),
-             :kec
-           ) == true
-
-    public = Secp256k1.recover!(Ticket.server_signature(loc2), Ticket.server_blob(loc2), :kec)
-    id = Wallet.from_pubkey(public) |> Wallet.address!()
-
-    assert Wallet.address!(Diode.miner()) == Wallet.address!(Wallet.from_pubkey(public))
-    assert id == Wallet.address!(Diode.miner())
-
-    obj = Diode.self()
-    assert(Object.key(obj) == id)
-    enc = Rlp.encode!(Object.encode_list!(obj))
-    assert obj == Object.decode_rlp_list!(Rlp.decode!(enc))
-
-    # Getnode
-    [node] = rpc(:client_1, ["getnode", id])
-    node = Object.decode_rlp_list!(node)
-    assert(Object.key(node) == id)
-
-    # Testing ticket integrity
-    Model.TicketSql.tickets_raw()
-    |> Enum.each(fn {dev, fleet, epoch, tck} ->
-      assert Object.Ticket.device_address(tck) == dev
-      assert Object.Ticket.epoch(tck) == epoch
-      assert Object.Ticket.fleet_contract(tck) == fleet
-    end)
-
-    # Testing disconnect
-    ["bad input"] = rpc(:client_1, ["garbage", String.pad_leading("", 1024 * 3)])
-
-    ["goodbye", "ticket expected", "you might get blacklisted"] =
-      rpc(:client_1, ["garbage", String.pad_leading("", 1024)])
-
-    # {:ok, ["goodbye", "ticket expected", "you might get blacklisted"]} = crecv(:client_1)
-    {:error, :timeout} = crecv(:client_1)
-  end
-
-  test "port" do
-    check_counters()
-    # Checking wrong port_id usage
-    assert rpc(:client_1, ["portopen", "wrongid", 3000]) == ["invalid address"]
-    assert rpc(:client_1, ["portopen", "12345678901234567890", 3000]) == ["not found"]
-
-    assert rpc(:client_1, ["portopen", Wallet.address!(clientid(1)), 3000]) == [
-             "can't connect to yourself"
-           ]
-
-    check_counters()
-    # Connecting to "right" port id
-    client2id = Wallet.address!(clientid(2))
-    req1 = req_id()
-    port = to_bin(3000)
-    assert csend(:client_1, ["portopen", client2id, port], req1) == {:ok, :ok}
-    {:ok, [req2, ["portopen", ^port, ref1, access_id]]} = crecv(:client_2)
-    assert access_id == Wallet.address!(clientid(1))
-
-    assert csend(:client_2, ["response", ref1, "ok"], req2) == {:ok, :ok}
-    {:ok, [_req, ["response", "ok", ref2]]} = crecv(:client_1, req1)
-    assert ref1 == ref2
-
-    for n <- 1..50 do
-      check_counters()
-
-      # Sending traffic
-      msg = String.duplicate("ping from 2!", n * n)
-      assert rpc(:client_2, ["portsend", ref1, msg]) == ["ok"]
-      assert {:ok, [_req, ["portsend", ^ref1, ^msg]]} = crecv(:client_1)
-
-      check_counters()
-
-      # Both ways
-      msg = String.duplicate("ping from 1!", n * n)
-      assert rpc(:client_1, ["portsend", ref1, msg]) == ["ok"]
-      assert {:ok, [_req, ["portsend", ^ref1, ^msg]]} = crecv(:client_2)
-    end
-
-    check_counters()
-    # Closing port
-    assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
-    assert {:ok, [_req, ["portclose", ^ref1]]} = crecv(:client_2)
-
-    # Sending to closed port
-    assert rpc(:client_2, ["portsend", ref1, "ping from 2!"]) == [
-             "port does not exist"
-           ]
-
-    assert rpc(:client_1, ["portsend", ref1, "ping from 1!"]) == [
-             "port does not exist"
-           ]
-  end
-
-  test "porthalfopen_a" do
-    # Connecting to "right" port id
-    client2id = Wallet.address!(clientid(2))
-    assert csend(:client_1, ["portopen", client2id, 3000]) == {:ok, :ok}
-    {:ok, ["portopen", 3000, ref1, access_id]} = crecv(:client_2)
-    assert access_id == Wallet.address!(clientid(1))
-
-    kill(:client_1)
-
-    assert csend(:client_2, ["response", "portopen", ref1, "ok"]) == {:ok, :ok}
-    {:ok, ["portclose", ref2]} = crecv(:client_2)
-    assert ref1 == ref2
-  end
-
-  test "porthalfopen_b" do
-    # Connecting to "right" port id
-    client2id = Wallet.address!(clientid(2))
-    assert csend(:client_1, ["portopen", client2id, 3000]) == {:ok, :ok}
-
-    {:ok, ["portopen", 3000, ref1, access_id]} = crecv(:client_2)
-    assert access_id == Wallet.address!(clientid(1))
-
-    kill(:client_2)
-
-    {:ok, [_reason, ref2]} = crecv(:client_1)
-    assert ref1 == ref2
-  end
-
-  test "port2x" do
-    # First connection
-    # Process.sleep(1000)
-    client2id = Wallet.address!(clientid(2))
-    assert csend(:client_1, ["portopen", client2id, 3000]) == {:ok, :ok}
-    Process.sleep(1000)
-    assert call(:client_1, :peek) == {:ok, :empty}
-
-    {:ok, [req, ["portopen", 3000, ref1, access_id]]} = crecv(:client_2)
-    assert access_id == Wallet.address!(clientid(1))
-
-    assert csend(:client_2, ["response", "portopen", ref1, "ok"], req) == {:ok, :ok}
-    {:ok, [_req, ["response", "portopen", "ok", ref2]]} = crecv(:client_1)
-    assert ref1 == ref2
-
-    # Second connection
-    assert csend(:client_1, ["portopen", client2id, 3000]) == {:ok, :ok}
-    {:ok, [req, ["portopen", 3000, ref3, access_id]]} = crecv(:client_2)
-    assert access_id == Wallet.address!(clientid(1))
-
-    assert csend(:client_2, ["response", ref3, "ok"], req) == {:ok, :ok}
-    {:ok, [_req, ["response", "portopen", "ok", ref4]]} = crecv(:client_1)
-    assert ref3 == ref4
-    assert ref1 != ref3
-
-    for _ <- 1..10 do
-      # Sending traffic
-      assert rpc(:client_2, ["portsend", ref1, "ping from 2 on 1!"]) == ["ok"]
-
-      assert crecv(:client_1) == {:ok, ["portsend", ref1, "ping from 2 on 1!"]}
-
-      assert rpc(:client_2, ["portsend", ref4, "ping from 2 on 2!"]) == ["ok"]
-
-      assert crecv(:client_1) == {:ok, ["portsend", ref4, "ping from 2 on 2!"]}
-    end
-
-    # Closing port1
-    assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
-    assert crecv(:client_2) == {:ok, ["portclose", ref1]}
-    # Closing port2
-    assert rpc(:client_1, ["portclose", ref4]) == ["ok"]
-    assert crecv(:client_2) == {:ok, ["portclose", ref4]}
-  end
-
-  test "sharedport flags" do
-    # Connecting with wrong flags
-    client2id = Wallet.address!(clientid(2))
-    ["invalid flags"] = rpc(:client_1, ["portopen", client2id, 3000, "s"])
-  end
-
-  test "sharedport" do
-    # Connecting to port id
-    client2id = Wallet.address!(clientid(2))
-    port = to_bin(3000)
-    assert csend(:client_1, ["portopen", client2id, port, "rws"]) == {:ok, :ok}
-    {:ok, [req, ["portopen", ^port, ref1, access_id]]} = crecv(:client_2)
-    assert access_id == Wallet.address!(clientid(1))
-
-    # 'Device' accepts connection
-    assert csend(:client_2, ["response", ref1, "ok"], req) == {:ok, :ok}
-    {:ok, [_req, ["response", "ok", ref2]]} = crecv(:client_1)
-    assert ref1 == ref2
-
-    # Connecting same client to same port again
-    ["ok", ref3] = rpc(:client_1, ["portopen", client2id, 3000, "rws"])
-    assert ref3 != ref2
-
-    for _ <- 1..10 do
-      # Sending traffic
-      assert rpc(:client_2, ["portsend", ref1, "ping from 2!"]) == ["ok"]
-      {:ok, [_req, ["portsend", ^ref3, "ping from 2!"]]} = crecv(:client_1)
-      {:ok, [_req, ["portsend", ^ref1, "ping from 2!"]]} = crecv(:client_1)
-    end
-
-    # Closing port ref1
-    assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
-
-    # Other port ref3 still working
-    assert rpc(:client_1, ["portsend", ref3, "ping from 3!"]) == ["ok"]
-    {:ok, [_req, ["portsend", ref1, "ping from 3!"]]} = crecv(:client_2)
-
-    # Sending to closed port
-    assert rpc(:client_1, ["portsend", ref1, "ping from 1!"]) == [
-             "port does not exist"
-           ]
-
-    # Closing port ref3
-    assert rpc(:client_1, ["portclose", ref3]) == ["ok"]
-    assert crecv(:client_2) == {:ok, ["portclose", ref1]}
-  end
-
-  test "doubleconn" do
-    old_pid = Process.whereis(:client_1)
-    assert true == Process.alive?(old_pid)
-    new_client = client(1)
-
-    assert call(new_client, :ping) == {:ok, :pong}
-
-    Process.sleep(1000)
-    assert false == Process.alive?(old_pid)
-  end
-
-  test "getblockquick" do
-    for _ <- 1..50, do: Chain.Worker.work()
-    peak = Chain.peak()
-
-    # Test blockquick with gap
-    window_size = 10
-    [headers] = rpc(:client_1, ["getblockquick", 30, window_size])
-
-    Enum.reduce(headers, peak - 9, fn [head, _miner], num ->
-      head = Enum.map(head, fn [key, value] -> {String.to_atom(key), value} end)
-      assert to_num(head[:number]) == num
-      num + 1
-    end)
-
-    assert length(headers) == window_size
-
-    # Test blockquick with gap
-    window_size = 20
-    [headers] = rpc(:client_1, ["getblockquick", 30, window_size])
-
-    Enum.reduce(headers, peak - 19, fn [head, _miner], num ->
-      head = Enum.map(head, fn [key, value] -> {String.to_atom(key), value} end)
-      assert to_num(head[:number]) == num
-      num + 1
-    end)
-
-    assert length(headers) == window_size
-
-    # Test blockquick without gap
-    window_size = 20
-
-    [headers] = rpc(:client_1, ["getblockquick", peak - 10, window_size])
-
-    Enum.reduce(headers, peak - 9, fn [head, _miner], num ->
-      head = Enum.map(head, fn [key, value] -> {String.to_atom(key), value} end)
-      assert to_num(head[:number]) == num
-      num + 1
-    end)
-
-    assert length(headers) == 10
-  end
+  # test "ticket" do
+  #   :persistent_term.put(:no_tickets, true)
+  #   {:ok, _} = call(:client_1, :quit)
+  #   {:ok, _} = call(:client_2, :quit)
+  #   TicketStore.clear()
+  #   ensure_clients()
+
+  #   tck =
+  #     ticket(
+  #       server_id: Wallet.address!(Diode.miner()),
+  #       total_connections: 1,
+  #       total_bytes: 0,
+  #       local_address: "spam",
+  #       block_number: Chain.peak(),
+  #       fleet_contract: <<0::unsigned-size(160)>>
+  #     )
+  #     |> Ticket.device_sign(clientkey(1))
+
+  #   # The first ticket submission should work
+  #   assert rpc(:client_1, [
+  #            "ticket",
+  #            Ticket.block_number(tck) |> to_bin(),
+  #            Ticket.fleet_contract(tck),
+  #            Ticket.total_connections(tck) |> to_bin(),
+  #            Ticket.total_bytes(tck) |> to_bin(),
+  #            Ticket.local_address(tck),
+  #            Ticket.device_signature(tck)
+  #          ]) ==
+  #            [
+  #              "thanks!",
+  #              ""
+  #            ]
+
+  #   # Submitting a second ticket with the same count should fail
+  #   assert rpc(:client_1, [
+  #            "ticket",
+  #            Ticket.block_number(tck) |> to_bin(),
+  #            Ticket.fleet_contract(tck),
+  #            Ticket.total_connections(tck),
+  #            Ticket.total_bytes(tck),
+  #            Ticket.local_address(tck),
+  #            Ticket.device_signature(tck)
+  #          ]) ==
+  #            [
+  #              "too_low",
+  #              Ticket.block_hash(tck),
+  #              Ticket.total_connections(tck) |> to_bin(),
+  #              Ticket.total_bytes(tck) |> to_bin(),
+  #              Ticket.local_address(tck),
+  #              Ticket.device_signature(tck)
+  #            ]
+
+  #   # Waiting for Kademlia Debouncer to write the object to the file
+  #   Process.sleep(1000)
+
+  #   #   Record.defrecord(:ticket,
+  #   #   server_id: nil,
+  #   #   block_number: nil,
+  #   #   fleet_contract: nil,
+  #   #   total_connections: nil,
+  #   #   total_bytes: nil,
+  #   #   local_address: nil,
+  #   #   device_signature: nil,
+  #   #   server_signature: nil
+  #   # )
+  #   [ticket] = rpc(:client_1, ["getobject", Wallet.address!(clientid(1))])
+
+  #   loc2 = Object.decode_rlp_list!(ticket)
+  #   assert Ticket.device_blob(tck) == Ticket.device_blob(loc2)
+
+  #   assert Secp256k1.verify(
+  #            Diode.miner(),
+  #            Ticket.server_blob(loc2),
+  #            Ticket.server_signature(loc2),
+  #            :kec
+  #          ) == true
+
+  #   public = Secp256k1.recover!(Ticket.server_signature(loc2), Ticket.server_blob(loc2), :kec)
+  #   id = Wallet.from_pubkey(public) |> Wallet.address!()
+
+  #   assert Wallet.address!(Diode.miner()) == Wallet.address!(Wallet.from_pubkey(public))
+  #   assert id == Wallet.address!(Diode.miner())
+
+  #   obj = Diode.self()
+  #   assert(Object.key(obj) == id)
+  #   enc = Rlp.encode!(Object.encode_list!(obj))
+  #   assert obj == Object.decode_rlp_list!(Rlp.decode!(enc))
+
+  #   # Getnode
+  #   [node] = rpc(:client_1, ["getnode", id])
+  #   node = Object.decode_rlp_list!(node)
+  #   assert(Object.key(node) == id)
+
+  #   # Testing ticket integrity
+  #   Model.TicketSql.tickets_raw()
+  #   |> Enum.each(fn {dev, fleet, epoch, tck} ->
+  #     assert Object.Ticket.device_address(tck) == dev
+  #     assert Object.Ticket.epoch(tck) == epoch
+  #     assert Object.Ticket.fleet_contract(tck) == fleet
+  #   end)
+
+  #   # Testing disconnect
+  #   [_req, "bad input"] = rpc(:client_1, ["garbage", String.pad_leading("", (1024+10) * 3)])
+
+  #   ["goodbye", "ticket expected", "you might get blacklisted"] =
+  #     rpc(:client_1, ["garbage", String.pad_leading("", 1024)])
+
+  #   # {:ok, ["goodbye", "ticket expected", "you might get blacklisted"]} = crecv(:client_1)
+  #   {:error, :timeout} = crecv(:client_1)
+  # end
+
+  # test "port" do
+  #   check_counters()
+  #   # Checking wrong port_id usage
+  #   assert rpc(:client_1, ["portopen", "wrongid", 3000]) == ["invalid address"]
+  #   assert rpc(:client_1, ["portopen", "12345678901234567890", 3000]) == ["not found"]
+
+  #   assert rpc(:client_1, ["portopen", Wallet.address!(clientid(1)), 3000]) == [
+  #            "can't connect to yourself"
+  #          ]
+
+  #   check_counters()
+  #   # Connecting to "right" port id
+  #   client2id = Wallet.address!(clientid(2))
+  #   req1 = req_id()
+  #   port = to_bin(3000)
+  #   assert csend(:client_1, ["portopen", client2id, port], req1) == {:ok, :ok}
+  #   {:ok, [req2, ["portopen", ^port, ref1, access_id]]} = crecv(:client_2)
+  #   assert access_id == Wallet.address!(clientid(1))
+
+  #   assert csend(:client_2, ["response", ref1, "ok"], req2) == {:ok, :ok}
+  #   {:ok, [_req, ["response", "ok", ref2]]} = crecv(:client_1, req1)
+  #   assert ref1 == ref2
+
+  #   for n <- 1..50 do
+  #     check_counters()
+
+  #     # Sending traffic
+  #     msg = String.duplicate("ping from 2!", n * n)
+  #     assert rpc(:client_2, ["portsend", ref1, msg]) == ["ok"]
+  #     assert {:ok, [_req, ["portsend", ^ref1, ^msg]]} = crecv(:client_1)
+
+  #     check_counters()
+
+  #     # Both ways
+  #     msg = String.duplicate("ping from 1!", n * n)
+  #     assert rpc(:client_1, ["portsend", ref1, msg]) == ["ok"]
+  #     assert {:ok, [_req, ["portsend", ^ref1, ^msg]]} = crecv(:client_2)
+  #   end
+
+  #   check_counters()
+  #   # Closing port
+  #   assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
+  #   assert {:ok, [_req, ["portclose", ^ref1]]} = crecv(:client_2)
+
+  #   # Sending to closed port
+  #   assert rpc(:client_2, ["portsend", ref1, "ping from 2!"]) == [
+  #            "port does not exist"
+  #          ]
+
+  #   assert rpc(:client_1, ["portsend", ref1, "ping from 1!"]) == [
+  #            "port does not exist"
+  #          ]
+  # end
+
+  # test "porthalfopen_a" do
+  #   # Connecting to "right" port id
+  #   client2id = Wallet.address!(clientid(2))
+  #   assert csend(:client_1, ["portopen", client2id, 3000]) == {:ok, :ok}
+  #   {:ok, ["portopen", 3000, ref1, access_id]} = crecv(:client_2)
+  #   assert access_id == Wallet.address!(clientid(1))
+
+  #   kill(:client_1)
+
+  #   assert csend(:client_2, ["response", "portopen", ref1, "ok"]) == {:ok, :ok}
+  #   {:ok, ["portclose", ref2]} = crecv(:client_2)
+  #   assert ref1 == ref2
+  # end
+
+  # test "porthalfopen_b" do
+  #   # Connecting to "right" port id
+  #   client2id = Wallet.address!(clientid(2))
+  #   assert csend(:client_1, ["portopen", client2id, 3000]) == {:ok, :ok}
+
+  #   {:ok, ["portopen", 3000, ref1, access_id]} = crecv(:client_2)
+  #   assert access_id == Wallet.address!(clientid(1))
+
+  #   kill(:client_2)
+
+  #   {:ok, [_reason, ref2]} = crecv(:client_1)
+  #   assert ref1 == ref2
+  # end
+
+  # test "port2x" do
+  #   # First connection
+  #   # Process.sleep(1000)
+  #   client2id = Wallet.address!(clientid(2))
+  #   assert csend(:client_1, ["portopen", client2id, 3000]) == {:ok, :ok}
+  #   Process.sleep(1000)
+  #   assert call(:client_1, :peek) == {:ok, :empty}
+
+  #   {:ok, [req, ["portopen", 3000, ref1, access_id]]} = crecv(:client_2)
+  #   assert access_id == Wallet.address!(clientid(1))
+
+  #   assert csend(:client_2, ["response", "portopen", ref1, "ok"], req) == {:ok, :ok}
+  #   {:ok, [_req, ["response", "portopen", "ok", ref2]]} = crecv(:client_1)
+  #   assert ref1 == ref2
+
+  #   # Second connection
+  #   assert csend(:client_1, ["portopen", client2id, 3000]) == {:ok, :ok}
+  #   {:ok, [req, ["portopen", 3000, ref3, access_id]]} = crecv(:client_2)
+  #   assert access_id == Wallet.address!(clientid(1))
+
+  #   assert csend(:client_2, ["response", ref3, "ok"], req) == {:ok, :ok}
+  #   {:ok, [_req, ["response", "portopen", "ok", ref4]]} = crecv(:client_1)
+  #   assert ref3 == ref4
+  #   assert ref1 != ref3
+
+  #   for _ <- 1..10 do
+  #     # Sending traffic
+  #     assert rpc(:client_2, ["portsend", ref1, "ping from 2 on 1!"]) == ["ok"]
+
+  #     assert crecv(:client_1) == {:ok, ["portsend", ref1, "ping from 2 on 1!"]}
+
+  #     assert rpc(:client_2, ["portsend", ref4, "ping from 2 on 2!"]) == ["ok"]
+
+  #     assert crecv(:client_1) == {:ok, ["portsend", ref4, "ping from 2 on 2!"]}
+  #   end
+
+  #   # Closing port1
+  #   assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
+  #   assert crecv(:client_2) == {:ok, ["portclose", ref1]}
+  #   # Closing port2
+  #   assert rpc(:client_1, ["portclose", ref4]) == ["ok"]
+  #   assert crecv(:client_2) == {:ok, ["portclose", ref4]}
+  # end
+
+  # test "sharedport flags" do
+  #   # Connecting with wrong flags
+  #   client2id = Wallet.address!(clientid(2))
+  #   ["invalid flags"] = rpc(:client_1, ["portopen", client2id, 3000, "s"])
+  # end
+
+  # test "sharedport" do
+  #   # Connecting to port id
+  #   client2id = Wallet.address!(clientid(2))
+  #   port = to_bin(3000)
+  #   assert csend(:client_1, ["portopen", client2id, port, "rws"]) == {:ok, :ok}
+  #   {:ok, [req, ["portopen", ^port, ref1, access_id]]} = crecv(:client_2)
+  #   assert access_id == Wallet.address!(clientid(1))
+
+  #   # 'Device' accepts connection
+  #   assert csend(:client_2, ["response", ref1, "ok"], req) == {:ok, :ok}
+  #   {:ok, [_req, ["response", "ok", ref2]]} = crecv(:client_1)
+  #   assert ref1 == ref2
+
+  #   # Connecting same client to same port again
+  #   ["ok", ref3] = rpc(:client_1, ["portopen", client2id, 3000, "rws"])
+  #   assert ref3 != ref2
+
+  #   for _ <- 1..10 do
+  #     # Sending traffic
+  #     assert rpc(:client_2, ["portsend", ref1, "ping from 2!"]) == ["ok"]
+  #     {:ok, [_req, ["portsend", ^ref3, "ping from 2!"]]} = crecv(:client_1)
+  #     {:ok, [_req, ["portsend", ^ref1, "ping from 2!"]]} = crecv(:client_1)
+  #   end
+
+  #   # Closing port ref1
+  #   assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
+
+  #   # Other port ref3 still working
+  #   assert rpc(:client_1, ["portsend", ref3, "ping from 3!"]) == ["ok"]
+  #   {:ok, [_req, ["portsend", ref1, "ping from 3!"]]} = crecv(:client_2)
+
+  #   # Sending to closed port
+  #   assert rpc(:client_1, ["portsend", ref1, "ping from 1!"]) == [
+  #            "port does not exist"
+  #          ]
+
+  #   # Closing port ref3
+  #   assert rpc(:client_1, ["portclose", ref3]) == ["ok"]
+  #   assert crecv(:client_2) == {:ok, ["portclose", ref1]}
+  # end
+
+  # test "doubleconn" do
+  #   old_pid = Process.whereis(:client_1)
+  #   assert true == Process.alive?(old_pid)
+  #   new_client = client(1)
+
+  #   assert call(new_client, :ping) == {:ok, :pong}
+
+  #   Process.sleep(1000)
+  #   assert false == Process.alive?(old_pid)
+  # end
+
+  # test "getblockquick" do
+  #   for _ <- 1..50, do: Chain.Worker.work()
+  #   peak = Chain.peak()
+
+  #   # Test blockquick with gap
+  #   window_size = 10
+  #   [headers] = rpc(:client_1, ["getblockquick", 30, window_size])
+
+  #   Enum.reduce(headers, peak - 9, fn [head, _miner], num ->
+  #     head = Enum.map(head, fn [key, value] -> {String.to_atom(key), value} end)
+  #     assert to_num(head[:number]) == num
+  #     num + 1
+  #   end)
+
+  #   assert length(headers) == window_size
+
+  #   # Test blockquick with gap
+  #   window_size = 20
+  #   [headers] = rpc(:client_1, ["getblockquick", 30, window_size])
+
+  #   Enum.reduce(headers, peak - 19, fn [head, _miner], num ->
+  #     head = Enum.map(head, fn [key, value] -> {String.to_atom(key), value} end)
+  #     assert to_num(head[:number]) == num
+  #     num + 1
+  #   end)
+
+  #   assert length(headers) == window_size
+
+  #   # Test blockquick without gap
+  #   window_size = 20
+
+  #   [headers] = rpc(:client_1, ["getblockquick", peak - 10, window_size])
+
+  #   Enum.reduce(headers, peak - 9, fn [head, _miner], num ->
+  #     head = Enum.map(head, fn [key, value] -> {String.to_atom(key), value} end)
+  #     assert to_num(head[:number]) == num
+  #     num + 1
+  #   end)
+
+  #   assert length(headers) == 10
+  # end
 
   defp check_counters() do
     # Checking counters
@@ -491,8 +492,12 @@ defmodule Edge2Test do
 
     try do
       case rpc(atom, ["ping"]) do
-        ["pong"] -> :ok
-        _ -> true = Process.register(client(n), atom)
+        ["pong"] ->
+          :ok
+
+        other ->
+          IO.puts("received #{inspect(other)}")
+          true = Process.register(client(n), atom)
       end
     rescue
       ArgumentError -> true = Process.register(client(n), atom)
@@ -509,8 +514,6 @@ defmodule Edge2Test do
   end
 
   def clientboot(socket, state) do
-    Process.put(:req_id, 1000)
-
     receive do
       :go -> clientloop(socket, state)
     end
@@ -713,9 +716,9 @@ defmodule Edge2Test do
   defp req_id() do
     :io.format("req_id()~n")
 
-    ret =
-      Process.put(:req_id, Process.get(:req_id, 0) + 1)
-      |> to_bin()
+    id = Process.get(:req_id, 1)
+    Process.put(:req_id, id + 1)
+    ret = to_bin(id)
 
     :io.format("req_id()= ~p~n", [ret])
     ret

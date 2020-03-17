@@ -24,9 +24,10 @@ defmodule Network.EdgeV2 do
               portname: nil,
               shared: false
 
+    @type ref :: binary()
     @type t :: %Port{
             state: :open | :pre_open,
-            ref: integer(),
+            ref: ref(),
             from: nil | {pid(), reference()},
             clients: [PortClient.t()],
             portname: any(),
@@ -43,24 +44,24 @@ defmodule Network.EdgeV2 do
   """
   defmodule PortCollection do
     defstruct refs: %{}
-    @type t :: %PortCollection{refs: %{integer() => Port.t()}}
+    @type t :: %PortCollection{refs: %{Port.ref() => Port.t()}}
 
     @spec put(PortCollection.t(), Port.t()) :: PortCollection.t()
     def put(pc, port) do
       %{pc | refs: Map.put(pc.refs, port.ref, port)}
     end
 
-    @spec delete(PortCollection.t(), integer()) :: PortCollection.t()
+    @spec delete(PortCollection.t(), Port.ref()) :: PortCollection.t()
     def delete(pc, ref) do
       %{pc | refs: Map.delete(pc.refs, ref)}
     end
 
-    @spec get(PortCollection.t(), integer(), any()) :: Port.t() | nil
+    @spec get(PortCollection.t(), Port.ref(), any()) :: Port.t() | nil
     def get(pc, ref, default \\ nil) do
       Map.get(pc.refs, ref, default)
     end
 
-    @spec get_clientref(PortCollection.t(), integer()) :: {PortClient.t(), Port.t()} | nil
+    @spec get_clientref(PortCollection.t(), Port.ref()) :: {PortClient.t(), Port.t()} | nil
     def get_clientref(pc, cref) do
       Enum.find_value(pc.refs, fn {_ref, port} ->
         Enum.find_value(port.clients, fn
@@ -171,7 +172,7 @@ defmodule Network.EdgeV2 do
             for client <- clients do
               if client.write do
                 GenServer.cast(client.pid, fn cstate ->
-                  {:noreply, send_socket(cstate, [random_ref(), "portsend", client.ref, data])}
+                  {:noreply, send_socket(cstate, [random_ref(), ["portsend", client.ref, data]])}
                 end)
               end
             end
@@ -585,7 +586,7 @@ defmodule Network.EdgeV2 do
       catch
         kind, what ->
           IO.puts("Remote port failed ack on portopen: #{inspect({kind, what})}")
-          {:error, "#{inspect(kind, what)}"}
+          {:error, "#{inspect({kind, what})}"}
       end
 
     case resp do
