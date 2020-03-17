@@ -426,7 +426,7 @@ defmodule Network.EdgeV2 do
         {:noreply, send_socket(state, [request_id, result])}
 
       result ->
-        {:noreply, send_socket(state, result)}
+        {:noreply, send_socket(state, [request_id, result])}
     end
   end
 
@@ -468,7 +468,7 @@ defmodule Network.EdgeV2 do
             Ticket.block_hash(last),
             Ticket.total_connections(last),
             Ticket.total_bytes(last),
-            Ticket.local_address(last) |> Base16.encode(),
+            Ticket.local_address(last),
             Ticket.device_signature(last)
           ])
       end
@@ -779,8 +779,16 @@ defmodule Network.EdgeV2 do
     end
   end
 
+  defp to_num("") do
+    0
+  end
+
   defp to_num(bin) do
     :binary.decode_unsigned(bin)
+  end
+
+  defp to_bin(0) do
+    ""
   end
 
   defp to_bin(num) do

@@ -67,7 +67,7 @@ defmodule Edge2Test do
   end
 
   test "getaccount" do
-    ["error", "getaccount", "account does not exist"] =
+    ["account does not exist"] =
       rpc(:client_1, ["getaccount", Chain.peak(), "01234567890123456789"])
 
     {addr, acc} = hd(Chain.GenesisFactory.genesis_accounts())
@@ -79,7 +79,7 @@ defmodule Edge2Test do
   end
 
   test "getaccountvalue" do
-    ["error", "getaccountvalue", "account does not exist"] =
+    ["account does not exist"] =
       rpc(:client_1, ["getaccountvalue", Chain.peak(), "01234567890123456789", 0])
 
     {addr, _balance} = hd(Chain.GenesisFactory.genesis_accounts())
@@ -112,10 +112,10 @@ defmodule Edge2Test do
     # The first ticket submission should work
     assert rpc(:client_1, [
              "ticket",
-             Ticket.block_number(tck),
+             Ticket.block_number(tck) |> to_bin(),
              Ticket.fleet_contract(tck),
-             Ticket.total_connections(tck),
-             Ticket.total_bytes(tck),
+             Ticket.total_connections(tck) |> to_bin(),
+             Ticket.total_bytes(tck) |> to_bin(),
              Ticket.local_address(tck),
              Ticket.device_signature(tck)
            ]) ==
@@ -127,7 +127,7 @@ defmodule Edge2Test do
     # Submitting a second ticket with the same count should fail
     assert rpc(:client_1, [
              "ticket",
-             Ticket.block_number(tck),
+             Ticket.block_number(tck) |> to_bin(),
              Ticket.fleet_contract(tck),
              Ticket.total_connections(tck),
              Ticket.total_bytes(tck),
@@ -135,21 +135,30 @@ defmodule Edge2Test do
              Ticket.device_signature(tck)
            ]) ==
              [
-               "response",
-               "ticket",
                "too_low",
                Ticket.block_hash(tck),
-               Ticket.total_connections(tck),
-               Ticket.total_bytes(tck),
+               Ticket.total_connections(tck) |> to_bin(),
+               Ticket.total_bytes(tck) |> to_bin(),
                Ticket.local_address(tck),
                Ticket.device_signature(tck)
              ]
 
     # Waiting for Kademlia Debouncer to write the object to the file
     Process.sleep(1000)
-    ["response", "getobject", loc2] = rpc(:client_1, ["getobject", Wallet.address!(clientid(1))])
 
-    loc2 = Object.decode_list!(loc2)
+    #   Record.defrecord(:ticket,
+    #   server_id: nil,
+    #   block_number: nil,
+    #   fleet_contract: nil,
+    #   total_connections: nil,
+    #   total_bytes: nil,
+    #   local_address: nil,
+    #   device_signature: nil,
+    #   server_signature: nil
+    # )
+    [ticket] = rpc(:client_1, ["getobject", Wallet.address!(clientid(1))])
+
+    loc2 = Object.decode_rlp_list!(ticket)
     assert Ticket.device_blob(tck) == Ticket.device_blob(loc2)
 
     assert Secp256k1.verify(
@@ -168,11 +177,11 @@ defmodule Edge2Test do
     obj = Diode.self()
     assert(Object.key(obj) == id)
     enc = Rlp.encode!(Object.encode_list!(obj))
-    assert obj == Object.decode_list!(Rlp.decode!(enc))
+    assert obj == Object.decode_rlp_list!(Rlp.decode!(enc))
 
     # Getnode
-    ["response", "getnode", node] = rpc(:client_1, ["getnode", id])
-    node = Object.decode_list!(node)
+    [node] = rpc(:client_1, ["getnode", id])
+    node = Object.decode_rlp_list!(node)
     assert(Object.key(node) == id)
 
     # Testing ticket integrity
@@ -184,7 +193,7 @@ defmodule Edge2Test do
     end)
 
     # Testing disconnect
-    ["error", 401, "bad input"] = rpc(:client_1, ["garbage", String.pad_leading("", 1024 * 3)])
+    ["bad input"] = rpc(:client_1, ["garbage", String.pad_leading("", 1024 * 3)])
 
     ["goodbye", "ticket expected", "you might get blacklisted"] =
       rpc(:client_1, ["garbage", String.pad_leading("", 1024)])
@@ -271,7 +280,7 @@ defmodule Edge2Test do
 
     kill(:client_2)
 
-    {:ok, ["error", "portopen", _reason, ref2]} = crecv(:client_1)
+    {:ok, [_reason, ref2]} = crecv(:client_1)
     assert ref1 == ref2
   end
 
@@ -283,95 +292,86 @@ defmodule Edge2Test do
     Process.sleep(1000)
     assert call(:client_1, :peek) == {:ok, :empty}
 
-    {:ok, ["portopen", 3000, ref1, access_id]} = crecv(:client_2)
+    {:ok, [req, ["portopen", 3000, ref1, access_id]]} = crecv(:client_2)
     assert access_id == Wallet.address!(clientid(1))
 
-    assert csend(:client_2, ["response", "portopen", ref1, "ok"]) == {:ok, :ok}
-    {:ok, ["response", "portopen", "ok", ref2]} = crecv(:client_1)
+    assert csend(:client_2, ["response", "portopen", ref1, "ok"], req) == {:ok, :ok}
+    {:ok, [_req, ["response", "portopen", "ok", ref2]]} = crecv(:client_1)
     assert ref1 == ref2
 
     # Second connection
     assert csend(:client_1, ["portopen", client2id, 3000]) == {:ok, :ok}
-    {:ok, ["portopen", 3000, ref3, access_id]} = crecv(:client_2)
+    {:ok, [req, ["portopen", 3000, ref3, access_id]]} = crecv(:client_2)
     assert access_id == Wallet.address!(clientid(1))
 
-    assert csend(:client_2, ["response", "portopen", ref3, "ok"]) == {:ok, :ok}
-    {:ok, ["response", "portopen", "ok", ref4]} = crecv(:client_1)
+    assert csend(:client_2, ["response", ref3, "ok"], req) == {:ok, :ok}
+    {:ok, [_req, ["response", "portopen", "ok", ref4]]} = crecv(:client_1)
     assert ref3 == ref4
     assert ref1 != ref3
 
     for _ <- 1..10 do
       # Sending traffic
-      assert rpc(:client_2, ["portsend", ref1, "ping from 2 on 1!"]) == [
-               "response",
-               "portsend",
-               "ok"
-             ]
+      assert rpc(:client_2, ["portsend", ref1, "ping from 2 on 1!"]) == ["ok"]
 
       assert crecv(:client_1) == {:ok, ["portsend", ref1, "ping from 2 on 1!"]}
 
-      assert rpc(:client_2, ["portsend", ref4, "ping from 2 on 2!"]) == [
-               "response",
-               "portsend",
-               "ok"
-             ]
+      assert rpc(:client_2, ["portsend", ref4, "ping from 2 on 2!"]) == ["ok"]
 
       assert crecv(:client_1) == {:ok, ["portsend", ref4, "ping from 2 on 2!"]}
     end
 
     # Closing port1
-    assert rpc(:client_1, ["portclose", ref1]) == ["response", "portclose", "ok"]
+    assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
     assert crecv(:client_2) == {:ok, ["portclose", ref1]}
     # Closing port2
-    assert rpc(:client_1, ["portclose", ref4]) == ["response", "portclose", "ok"]
+    assert rpc(:client_1, ["portclose", ref4]) == ["ok"]
     assert crecv(:client_2) == {:ok, ["portclose", ref4]}
   end
 
   test "sharedport flags" do
     # Connecting with wrong flags
     client2id = Wallet.address!(clientid(2))
-    ["error", "portopen", "invalid flags"] = rpc(:client_1, ["portopen", client2id, 3000, "s"])
+    ["invalid flags"] = rpc(:client_1, ["portopen", client2id, 3000, "s"])
   end
 
   test "sharedport" do
     # Connecting to port id
     client2id = Wallet.address!(clientid(2))
-    assert csend(:client_1, ["portopen", client2id, 3000, "rws"]) == {:ok, :ok}
-    {:ok, ["portopen", 3000, ref1, access_id]} = crecv(:client_2)
+    port = to_bin(3000)
+    assert csend(:client_1, ["portopen", client2id, port, "rws"]) == {:ok, :ok}
+    {:ok, [req, ["portopen", ^port, ref1, access_id]]} = crecv(:client_2)
     assert access_id == Wallet.address!(clientid(1))
 
     # 'Device' accepts connection
-    assert csend(:client_2, ["response", "portopen", ref1, "ok"]) == {:ok, :ok}
-    {:ok, ["response", "portopen", "ok", ref2]} = crecv(:client_1)
+    assert csend(:client_2, ["response", ref1, "ok"], req) == {:ok, :ok}
+    {:ok, [_req, ["response", "ok", ref2]]} = crecv(:client_1)
     assert ref1 == ref2
 
     # Connecting same client to same port again
-    ["response", "portopen", "ok", ref3] = rpc(:client_1, ["portopen", client2id, 3000, "rws"])
+    ["ok", ref3] = rpc(:client_1, ["portopen", client2id, 3000, "rws"])
     assert ref3 != ref2
 
     for _ <- 1..10 do
       # Sending traffic
-      assert rpc(:client_2, ["portsend", ref1, "ping from 2!"]) == ["response", "portsend", "ok"]
-      assert crecv(:client_1) == {:ok, ["portsend", ref3, "ping from 2!"]}
-      assert crecv(:client_1) == {:ok, ["portsend", ref1, "ping from 2!"]}
+      assert rpc(:client_2, ["portsend", ref1, "ping from 2!"]) == ["ok"]
+      {:ok, [_req, ["portsend", ^ref3, "ping from 2!"]]} = crecv(:client_1)
+      {:ok, [_req, ["portsend", ^ref1, "ping from 2!"]]} = crecv(:client_1)
     end
 
     # Closing port ref1
     assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
 
     # Other port ref3 still working
-    assert rpc(:client_1, ["portsend", ref3, "ping from 3!"]) == ["response", "portsend", "ok"]
-    assert crecv(:client_2) == {:ok, ["portsend", ref1, "ping from 3!"]}
+    assert rpc(:client_1, ["portsend", ref3, "ping from 3!"]) == ["ok"]
+    {:ok, [_req, ["portsend", ref1, "ping from 3!"]]} = crecv(:client_2)
 
     # Sending to closed port
     assert rpc(:client_1, ["portsend", ref1, "ping from 1!"]) == [
-             "error",
-             "portsend",
              "port does not exist"
            ]
 
     # Closing port ref3
-    assert rpc(:client_1, ["portclose", ref3]) == ["response", "portclose", "ok"]
+    assert rpc(:client_1, ["portclose", ref3]) == ["ok"]
     assert crecv(:client_2) == {:ok, ["portclose", ref1]}
   end
 
@@ -430,9 +430,11 @@ defmodule Edge2Test do
 
   defp check_counters() do
     # Checking counters
+    rpc(:client_2, ["bytes"])
     {:ok, bytes} = call(:client_2, :bytes)
     assert rpc(:client_2, ["bytes"]) == [bytes |> to_bin()]
 
+    rpc(:client_1, ["bytes"])
     {:ok, bytes} = call(:client_1, :bytes)
     assert rpc(:client_1, ["bytes"]) == [bytes |> to_bin()]
   end
@@ -468,8 +470,16 @@ defmodule Edge2Test do
     :ok
   end
 
+  defp to_bin(0) do
+    ""
+  end
+
   defp to_bin(num) do
     :binary.encode_unsigned(num)
+  end
+
+  defp to_num("") do
+    0
   end
 
   defp to_num(num) do
@@ -560,10 +570,10 @@ defmodule Edge2Test do
       end
 
     case Rlp.decode!(msg) do
-      [^req, ["response", "ticket", "thanks!", _bytes]] ->
+      [^req, ["response", "thanks!", _bytes]] ->
         %{state | unpaid_bytes: state.unpaid_bytes + byte_size(msg)}
 
-      [^req, ["response", "ticket", "too_low", _peak, conns, bytes, _address, _signature]] ->
+      [^req, ["response", "too_low", _peak, conns, bytes, _address, _signature]] ->
         state = %{
           state
           | conns: to_num(conns),
