@@ -92,116 +92,114 @@ defmodule Edge2Test do
     assert length(ret) == 2
   end
 
-  # test "ticket" do
-  #   :persistent_term.put(:no_tickets, true)
-  #   {:ok, _} = call(:client_1, :quit)
-  #   {:ok, _} = call(:client_2, :quit)
-  #   TicketStore.clear()
-  #   ensure_clients()
+  test "ticket" do
+    :persistent_term.put(:no_tickets, true)
+    {:ok, _} = call(:client_1, :quit)
+    {:ok, _} = call(:client_2, :quit)
+    TicketStore.clear()
+    ensure_clients()
 
-  #   tck =
-  #     ticket(
-  #       server_id: Wallet.address!(Diode.miner()),
-  #       total_connections: 1,
-  #       total_bytes: 0,
-  #       local_address: "spam",
-  #       block_number: Chain.peak(),
-  #       fleet_contract: <<0::unsigned-size(160)>>
-  #     )
-  #     |> Ticket.device_sign(clientkey(1))
+    tck =
+      ticket(
+        server_id: Wallet.address!(Diode.miner()),
+        total_connections: 1,
+        total_bytes: 0,
+        local_address: "spam",
+        block_number: Chain.peak(),
+        fleet_contract: <<0::unsigned-size(160)>>
+      )
+      |> Ticket.device_sign(clientkey(1))
 
-  #   # The first ticket submission should work
-  #   assert rpc(:client_1, [
-  #            "ticket",
-  #            Ticket.block_number(tck) |> to_bin(),
-  #            Ticket.fleet_contract(tck),
-  #            Ticket.total_connections(tck) |> to_bin(),
-  #            Ticket.total_bytes(tck) |> to_bin(),
-  #            Ticket.local_address(tck),
-  #            Ticket.device_signature(tck)
-  #          ]) ==
-  #            [
-  #              "thanks!",
-  #              ""
-  #            ]
+    # The first ticket submission should work
+    assert rpc(:client_1, [
+             "ticket",
+             Ticket.block_number(tck) |> to_bin(),
+             Ticket.fleet_contract(tck),
+             Ticket.total_connections(tck) |> to_bin(),
+             Ticket.total_bytes(tck) |> to_bin(),
+             Ticket.local_address(tck),
+             Ticket.device_signature(tck)
+           ]) ==
+             [
+               "thanks!",
+               ""
+             ]
 
-  #   # Submitting a second ticket with the same count should fail
-  #   assert rpc(:client_1, [
-  #            "ticket",
-  #            Ticket.block_number(tck) |> to_bin(),
-  #            Ticket.fleet_contract(tck),
-  #            Ticket.total_connections(tck),
-  #            Ticket.total_bytes(tck),
-  #            Ticket.local_address(tck),
-  #            Ticket.device_signature(tck)
-  #          ]) ==
-  #            [
-  #              "too_low",
-  #              Ticket.block_hash(tck),
-  #              Ticket.total_connections(tck) |> to_bin(),
-  #              Ticket.total_bytes(tck) |> to_bin(),
-  #              Ticket.local_address(tck),
-  #              Ticket.device_signature(tck)
-  #            ]
+    # Submitting a second ticket with the same count should fail
+    assert rpc(:client_1, [
+             "ticket",
+             Ticket.block_number(tck) |> to_bin(),
+             Ticket.fleet_contract(tck),
+             Ticket.total_connections(tck),
+             Ticket.total_bytes(tck),
+             Ticket.local_address(tck),
+             Ticket.device_signature(tck)
+           ]) ==
+             [
+               "too_low",
+               Ticket.block_hash(tck),
+               Ticket.total_connections(tck) |> to_bin(),
+               Ticket.total_bytes(tck) |> to_bin(),
+               Ticket.local_address(tck),
+               Ticket.device_signature(tck)
+             ]
 
-  #   # Waiting for Kademlia Debouncer to write the object to the file
-  #   Process.sleep(1000)
+    # Waiting for Kademlia Debouncer to write the object to the file
+    Process.sleep(1000)
 
-  #   #   Record.defrecord(:ticket,
-  #   #   server_id: nil,
-  #   #   block_number: nil,
-  #   #   fleet_contract: nil,
-  #   #   total_connections: nil,
-  #   #   total_bytes: nil,
-  #   #   local_address: nil,
-  #   #   device_signature: nil,
-  #   #   server_signature: nil
-  #   # )
-  #   [ticket] = rpc(:client_1, ["getobject", Wallet.address!(clientid(1))])
+    #   Record.defrecord(:ticket,
+    #   server_id: nil,
+    #   block_number: nil,
+    #   fleet_contract: nil,
+    #   total_connections: nil,
+    #   total_bytes: nil,
+    #   local_address: nil,
+    #   device_signature: nil,
+    #   server_signature: nil
+    # )
+    [ticket] = rpc(:client_1, ["getobject", Wallet.address!(clientid(1))])
 
-  #   loc2 = Object.decode_rlp_list!(ticket)
-  #   assert Ticket.device_blob(tck) == Ticket.device_blob(loc2)
+    loc2 = Object.decode_rlp_list!(ticket)
+    assert Ticket.device_blob(tck) == Ticket.device_blob(loc2)
 
-  #   assert Secp256k1.verify(
-  #            Diode.miner(),
-  #            Ticket.server_blob(loc2),
-  #            Ticket.server_signature(loc2),
-  #            :kec
-  #          ) == true
+    assert Secp256k1.verify(
+             Diode.miner(),
+             Ticket.server_blob(loc2),
+             Ticket.server_signature(loc2),
+             :kec
+           ) == true
 
-  #   public = Secp256k1.recover!(Ticket.server_signature(loc2), Ticket.server_blob(loc2), :kec)
-  #   id = Wallet.from_pubkey(public) |> Wallet.address!()
+    public = Secp256k1.recover!(Ticket.server_signature(loc2), Ticket.server_blob(loc2), :kec)
+    id = Wallet.from_pubkey(public) |> Wallet.address!()
 
-  #   assert Wallet.address!(Diode.miner()) == Wallet.address!(Wallet.from_pubkey(public))
-  #   assert id == Wallet.address!(Diode.miner())
+    assert Wallet.address!(Diode.miner()) == Wallet.address!(Wallet.from_pubkey(public))
+    assert id == Wallet.address!(Diode.miner())
 
-  #   obj = Diode.self()
-  #   assert(Object.key(obj) == id)
-  #   enc = Rlp.encode!(Object.encode_list!(obj))
-  #   assert obj == Object.decode_rlp_list!(Rlp.decode!(enc))
+    obj = Diode.self()
+    assert(Object.key(obj) == id)
+    enc = Rlp.encode!(Object.encode_list!(obj))
+    assert obj == Object.decode_rlp_list!(Rlp.decode!(enc))
 
-  #   # Getnode
-  #   [node] = rpc(:client_1, ["getnode", id])
-  #   node = Object.decode_rlp_list!(node)
-  #   assert(Object.key(node) == id)
+    # Getnode
+    [node] = rpc(:client_1, ["getnode", id])
+    node = Object.decode_rlp_list!(node)
+    assert(Object.key(node) == id)
 
-  #   # Testing ticket integrity
-  #   Model.TicketSql.tickets_raw()
-  #   |> Enum.each(fn {dev, fleet, epoch, tck} ->
-  #     assert Object.Ticket.device_address(tck) == dev
-  #     assert Object.Ticket.epoch(tck) == epoch
-  #     assert Object.Ticket.fleet_contract(tck) == fleet
-  #   end)
+    # Testing ticket integrity
+    Model.TicketSql.tickets_raw()
+    |> Enum.each(fn {dev, fleet, epoch, tck} ->
+      assert Object.Ticket.device_address(tck) == dev
+      assert Object.Ticket.epoch(tck) == epoch
+      assert Object.Ticket.fleet_contract(tck) == fleet
+    end)
 
-  #   # Testing disconnect
-  #   [_req, "bad input"] = rpc(:client_1, ["garbage", String.pad_leading("", (1024+10) * 3)])
+    # Testing disconnect
+    [_req, "bad input"] = rpc(:client_1, ["garbage", String.pad_leading("", 1024 * 4)])
 
-  #   ["goodbye", "ticket expected", "you might get blacklisted"] =
-  #     rpc(:client_1, ["garbage", String.pad_leading("", 1024)])
-
-  #   # {:ok, ["goodbye", "ticket expected", "you might get blacklisted"]} = crecv(:client_1)
-  #   {:error, :timeout} = crecv(:client_1)
-  # end
+    csend(:client_1, "garbage", String.pad_leading("", 1024))
+    {:ok, [_req, ["goodbye", "ticket expected", "you might get blacklisted"]]} = crecv(:client_1)
+    {:error, :timeout} = crecv(:client_1)
+  end
 
   # test "port" do
   #   check_counters()
@@ -682,21 +680,23 @@ defmodule Edge2Test do
     state = %{state | unpaid_bytes: state.unpaid_bytes + byte_size(rlp)}
 
     msg = [req | _rest] = Rlp.decode!(rlp)
-    :io.format("handle_msg: ~p~n", [msg])
 
     case Map.get(state.recv_id, req) do
       nil ->
         case state.recv do
           nil ->
+            :io.format("handle_msg => state.data: ~p~n", [msg])
             %{state | data: :queue.in(msg, state.data)}
 
           from ->
             send(from, {:ret, msg})
+            :io.format("handle_msg => recv (~p): ~p~n", [from, msg])
             %{state | recv: nil}
         end
 
       from ->
         send(from, {:ret, msg})
+        :io.format("handle_msg => recv_id (~p): ~p~n", [from, msg])
         %{state | recv_id: Map.delete(state.recv_id, req)}
     end
   end
