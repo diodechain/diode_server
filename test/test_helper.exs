@@ -134,12 +134,4 @@ defmodule TestHelper do
         wait_for(fun, comment, timeout - 1)
     end
   end
-
-  def clientid(n) do
-    Wallet.from_privkey(clientkey(n))
-  end
-
-  def clientkey(n) do
-    Certs.private_from_file("./test/pems/device#{n}_certificate.pem")
-  end
 end

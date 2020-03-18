@@ -134,8 +134,55 @@ defmodule Network.EdgeV2 do
     fun.(from, state)
   end
 
+  def handle_call({:portopen, this, ref, flags, portname, device_address}, from, state) do
+    case PortCollection.get(state.ports, ref) do
+      nil ->
+        mon = Process.monitor(this)
+
+        client = %PortClient{
+          mon: mon,
+          pid: this,
+          ref: ref,
+          write: String.contains?(flags, "r")
+        }
+
+        port = %Port{
+          state: :pre_open,
+          from: from,
+          clients: [client],
+          portname: portname,
+          shared: String.contains?(flags, "s"),
+          ref: ref
+        }
+
+        case PortCollection.find_sharedport(state.ports, port) do
+          nil ->
+            state = send_socket(state, random_ref(), ["portopen", portname, ref, device_address])
+
+            ports = PortCollection.put(state.ports, port)
+            {:noreply, %{state | ports: ports}}
+
+          existing_port ->
+            port = %Port{existing_port | clients: [client | existing_port.clients]}
+            ports = PortCollection.put(state.ports, port)
+            {:reply, {:ok, existing_port.ref}, %{state | ports: ports}}
+        end
+
+      _other ->
+        {:reply, {:error, "already opening"}, state}
+    end
+  end
+
   def handle_cast(fun, state) when is_function(fun) do
     fun.(state)
+  end
+
+  def handle_cast({:portsend, ref, data}, state) do
+    {:noreply, send_socket(state, random_ref(), ["portsend", ref, data])}
+  end
+
+  def handle_cast({:portclose, ref}, state) do
+    {:noreply, portclose(state, ref)}
   end
 
   def handle_msg(msg, state) do
@@ -172,9 +219,7 @@ defmodule Network.EdgeV2 do
           %Port{state: :open, clients: clients} ->
             for client <- clients do
               if client.write do
-                GenServer.cast(client.pid, fn cstate ->
-                  {:noreply, send_socket(cstate, random_ref(), ["portsend", client.ref, data])}
-                end)
+                GenServer.cast(client.pid, {:portsend, client.ref, data})
               end
             end
 
@@ -542,45 +587,7 @@ defmodule Network.EdgeV2 do
     # Todo: Check for network access based on contract
     resp =
       try do
-        GenServer.call(pid, fn from, state2 ->
-          case PortCollection.get(state2.ports, ref) do
-            nil ->
-              mon = Process.monitor(this)
-
-              client = %PortClient{
-                mon: mon,
-                pid: this,
-                ref: ref,
-                write: String.contains?(flags, "r")
-              }
-
-              port = %Port{
-                state: :pre_open,
-                from: from,
-                clients: [client],
-                portname: portname,
-                shared: String.contains?(flags, "s"),
-                ref: ref
-              }
-
-              case PortCollection.find_sharedport(state2.ports, port) do
-                nil ->
-                  state2 =
-                    send_socket(state2, random_ref(), ["portopen", portname, ref, device_address])
-
-                  ports = PortCollection.put(state2.ports, port)
-                  {:noreply, %{state2 | ports: ports}}
-
-                existing_port ->
-                  port = %Port{existing_port | clients: [client | existing_port.clients]}
-                  ports = PortCollection.put(state2.ports, port)
-                  {:reply, {:ok, existing_port.ref}, %{state2 | ports: ports}}
-              end
-
-            _other ->
-              {:reply, {:error, "already opening"}, state2}
-          end
-        end)
+        GenServer.call(pid, {:portopen, this, ref, flags, portname, device_address})
       catch
         kind, what ->
           IO.puts("Remote port failed ack on portopen: #{inspect({kind, what})}")
@@ -616,7 +623,7 @@ defmodule Network.EdgeV2 do
   # Closing whole port no matter how many clients
   defp portclose(state, port = %Port{}, action) do
     for client <- port.clients do
-      GenServer.cast(client.pid, fn state2 -> {:noreply, portclose(state2, port.ref)} end)
+      GenServer.cast(client.pid, {:portclose, port.ref})
       Process.demonitor(client.mon, [:flush])
     end
 
