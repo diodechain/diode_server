@@ -584,7 +584,7 @@ defmodule Network.EdgeV2 do
       catch
         kind, what ->
           IO.puts("Remote port failed ack on portopen: #{inspect({kind, what})}")
-          {:error, "#{inspect({kind, what})}"}
+          :error
       end
 
     case resp do
@@ -605,9 +605,9 @@ defmodule Network.EdgeV2 do
 
         response("ok", ref)
 
-      {:error, reason} ->
+      :error ->
         Process.demonitor(mon, [:flush])
-        error("#{reason} #{ref}")
+        error(ref)
     end
   end
 
@@ -622,8 +622,8 @@ defmodule Network.EdgeV2 do
 
     state =
       if action do
-        {:current_stacktrace, what} = :erlang.process_info(self(), :current_stacktrace)
-        :io.format("portclose from: ~p~n", [what])
+        # {:current_stacktrace, what} = :erlang.process_info(self(), :current_stacktrace)
+        # :io.format("portclose from: ~p~n", [what])
         send_socket(state, random_ref(), ["portclose", port.ref])
       else
         state
@@ -650,8 +650,8 @@ defmodule Network.EdgeV2 do
 
     state =
       if action do
-        {:current_stacktrace, what} = :erlang.process_info(self(), :current_stacktrace)
-        :io.format("portclose from: ~p~n", [what])
+        # {:current_stacktrace, what} = :erlang.process_info(self(), :current_stacktrace)
+        # :io.format("portclose from: ~p~n", [what])
         send_socket(state, random_ref(), ["portclose", ref])
       else
         state
@@ -687,7 +687,7 @@ defmodule Network.EdgeV2 do
   end
 
   defp send_socket(state = %{unpaid_bytes: b, unpaid_rx_bytes: rx}, request_id, data) do
-    log(state, "send: ~p", [data])
+    # io:format("send: ~p~n", [data])
 
     msg =
       if b > Diode.ticket_grace() do

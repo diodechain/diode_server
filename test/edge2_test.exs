@@ -10,6 +10,7 @@ defmodule Edge2Test do
   import TestHelper
 
   @ticket_grace 4096
+  @port Rlpx.num2bin(3000)
 
   setup do
     TicketStore.clear()
@@ -204,10 +205,10 @@ defmodule Edge2Test do
   test "port" do
     check_counters()
     # Checking wrong port_id usage
-    assert rpc(:client_1, ["portopen", "wrongid", 3000]) == ["invalid address"]
-    assert rpc(:client_1, ["portopen", "12345678901234567890", 3000]) == ["not found"]
+    assert rpc(:client_1, ["portopen", "wrongid", @port]) == ["invalid address"]
+    assert rpc(:client_1, ["portopen", "12345678901234567890", @port]) == ["not found"]
 
-    assert rpc(:client_1, ["portopen", Wallet.address!(clientid(1)), 3000]) == [
+    assert rpc(:client_1, ["portopen", Wallet.address!(clientid(1)), @port]) == [
              "can't connect to yourself"
            ]
 
@@ -215,9 +216,8 @@ defmodule Edge2Test do
     # Connecting to "right" port id
     client2id = Wallet.address!(clientid(2))
     req1 = req_id()
-    port = to_bin(3000)
-    assert csend(:client_1, ["portopen", client2id, port], req1) == {:ok, :ok}
-    {:ok, [req2, ["portopen", ^port, ref1, access_id]]} = crecv(:client_2)
+    assert csend(:client_1, ["portopen", client2id, @port], req1) == {:ok, :ok}
+    {:ok, [req2, ["portopen", @port, ref1, access_id]]} = crecv(:client_2)
     assert access_id == Wallet.address!(clientid(1))
 
     assert csend(:client_2, ["response", ref1, "ok"], req2) == {:ok, :ok}
@@ -255,177 +255,176 @@ defmodule Edge2Test do
            ]
   end
 
-  # test "porthalfopen_a" do
-  #   # Connecting to "right" port id
-  #   client2id = Wallet.address!(clientid(2))
-  #   assert csend(:client_1, ["portopen", client2id, 3000]) == {:ok, :ok}
-  #   {:ok, ["portopen", 3000, ref1, access_id]} = crecv(:client_2)
-  #   assert access_id == Wallet.address!(clientid(1))
+  test "porthalfopen_a" do
+    # Connecting to "right" port id
+    client2id = Wallet.address!(clientid(2))
+    assert csend(:client_1, ["portopen", client2id, @port]) == {:ok, :ok}
+    {:ok, [req, ["portopen", @port, ref1, access_id]]} = crecv(:client_2)
+    assert access_id == Wallet.address!(clientid(1))
 
-  #   kill(:client_1)
+    kill(:client_1)
 
-  #   assert csend(:client_2, ["response", "portopen", ref1, "ok"]) == {:ok, :ok}
-  #   {:ok, ["portclose", ref2]} = crecv(:client_2)
-  #   assert ref1 == ref2
-  # end
+    assert csend(:client_2, ["response", ref1, "ok"], req) == {:ok, :ok}
+    {:ok, [_req, ["portclose", ref2]]} = crecv(:client_2)
+    assert ref1 == ref2
+  end
 
-  # test "porthalfopen_b" do
-  #   # Connecting to "right" port id
-  #   client2id = Wallet.address!(clientid(2))
-  #   assert csend(:client_1, ["portopen", client2id, 3000]) == {:ok, :ok}
+  test "porthalfopen_b" do
+    # Connecting to "right" port id
+    client2id = Wallet.address!(clientid(2))
+    assert csend(:client_1, ["portopen", client2id, @port]) == {:ok, :ok}
 
-  #   {:ok, ["portopen", 3000, ref1, access_id]} = crecv(:client_2)
-  #   assert access_id == Wallet.address!(clientid(1))
+    {:ok, [_req, ["portopen", @port, ref1, access_id]]} = crecv(:client_2)
+    assert access_id == Wallet.address!(clientid(1))
 
-  #   kill(:client_2)
+    kill(:client_2)
 
-  #   {:ok, [_reason, ref2]} = crecv(:client_1)
-  #   assert ref1 == ref2
-  # end
+    {:ok, [_req, [_reason, ref2]]} = crecv(:client_1)
+    assert ref1 == ref2
+  end
 
-  # test "port2x" do
-  #   # First connection
-  #   # Process.sleep(1000)
-  #   client2id = Wallet.address!(clientid(2))
-  #   assert csend(:client_1, ["portopen", client2id, 3000]) == {:ok, :ok}
-  #   Process.sleep(1000)
-  #   assert call(:client_1, :peek) == {:ok, :empty}
+  test "port2x" do
+    # First connection
+    # Process.sleep(1000)
+    client2id = Wallet.address!(clientid(2))
+    assert csend(:client_1, ["portopen", client2id, @port]) == {:ok, :ok}
+    Process.sleep(1000)
+    assert call(:client_1, :peek) == {:ok, :empty}
 
-  #   {:ok, [req, ["portopen", 3000, ref1, access_id]]} = crecv(:client_2)
-  #   assert access_id == Wallet.address!(clientid(1))
+    {:ok, [req, ["portopen", @port, ref1, access_id]]} = crecv(:client_2)
+    assert access_id == Wallet.address!(clientid(1))
 
-  #   assert csend(:client_2, ["response", "portopen", ref1, "ok"], req) == {:ok, :ok}
-  #   {:ok, [_req, ["response", "portopen", "ok", ref2]]} = crecv(:client_1)
-  #   assert ref1 == ref2
+    assert csend(:client_2, ["response", ref1, "ok"], req) == {:ok, :ok}
+    {:ok, [_req, ["response", "ok", ref2]]} = crecv(:client_1)
+    assert ref1 == ref2
 
-  #   # Second connection
-  #   assert csend(:client_1, ["portopen", client2id, 3000]) == {:ok, :ok}
-  #   {:ok, [req, ["portopen", 3000, ref3, access_id]]} = crecv(:client_2)
-  #   assert access_id == Wallet.address!(clientid(1))
+    # Second connection
+    assert csend(:client_1, ["portopen", client2id, @port]) == {:ok, :ok}
+    {:ok, [req, ["portopen", @port, ref3, access_id]]} = crecv(:client_2)
+    assert access_id == Wallet.address!(clientid(1))
 
-  #   assert csend(:client_2, ["response", ref3, "ok"], req) == {:ok, :ok}
-  #   {:ok, [_req, ["response", "portopen", "ok", ref4]]} = crecv(:client_1)
-  #   assert ref3 == ref4
-  #   assert ref1 != ref3
+    assert csend(:client_2, ["response", ref3, "ok"], req) == {:ok, :ok}
+    {:ok, [_req, ["response", "ok", ref4]]} = crecv(:client_1)
+    assert ref3 == ref4
+    assert ref1 != ref3
 
-  #   for _ <- 1..10 do
-  #     # Sending traffic
-  #     assert rpc(:client_2, ["portsend", ref1, "ping from 2 on 1!"]) == ["ok"]
+    for _ <- 1..10 do
+      # Sending traffic
+      assert rpc(:client_2, ["portsend", ref1, "ping from 2 on 1!"]) == ["ok"]
 
-  #     assert crecv(:client_1) == {:ok, ["portsend", ref1, "ping from 2 on 1!"]}
+      assert {:ok, [_req, ["portsend", ref1, "ping from 2 on 1!"]]} = crecv(:client_1)
 
-  #     assert rpc(:client_2, ["portsend", ref4, "ping from 2 on 2!"]) == ["ok"]
+      assert rpc(:client_2, ["portsend", ref4, "ping from 2 on 2!"]) == ["ok"]
 
-  #     assert crecv(:client_1) == {:ok, ["portsend", ref4, "ping from 2 on 2!"]}
-  #   end
+      assert {:ok, [_req, ["portsend", ref4, "ping from 2 on 2!"]]} = crecv(:client_1)
+    end
 
-  #   # Closing port1
-  #   assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
-  #   assert crecv(:client_2) == {:ok, ["portclose", ref1]}
-  #   # Closing port2
-  #   assert rpc(:client_1, ["portclose", ref4]) == ["ok"]
-  #   assert crecv(:client_2) == {:ok, ["portclose", ref4]}
-  # end
+    # Closing port1
+    assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
+    assert {:ok, [_req, ["portclose", ref1]]} = crecv(:client_2)
+    # Closing port2
+    assert rpc(:client_1, ["portclose", ref4]) == ["ok"]
+    assert {:ok, [_req, ["portclose", ref4]]} = crecv(:client_2)
+  end
 
-  # test "sharedport flags" do
-  #   # Connecting with wrong flags
-  #   client2id = Wallet.address!(clientid(2))
-  #   ["invalid flags"] = rpc(:client_1, ["portopen", client2id, 3000, "s"])
-  # end
+  test "sharedport flags" do
+    # Connecting with wrong flags
+    client2id = Wallet.address!(clientid(2))
+    ["invalid flags"] = rpc(:client_1, ["portopen", client2id, @port, "s"])
+  end
 
-  # test "sharedport" do
-  #   # Connecting to port id
-  #   client2id = Wallet.address!(clientid(2))
-  #   port = to_bin(3000)
-  #   assert csend(:client_1, ["portopen", client2id, port, "rws"]) == {:ok, :ok}
-  #   {:ok, [req, ["portopen", ^port, ref1, access_id]]} = crecv(:client_2)
-  #   assert access_id == Wallet.address!(clientid(1))
+  test "sharedport" do
+    # Connecting to port id
+    client2id = Wallet.address!(clientid(2))
+    assert csend(:client_1, ["portopen", client2id, @port, "rws"]) == {:ok, :ok}
+    {:ok, [req, ["portopen", @port, ref1, access_id]]} = crecv(:client_2)
+    assert access_id == Wallet.address!(clientid(1))
 
-  #   # 'Device' accepts connection
-  #   assert csend(:client_2, ["response", ref1, "ok"], req) == {:ok, :ok}
-  #   {:ok, [_req, ["response", "ok", ref2]]} = crecv(:client_1)
-  #   assert ref1 == ref2
+    # 'Device' accepts connection
+    assert csend(:client_2, ["response", ref1, "ok"], req) == {:ok, :ok}
+    {:ok, [_req, ["response", "ok", ref2]]} = crecv(:client_1)
+    assert ref1 == ref2
 
-  #   # Connecting same client to same port again
-  #   ["ok", ref3] = rpc(:client_1, ["portopen", client2id, 3000, "rws"])
-  #   assert ref3 != ref2
+    # Connecting same client to same port again
+    ["ok", ref3] = rpc(:client_1, ["portopen", client2id, @port, "rws"])
+    assert ref3 != ref2
 
-  #   for _ <- 1..10 do
-  #     # Sending traffic
-  #     assert rpc(:client_2, ["portsend", ref1, "ping from 2!"]) == ["ok"]
-  #     {:ok, [_req, ["portsend", ^ref3, "ping from 2!"]]} = crecv(:client_1)
-  #     {:ok, [_req, ["portsend", ^ref1, "ping from 2!"]]} = crecv(:client_1)
-  #   end
+    for _ <- 1..10 do
+      # Sending traffic
+      assert rpc(:client_2, ["portsend", ref1, "ping from 2!"]) == ["ok"]
+      {:ok, [_req, ["portsend", ^ref3, "ping from 2!"]]} = crecv(:client_1)
+      {:ok, [_req, ["portsend", ^ref1, "ping from 2!"]]} = crecv(:client_1)
+    end
 
-  #   # Closing port ref1
-  #   assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
+    # Closing port ref1
+    assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
 
-  #   # Other port ref3 still working
-  #   assert rpc(:client_1, ["portsend", ref3, "ping from 3!"]) == ["ok"]
-  #   {:ok, [_req, ["portsend", ref1, "ping from 3!"]]} = crecv(:client_2)
+    # Other port ref3 still working
+    assert rpc(:client_1, ["portsend", ref3, "ping from 3!"]) == ["ok"]
+    {:ok, [_req, ["portsend", ref1, "ping from 3!"]]} = crecv(:client_2)
 
-  #   # Sending to closed port
-  #   assert rpc(:client_1, ["portsend", ref1, "ping from 1!"]) == [
-  #            "port does not exist"
-  #          ]
+    # Sending to closed port
+    assert rpc(:client_1, ["portsend", ref1, "ping from 1!"]) == [
+             "port does not exist"
+           ]
 
-  #   # Closing port ref3
-  #   assert rpc(:client_1, ["portclose", ref3]) == ["ok"]
-  #   assert crecv(:client_2) == {:ok, ["portclose", ref1]}
-  # end
+    # Closing port ref3
+    assert rpc(:client_1, ["portclose", ref3]) == ["ok"]
+    assert {:ok, [_req, ["portclose", ref1]]} = crecv(:client_2)
+  end
 
-  # test "doubleconn" do
-  #   old_pid = Process.whereis(:client_1)
-  #   assert true == Process.alive?(old_pid)
-  #   new_client = client(1)
+  test "doubleconn" do
+    old_pid = Process.whereis(:client_1)
+    assert true == Process.alive?(old_pid)
+    new_client = client(1)
 
-  #   assert call(new_client, :ping) == {:ok, :pong}
+    assert call(new_client, :ping) == {:ok, :pong}
 
-  #   Process.sleep(1000)
-  #   assert false == Process.alive?(old_pid)
-  # end
+    Process.sleep(1000)
+    assert false == Process.alive?(old_pid)
+  end
 
-  # test "getblockquick" do
-  #   for _ <- 1..50, do: Chain.Worker.work()
-  #   peak = Chain.peak()
+  test "getblockquick" do
+    for _ <- 1..50, do: Chain.Worker.work()
+    peak = Chain.peak()
 
-  #   # Test blockquick with gap
-  #   window_size = 10
-  #   [headers] = rpc(:client_1, ["getblockquick", 30, window_size])
+    # Test blockquick with gap
+    window_size = 10
+    [headers] = rpc(:client_1, ["getblockquick", 30, window_size])
 
-  #   Enum.reduce(headers, peak - 9, fn [head, _miner], num ->
-  #     head = Enum.map(head, fn [key, value] -> {String.to_atom(key), value} end)
-  #     assert to_num(head[:number]) == num
-  #     num + 1
-  #   end)
+    Enum.reduce(headers, peak - 9, fn [head, _miner], num ->
+      head = Enum.map(head, fn [key, value] -> {String.to_atom(key), value} end)
+      assert to_num(head[:number]) == num
+      num + 1
+    end)
 
-  #   assert length(headers) == window_size
+    assert length(headers) == window_size
 
-  #   # Test blockquick with gap
-  #   window_size = 20
-  #   [headers] = rpc(:client_1, ["getblockquick", 30, window_size])
+    # Test blockquick with gap
+    window_size = 20
+    [headers] = rpc(:client_1, ["getblockquick", 30, window_size])
 
-  #   Enum.reduce(headers, peak - 19, fn [head, _miner], num ->
-  #     head = Enum.map(head, fn [key, value] -> {String.to_atom(key), value} end)
-  #     assert to_num(head[:number]) == num
-  #     num + 1
-  #   end)
+    Enum.reduce(headers, peak - 19, fn [head, _miner], num ->
+      head = Enum.map(head, fn [key, value] -> {String.to_atom(key), value} end)
+      assert to_num(head[:number]) == num
+      num + 1
+    end)
 
-  #   assert length(headers) == window_size
+    assert length(headers) == window_size
 
-  #   # Test blockquick without gap
-  #   window_size = 20
+    # Test blockquick without gap
+    window_size = 20
 
-  #   [headers] = rpc(:client_1, ["getblockquick", peak - 10, window_size])
+    [headers] = rpc(:client_1, ["getblockquick", peak - 10, window_size])
 
-  #   Enum.reduce(headers, peak - 9, fn [head, _miner], num ->
-  #     head = Enum.map(head, fn [key, value] -> {String.to_atom(key), value} end)
-  #     assert to_num(head[:number]) == num
-  #     num + 1
-  #   end)
+    Enum.reduce(headers, peak - 9, fn [head, _miner], num ->
+      head = Enum.map(head, fn [key, value] -> {String.to_atom(key), value} end)
+      assert to_num(head[:number]) == num
+      num + 1
+    end)
 
-  #   assert length(headers) == 10
-  # end
+    assert length(headers) == 10
+  end
 
   defp check_counters() do
     # Checking counters
@@ -439,7 +438,7 @@ defmodule Edge2Test do
   end
 
   defp kill(atom) do
-    :io.format("Killing ~p~n", [atom])
+    # :io.format("Killing ~p~n", [atom])
 
     case Process.whereis(atom) do
       nil ->
@@ -463,7 +462,7 @@ defmodule Edge2Test do
   end
 
   defp ensure_clients() do
-    :io.format("ensure_clients()~n")
+    # :io.format("ensure_clients()~n")
     ensure_client(:client_1, 1)
     ensure_client(:client_2, 2)
     :ok
@@ -482,7 +481,7 @@ defmodule Edge2Test do
   end
 
   defp ensure_client(atom, n) do
-    :io.format("ensure_client(~p)~n", [atom])
+    # :io.format("ensure_client(~p)~n", [atom])
 
     try do
       case rpc(atom, ["ping"]) do
@@ -646,7 +645,7 @@ defmodule Edge2Test do
         end
 
       {pid, :quit} ->
-        :io.format("Got quit!~n")
+        # :io.format("Got quit!~n")
         send(pid, {:ret, :ok})
 
       {pid, :bytes} ->
@@ -681,24 +680,24 @@ defmodule Edge2Test do
       nil ->
         case state.recv do
           nil ->
-            :io.format("handle_msg => state.data: ~p~n", [msg])
+            # :io.format("handle_msg => state.data: ~p~n", [msg])
             %{state | data: :queue.in(msg, state.data)}
 
           from ->
             send(from, {:ret, msg})
-            :io.format("handle_msg => recv (~p): ~p~n", [from, msg])
+            # :io.format("handle_msg => recv (~p): ~p~n", [from, msg])
             %{state | recv: nil}
         end
 
       from ->
         send(from, {:ret, msg})
-        :io.format("handle_msg => recv_id (~p): ~p~n", [from, msg])
+        # :io.format("handle_msg => recv_id (~p): ~p~n", [from, msg])
         %{state | recv_id: Map.delete(state.recv_id, req)}
     end
   end
 
   defp rpc(pid, data) do
-    :io.format("rpc(~p, ~p)~n", [pid, data])
+    # :io.format("rpc(~p, ~p)~n", [pid, data])
     req = req_id()
 
     with {:ok, _} <- csend(pid, data, req),
@@ -710,18 +709,18 @@ defmodule Edge2Test do
   end
 
   defp req_id() do
-    :io.format("req_id()~n")
+    # :io.format("req_id()~n")
 
     id = Process.get(:req_id, 1)
     Process.put(:req_id, id + 1)
     ret = to_bin(id)
 
-    :io.format("req_id()= ~p~n", [ret])
+    # :io.format("req_id()= ~p~n", [ret])
     ret
   end
 
   def csend(pid, data, req \\ req_id()) do
-    :io.format("csend(~p, ~p, ~p)~n", [pid, data, req])
+    # :io.format("csend(~p, ~p, ~p)~n", [pid, data, req])
     call(pid, {:send, Rlp.encode!([req | [data]])})
   end
 
@@ -750,11 +749,11 @@ defmodule Edge2Test do
 
     receive do
       {:ret, crecv} ->
-        :io.format("call(~p, ~p ~p) => [~p]~n", [pid, cmd, timeout, crecv])
+        # :io.format("call(~p, ~p ~p) => [~p]~n", [pid, cmd, timeout, crecv])
         {:ok, crecv}
     after
       timeout ->
-        :io.format("call(~p, ~p ~p) => timeout!~n", [pid, cmd, timeout])
+        # :io.format("call(~p, ~p ~p) => timeout!~n", [pid, cmd, timeout])
         {:error, :timeout}
     end
   end
@@ -777,7 +776,7 @@ defmodule Edge2Test do
   end
 
   defp client(n) do
-    :io.format("client(~p)~n", [n])
+    # :io.format("client(~p)~n", [n])
     cert = "./test/pems/device#{n}_certificate.pem"
     {:ok, socket} = :ssl.connect('localhost', Diode.edge2_port(), options(cert), 5000)
     wallet = clientid(n)
