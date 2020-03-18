@@ -15,47 +15,6 @@ defmodule Rlp do
     term
   end
 
-  @spec hex2num(binary()) :: non_neg_integer()
-  def hex2num("") do
-    0
-  end
-
-  def hex2num(bin) when is_binary(bin) do
-    bin2num(Base16.decode(bin))
-  end
-
-  @spec bin2num(binary()) :: non_neg_integer()
-  def bin2num("") do
-    0
-  end
-
-  def bin2num(bin) when is_binary(bin) do
-    :binary.decode_unsigned(bin)
-  end
-
-  @spec hex2addr(binary()) :: nil | binary()
-  def hex2addr("") do
-    nil
-  end
-
-  def hex2addr(bin) when is_binary(bin) do
-    bin2addr(Base16.decode(bin))
-  end
-
-  @spec bin2addr(binary()) :: nil | binary()
-  def bin2addr("") do
-    nil
-  end
-
-  def bin2addr(bin) when is_binary(bin) do
-    bin
-  end
-
-  def list2map(list) do
-    Enum.map(list, fn [key, value] -> {key, value} end)
-    |> Map.new()
-  end
-
   defp do_encode!(nil) do
     do_encode!("")
   end
@@ -161,8 +120,6 @@ defmodule Rlp do
     {item, rest} = do_decode!(rest)
     do_decode_list!([item | list], rest)
   end
-
-  # defp decode_length(<<)
 
   defp encode_length(size) do
     cond do

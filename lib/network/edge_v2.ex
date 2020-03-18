@@ -161,7 +161,8 @@ defmodule Network.EdgeV2 do
         handle_ticket(rest, state)
 
       ["bytes"] ->
-        {response(state.unpaid_bytes), state}
+        # This is an exception as unpaid_bytes can be negative
+        {response(Rlpx.int2bin(state.unpaid_bytes)), state}
 
       ["portsend", ref, data] ->
         case PortCollection.get(state.ports, ref) do
@@ -172,7 +173,7 @@ defmodule Network.EdgeV2 do
             for client <- clients do
               if client.write do
                 GenServer.cast(client.pid, fn cstate ->
-                  {:noreply, send_socket(cstate, [random_ref(), ["portsend", client.ref, data]])}
+                  {:noreply, send_socket(cstate, random_ref(), ["portsend", client.ref, data])}
                 end)
               end
             end
@@ -374,8 +375,9 @@ defmodule Network.EdgeV2 do
     end
   end
 
-  def handle_info({:topic, topic, message}, state) do
-    state = send_socket(state, [random_ref(), topic, message])
+  def handle_info({:topic, _topic, _message}, state) do
+    throw(:notimpl)
+    # state = send_socket(state, random_ref(), [topic, message])
     {:noreply, state}
   end
 
@@ -417,17 +419,17 @@ defmodule Network.EdgeV2 do
           result = handle_async_msg(method_params, state)
 
           GenServer.cast(pid, fn state2 ->
-            {:noreply, send_socket(state2, [request_id, result])}
+            {:noreply, send_socket(state2, request_id, result)}
           end)
         end)
 
         {:noreply, state}
 
       {result, state} ->
-        {:noreply, send_socket(state, [request_id, result])}
+        {:noreply, send_socket(state, request_id, result)}
 
       result ->
-        {:noreply, send_socket(state, [request_id, result])}
+        {:noreply, send_socket(state, request_id, result)}
     end
   end
 
@@ -533,7 +535,6 @@ defmodule Network.EdgeV2 do
   defp do_portopen(device_address, this, portname, flags, pid) do
     mon = Process.monitor(pid)
     ref = random_ref()
-    spid = self()
 
     #  Receives an open request from another local connected edge worker.
     #  Now needs to forward the request to the device and remember to
@@ -544,11 +545,11 @@ defmodule Network.EdgeV2 do
         GenServer.call(pid, fn from, state2 ->
           case PortCollection.get(state2.ports, ref) do
             nil ->
-              mon = Process.monitor(spid)
+              mon = Process.monitor(this)
 
               client = %PortClient{
                 mon: mon,
-                pid: spid,
+                pid: this,
                 ref: ref,
                 write: String.contains?(flags, "r")
               }
@@ -565,10 +566,7 @@ defmodule Network.EdgeV2 do
               case PortCollection.find_sharedport(state2.ports, port) do
                 nil ->
                   state2 =
-                    send_socket(state2, [
-                      random_ref(),
-                      ["portopen", portname, ref, device_address]
-                    ])
+                    send_socket(state2, random_ref(), ["portopen", portname, ref, device_address])
 
                   ports = PortCollection.put(state2.ports, port)
                   {:noreply, %{state2 | ports: ports}}
@@ -622,7 +620,15 @@ defmodule Network.EdgeV2 do
       Process.demonitor(client.mon, [:flush])
     end
 
-    state = if action, do: send_socket(state, [random_ref(), "portclose", port.ref]), else: state
+    state =
+      if action do
+        {:current_stacktrace, what} = :erlang.process_info(self(), :current_stacktrace)
+        :io.format("portclose from: ~p~n", [what])
+        send_socket(state, random_ref(), ["portclose", port.ref])
+      else
+        state
+      end
+
     %{state | ports: PortCollection.delete(state.ports, port.ref)}
   end
 
@@ -644,7 +650,9 @@ defmodule Network.EdgeV2 do
 
     state =
       if action do
-        send_socket(state, [random_ref(), "portclose", ref])
+        {:current_stacktrace, what} = :erlang.process_info(self(), :current_stacktrace)
+        :io.format("portclose from: ~p~n", [what])
+        send_socket(state, random_ref(), ["portclose", ref])
       else
         state
       end
@@ -678,7 +686,7 @@ defmodule Network.EdgeV2 do
     Rlp.encode!(msg)
   end
 
-  defp send_socket(state = %{unpaid_bytes: b, unpaid_rx_bytes: rx}, data) do
+  defp send_socket(state = %{unpaid_bytes: b, unpaid_rx_bytes: rx}, request_id, data) do
     log(state, "send: ~p", [data])
 
     msg =
@@ -686,7 +694,11 @@ defmodule Network.EdgeV2 do
         send(self(), {:stop_unpaid, b})
         encode([random_ref(), ["goodbye", "ticket expected", "you might get blacklisted"]])
       else
-        encode(data)
+        if data == nil do
+          ""
+        else
+          encode([request_id, data])
+        end
       end
 
     if msg != "", do: :ok = do_send_socket(state, msg)
@@ -780,19 +792,11 @@ defmodule Network.EdgeV2 do
     end
   end
 
-  defp to_num("") do
-    0
-  end
-
   defp to_num(bin) do
-    :binary.decode_unsigned(bin)
-  end
-
-  defp to_bin(0) do
-    ""
+    Rlpx.bin2num(bin)
   end
 
   defp to_bin(num) do
-    :binary.encode_unsigned(num)
+    Rlpx.num2bin(num)
   end
 end

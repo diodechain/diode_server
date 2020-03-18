@@ -58,8 +58,8 @@ defmodule Edge2Test do
     # Test byte counter matches
     assert call(:client_1, :bytes) == {:ok, 75}
     assert call(:client_2, :bytes) == {:ok, 75}
-    assert rpc(:client_1, ["bytes"]) == [75 |> to_bin()]
-    assert rpc(:client_2, ["bytes"]) == [75 |> to_bin()]
+    assert rpc(:client_1, ["bytes"]) == [75 |> to_sbin()]
+    assert rpc(:client_2, ["bytes"]) == [75 |> to_sbin()]
   end
 
   test "getblock" do
@@ -74,7 +74,7 @@ defmodule Edge2Test do
 
     [ret, _proof] = rpc(:client_1, ["getaccount", Chain.peak(), addr])
 
-    ret = Rlp.list2map(ret)
+    ret = Rlpx.list2map(ret)
 
     assert ret["code"] == Chain.Account.codehash(acc)
     assert to_num(ret["balance"]) == acc.balance
@@ -201,59 +201,59 @@ defmodule Edge2Test do
     {:error, :timeout} = crecv(:client_1)
   end
 
-  # test "port" do
-  #   check_counters()
-  #   # Checking wrong port_id usage
-  #   assert rpc(:client_1, ["portopen", "wrongid", 3000]) == ["invalid address"]
-  #   assert rpc(:client_1, ["portopen", "12345678901234567890", 3000]) == ["not found"]
+  test "port" do
+    check_counters()
+    # Checking wrong port_id usage
+    assert rpc(:client_1, ["portopen", "wrongid", 3000]) == ["invalid address"]
+    assert rpc(:client_1, ["portopen", "12345678901234567890", 3000]) == ["not found"]
 
-  #   assert rpc(:client_1, ["portopen", Wallet.address!(clientid(1)), 3000]) == [
-  #            "can't connect to yourself"
-  #          ]
+    assert rpc(:client_1, ["portopen", Wallet.address!(clientid(1)), 3000]) == [
+             "can't connect to yourself"
+           ]
 
-  #   check_counters()
-  #   # Connecting to "right" port id
-  #   client2id = Wallet.address!(clientid(2))
-  #   req1 = req_id()
-  #   port = to_bin(3000)
-  #   assert csend(:client_1, ["portopen", client2id, port], req1) == {:ok, :ok}
-  #   {:ok, [req2, ["portopen", ^port, ref1, access_id]]} = crecv(:client_2)
-  #   assert access_id == Wallet.address!(clientid(1))
+    check_counters()
+    # Connecting to "right" port id
+    client2id = Wallet.address!(clientid(2))
+    req1 = req_id()
+    port = to_bin(3000)
+    assert csend(:client_1, ["portopen", client2id, port], req1) == {:ok, :ok}
+    {:ok, [req2, ["portopen", ^port, ref1, access_id]]} = crecv(:client_2)
+    assert access_id == Wallet.address!(clientid(1))
 
-  #   assert csend(:client_2, ["response", ref1, "ok"], req2) == {:ok, :ok}
-  #   {:ok, [_req, ["response", "ok", ref2]]} = crecv(:client_1, req1)
-  #   assert ref1 == ref2
+    assert csend(:client_2, ["response", ref1, "ok"], req2) == {:ok, :ok}
+    {:ok, [_req, ["response", "ok", ref2]]} = crecv(:client_1, req1)
+    assert ref1 == ref2
 
-  #   for n <- 1..50 do
-  #     check_counters()
+    for n <- 1..50 do
+      check_counters()
 
-  #     # Sending traffic
-  #     msg = String.duplicate("ping from 2!", n * n)
-  #     assert rpc(:client_2, ["portsend", ref1, msg]) == ["ok"]
-  #     assert {:ok, [_req, ["portsend", ^ref1, ^msg]]} = crecv(:client_1)
+      # Sending traffic
+      msg = String.duplicate("ping from 2!", n * n)
+      assert rpc(:client_2, ["portsend", ref1, msg]) == ["ok"]
+      assert {:ok, [_req, ["portsend", ^ref1, ^msg]]} = crecv(:client_1)
 
-  #     check_counters()
+      check_counters()
 
-  #     # Both ways
-  #     msg = String.duplicate("ping from 1!", n * n)
-  #     assert rpc(:client_1, ["portsend", ref1, msg]) == ["ok"]
-  #     assert {:ok, [_req, ["portsend", ^ref1, ^msg]]} = crecv(:client_2)
-  #   end
+      # Both ways
+      msg = String.duplicate("ping from 1!", n * n)
+      assert rpc(:client_1, ["portsend", ref1, msg]) == ["ok"]
+      assert {:ok, [_req, ["portsend", ^ref1, ^msg]]} = crecv(:client_2)
+    end
 
-  #   check_counters()
-  #   # Closing port
-  #   assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
-  #   assert {:ok, [_req, ["portclose", ^ref1]]} = crecv(:client_2)
+    check_counters()
+    # Closing port
+    assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
+    assert {:ok, [_req, ["portclose", ^ref1]]} = crecv(:client_2)
 
-  #   # Sending to closed port
-  #   assert rpc(:client_2, ["portsend", ref1, "ping from 2!"]) == [
-  #            "port does not exist"
-  #          ]
+    # Sending to closed port
+    assert rpc(:client_2, ["portsend", ref1, "ping from 2!"]) == [
+             "port does not exist"
+           ]
 
-  #   assert rpc(:client_1, ["portsend", ref1, "ping from 1!"]) == [
-  #            "port does not exist"
-  #          ]
-  # end
+    assert rpc(:client_1, ["portsend", ref1, "ping from 1!"]) == [
+             "port does not exist"
+           ]
+  end
 
   # test "porthalfopen_a" do
   #   # Connecting to "right" port id
@@ -431,11 +431,11 @@ defmodule Edge2Test do
     # Checking counters
     rpc(:client_2, ["bytes"])
     {:ok, bytes} = call(:client_2, :bytes)
-    assert rpc(:client_2, ["bytes"]) == [bytes |> to_bin()]
+    assert rpc(:client_2, ["bytes"]) == [bytes |> to_sbin()]
 
     rpc(:client_1, ["bytes"])
     {:ok, bytes} = call(:client_1, :bytes)
-    assert rpc(:client_1, ["bytes"]) == [bytes |> to_bin()]
+    assert rpc(:client_1, ["bytes"]) == [bytes |> to_sbin()]
   end
 
   defp kill(atom) do
@@ -469,20 +469,16 @@ defmodule Edge2Test do
     :ok
   end
 
-  defp to_bin(0) do
-    ""
-  end
-
   defp to_bin(num) do
-    :binary.encode_unsigned(num)
+    Rlpx.num2bin(num)
   end
 
-  defp to_num("") do
-    0
+  defp to_sbin(num) do
+    Rlpx.int2bin(num)
   end
 
-  defp to_num(num) do
-    :binary.decode_unsigned(num)
+  defp to_num(bin) do
+    Rlpx.bin2num(bin)
   end
 
   defp ensure_client(atom, n) do
@@ -750,14 +746,15 @@ defmodule Edge2Test do
   end
 
   defp call(pid, cmd, timeout \\ 5000) do
-    :io.format("call(~p, ~p ~p)~n", [pid, cmd, timeout])
     send(pid, {self(), cmd})
 
     receive do
       {:ret, crecv} ->
+        :io.format("call(~p, ~p ~p) => [~p]~n", [pid, cmd, timeout, crecv])
         {:ok, crecv}
     after
       timeout ->
+        :io.format("call(~p, ~p ~p) => timeout!~n", [pid, cmd, timeout])
         {:error, :timeout}
     end
   end

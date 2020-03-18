@@ -28,16 +28,16 @@ defmodule ChainTest do
 
   defp map_accounts(accounts) do
     Enum.map(accounts, fn {addr, state} ->
-      addr = Wallet.from_address(Rlp.hex2addr(addr))
+      addr = Wallet.from_address(Rlpx.hex2addr(addr))
 
       {addr,
        %Account{
-         balance: Rlp.bin2num(state["balance"]),
-         code: Rlp.bin2addr(state["code"]),
-         nonce: Rlp.bin2num(state["nonce"]),
+         balance: Rlpx.bin2num(state["balance"]),
+         code: Rlpx.bin2addr(state["code"]),
+         nonce: Rlpx.bin2num(state["nonce"]),
          storage_root:
            Enum.reduce(state["storage"], HeapMerkleTree.new(), fn {key, value}, tree ->
-             MerkleTree.insert(tree, Rlp.hex2num(key), Rlp.bin2num(value))
+             MerkleTree.insert(tree, Rlpx.hex2num(key), Rlpx.bin2num(value))
            end)
        }}
     end)
@@ -158,22 +158,22 @@ defmodule ChainTest do
             # "to" : "",
             # "v" : "0x1b",
             # "value" : "0x64"
-            data = Rlp.bin2addr(tx["data"])
-            to = Rlp.bin2addr(tx["to"])
+            data = Rlpx.bin2addr(tx["data"])
+            to = Rlpx.bin2addr(tx["to"])
 
             mtx = %Transaction{
-              nonce: Rlp.bin2num(tx["nonce"]),
-              gasPrice: Rlp.bin2num(tx["gasPrice"]),
-              gasLimit: Rlp.bin2num(tx["gasLimit"]),
+              nonce: Rlpx.bin2num(tx["nonce"]),
+              gasPrice: Rlpx.bin2num(tx["gasPrice"]),
+              gasLimit: Rlpx.bin2num(tx["gasLimit"]),
               to: to,
-              value: Rlp.bin2num(tx["value"]),
+              value: Rlpx.bin2num(tx["value"]),
               init: if(to == nil, do: data, else: nil),
               data: if(to != nil, do: data, else: nil),
               signature:
                 Secp256k1.rlp_to_bitcoin(
-                  Rlp.bin2addr(tx["v"]),
-                  Rlp.bin2addr(tx["r"]),
-                  Rlp.bin2addr(tx["s"])
+                  Rlpx.bin2addr(tx["v"]),
+                  Rlpx.bin2addr(tx["r"]),
+                  Rlpx.bin2addr(tx["s"])
                 )
             }
 
@@ -190,7 +190,7 @@ defmodule ChainTest do
             hd(chain),
             transactions,
             Diode.miner(),
-            Rlp.bin2num(block["blockHeader"]["timestamp"])
+            Rlpx.bin2num(block["blockHeader"]["timestamp"])
           )
           |> Block.sign(Diode.miner())
 
@@ -199,11 +199,11 @@ defmodule ChainTest do
           IO.puts("\tTransaction mismatch in block #{length(chain)}!")
         end
 
-        # assert Block.gas_used(head) == Rlp.bin2num(block["blockHeader"]["gasUsed"])
-        if Block.gas_used(head) != Rlp.bin2num(block["blockHeader"]["gasUsed"]) do
+        # assert Block.gas_used(head) == Rlpx.bin2num(block["blockHeader"]["gasUsed"])
+        if Block.gas_used(head) != Rlpx.bin2num(block["blockHeader"]["gasUsed"]) do
           IO.puts(
             "\tGas difference! #{Block.gas_used(head)} != #{
-              Rlp.bin2num(block["blockHeader"]["gasUsed"])
+              Rlpx.bin2num(block["blockHeader"]["gasUsed"])
             }"
           )
         else
