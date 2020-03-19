@@ -33,19 +33,23 @@ defmodule TestHelper do
     end
   end
 
-  def edgePort(num) do
+  def edge_port(num) do
     20000 + num * @max_ports
   end
 
-  def peerPort(num) do
+  def edge2_port(num) do
+    20004 + num * @max_ports
+  end
+
+  def peer_port(num) do
     20001 + num * @max_ports
   end
 
-  def rpcPort(num) do
+  def rpc_port(num) do
     20002 + num * @max_ports
   end
 
-  def rpcsPort(num) do
+  def rpcs_port(num) do
     20003 + num * @max_ports
   end
 
@@ -71,10 +75,11 @@ defmodule TestHelper do
           env: [
             {"MIX_ENV", "test"},
             {"DATA_DIR", clonedir},
-            {"RPC_PORT", "#{rpcPort(num)}"},
-            {"RPCS_PORT", "#{rpcsPort(num)}"},
-            {"EDGE_PORT", "#{edgePort(num)}"},
-            {"PEER_PORT", "#{peerPort(num)}"},
+            {"RPC_PORT", "#{rpc_port(num)}"},
+            {"RPCS_PORT", "#{rpcs_port(num)}"},
+            {"EDGE_PORT", "#{edge_port(num)}"},
+            {"EDGE2_PORT", "#{edge2_port(num)}"},
+            {"PEER_PORT", "#{peer_port(num)}"},
             {"SEED", "none"}
           ],
           stderr_to_stdout: true,
@@ -128,13 +133,5 @@ defmodule TestHelper do
         Process.sleep(1000)
         wait_for(fun, comment, timeout - 1)
     end
-  end
-
-  def clientid(n) do
-    Wallet.from_privkey(clientkey(n))
-  end
-
-  def clientkey(n) do
-    Certs.private_from_file("./test/pems/device#{n}_certificate.pem")
   end
 end

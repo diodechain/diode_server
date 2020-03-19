@@ -35,14 +35,14 @@ defmodule Chain.Transaction do
   def from_rlp(bin) do
     [nonce, gas_price, gas_limit, to, value, init, rec, r, s] = Rlp.decode!(bin)
 
-    to = Rlp.bin2addr(to)
+    to = Rlpx.bin2addr(to)
 
     %Chain.Transaction{
-      nonce: Rlp.bin2num(nonce),
-      gasPrice: Rlp.bin2num(gas_price),
-      gasLimit: Rlp.bin2num(gas_limit),
+      nonce: Rlpx.bin2num(nonce),
+      gasPrice: Rlpx.bin2num(gas_price),
+      gasLimit: Rlpx.bin2num(gas_limit),
       to: to,
-      value: Rlp.bin2num(value),
+      value: Rlpx.bin2num(value),
       init: if(to == nil, do: init, else: nil),
       data: if(to != nil, do: init, else: nil),
       signature: Secp256k1.rlp_to_bitcoin(rec, r, s),

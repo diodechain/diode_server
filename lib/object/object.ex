@@ -21,6 +21,25 @@ defmodule Object do
     |> List.to_tuple()
   end
 
+  def decode_rlp_list!([
+        "ticket",
+        server_id,
+        block_num,
+        fleet_contract,
+        total_connections,
+        total_bytes,
+        local_address,
+        device_signature,
+        server_signature
+      ]) do
+    {:ticket, server_id, Rlpx.bin2num(block_num), fleet_contract, Rlpx.bin2num(total_connections),
+     Rlpx.bin2num(total_bytes), local_address, device_signature, server_signature}
+  end
+
+  def decode_rlp_list!(["server", host, edge_port, server_port, signature]) do
+    {:server, host, Rlpx.bin2num(edge_port), Rlpx.bin2num(server_port), signature}
+  end
+
   def encode!(record) do
     encode_list!(record)
     |> BertExt.encode!()

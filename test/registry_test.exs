@@ -7,6 +7,7 @@ defmodule RegistryTest do
   alias Contract.Registry
   use ExUnit.Case, async: false
   import TestHelper
+  import Edge1Client
 
   setup_all do
     if Chain.peak() < 2 do

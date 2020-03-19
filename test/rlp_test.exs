@@ -42,6 +42,16 @@ defmodule RlpTest do
     assert term == Rlp.decode!(bin)
   end
 
+  test "0 - 256" do
+    for n <- 0..256 do
+      list = List.duplicate([], n)
+      assert Rlp.decode!(Rlp.encode!(list)) == list
+
+      bin = String.duplicate("_", n)
+      assert Rlp.decode!(Rlp.encode!(bin)) == bin
+    end
+  end
+
   test "nil, 0" do
     in_term = [0, <<0>>, nil, ""]
     out_term = ["", <<0>>, "", ""]

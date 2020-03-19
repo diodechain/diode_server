@@ -10,9 +10,13 @@ defmodule Diode.Mixfile do
       version: "0.0.1",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      compilers: [:elixir_make] ++ Mix.compilers()
+      compilers: [:elixir_make] ++ Mix.compilers(),
+      elixirc_paths: elixirc_paths(Mix.env())
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/helpers"]
+  defp elixirc_paths(_), do: ["lib"]
 
   def application do
     [

@@ -23,7 +23,8 @@ defmodule Random do
   def uint63h(), do: random(4_294_967_295, 9_223_372_036_854_775_807)
   def uint64h(), do: random(4_294_967_295, 18_446_744_073_709_551_615)
 
-  defp random(lo, hi) do
+  @spec random(integer(), integer()) :: integer()
+  def random(lo, hi) do
     :crypto.rand_uniform(lo, hi)
   end
 end
