@@ -323,18 +323,18 @@ defmodule Network.EdgeV1 do
         portopen(state, device_id, port)
 
       ["response", "portopen", ref, "ok"] ->
-        port = %Port{state: :pre_open} = PortCollection.get(state.ports, ref)
+        port = %Port{state: :pre_open} = PortCollection.get(state.ports, to_bin(ref))
         GenServer.reply(port.from, {:ok, ref})
         ports = PortCollection.put(state.ports, %Port{port | state: :open, from: nil})
         send!(%{state | ports: ports})
 
       ["error", "portopen", ref, reason] ->
-        port = %Port{state: :pre_open} = PortCollection.get(state.ports, ref)
+        port = %Port{state: :pre_open} = PortCollection.get(state.ports, to_bin(ref))
         GenServer.reply(port.from, {:error, reason})
         portclose(state, port, false)
 
       ["portsend", ref, data] ->
-        case PortCollection.get(state.ports, ref) do
+        case PortCollection.get(state.ports, to_bin(ref)) do
           nil ->
             send!(state, ["error", "portsend", "port does not exist"])
 
@@ -349,7 +349,7 @@ defmodule Network.EdgeV1 do
         end
 
       ["portclose", ref] ->
-        case PortCollection.get(state.ports, ref) do
+        case PortCollection.get(state.ports, to_bin(ref)) do
           nil ->
             send!(state, ["error", "portclose", "port does not exit"])
 
@@ -510,7 +510,7 @@ defmodule Network.EdgeV1 do
 
   defp do_portopen(state, portname, flags, pid) do
     mon = Process.monitor(pid)
-    ref = Random.uint31h() |> :binary.encode_unsigned()
+    ref = Random.uint31h() |> to_bin()
     # :io.format("REF ~p~n", [ref])
     this = self()
     device_address = device_address(state)
@@ -719,5 +719,13 @@ defmodule Network.EdgeV1 do
       nil -> throw(:notfound)
       block -> Chain.Header.strip_state(block.header)
     end
+  end
+
+  defp to_bin(bin) when is_binary(bin) do
+    bin
+  end
+
+  defp to_bin(int) when is_integer(int) do
+    :binary.encode_unsigned(int)
   end
 end
