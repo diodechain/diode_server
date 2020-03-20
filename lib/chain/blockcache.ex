@@ -82,9 +82,15 @@ defmodule Chain.BlockCache do
   # end
 
   def cache?(block) do
-    case :ets.lookup(__MODULE__, Block.hash(block)) do
-      [{_hash, cache}] -> cache
-      [] -> nil
+    case Block.hash(block) do
+      nil ->
+        nil
+
+      hash ->
+        case :ets.lookup(__MODULE__, hash) do
+          [{_hash, cache}] -> cache
+          [] -> nil
+        end
     end
   end
 
@@ -103,6 +109,10 @@ defmodule Chain.BlockCache do
       cache ->
         cache
     end
+  end
+
+  defp put_cache(nil, cache) do
+    cache
   end
 
   defp put_cache(hash, cache) do

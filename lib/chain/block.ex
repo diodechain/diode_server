@@ -31,9 +31,8 @@ defmodule Chain.Block do
   def parent(%Block{} = block, nil), do: Chain.block_by_hash(parent_hash(block))
   def parent_hash(%Block{header: header}), do: header.previous_block
   def nonce(%Block{header: header}), do: header.nonce
-  def miner(%Block{header: header}), do: Header.recover_miner(header)
   def state_hash(%Block{header: header}), do: Chain.Header.state_hash(header)
-  @spec hash(Chain.Block.t()) :: binary()
+  @spec hash(Chain.Block.t()) :: binary() | nil
   # Fix for creating a signature of a non-exisiting block in registry_test.ex
   def hash(nil), do: nil
   def hash(%Block{header: header}), do: header.block_hash
@@ -171,7 +170,10 @@ defmodule Chain.Block do
         |> min(50)
       end
 
-    div(stake * stake * @max_difficulty, BlockCache.difficulty(block))
+    diff = BlockCache.difficulty(block)
+    div(stake * stake * @max_difficulty, diff)
+    # :io.format("hash_target(~p) = ~p (~p * ~p)~n", [Block.printable(block), ret, diff, stake])
+    # ret
   end
 
   @doc "Creates a new block and stores the generated state in cache file"
@@ -430,9 +432,10 @@ defmodule Chain.Block do
     author = Wallet.words(Block.miner(block))
 
     prefix =
-      Block.hash(block)
-      |> binary_part(0, 5)
-      |> Base16.encode(false)
+      case Block.hash(block) do
+        nil -> "nil"
+        other -> binary_part(other, 0, 5) |> Base16.encode(false)
+      end
 
     "##{Block.number(block)}[#{prefix}] @#{author}"
   end
@@ -520,12 +523,21 @@ defmodule Chain.Block do
     end
   end
 
-  def coinbase(block = %Block{coinbase: nil}) do
-    miner(block) |> Wallet.address!() |> :binary.decode_unsigned()
+  @spec miner(Chain.Block.t()) :: Wallet.t()
+  def miner(%Block{coinbase: nil, header: header}) do
+    Header.recover_miner(header)
   end
 
-  def coinbase(%Block{coinbase: coinbase}) do
-    coinbase |> Wallet.address!() |> :binary.decode_unsigned()
+  def miner(%Block{coinbase: coinbase, header: header}) do
+    case Wallet.pubkey(coinbase) do
+      {:ok, _pub} -> coinbase
+      {:error, nil} -> Header.recover_miner(header)
+    end
+  end
+
+  @spec coinbase(Chain.Block.t()) :: non_neg_integer
+  def coinbase(block = %Block{}) do
+    miner(block) |> Wallet.address!() |> :binary.decode_unsigned()
   end
 
   @spec gasLimit(Block.t()) :: non_neg_integer()
