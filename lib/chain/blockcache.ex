@@ -116,7 +116,7 @@ defmodule Chain.BlockCache do
   end
 
   defp put_cache(hash, cache) do
-    query_async!("INSERT INTO blockcache (hash, data) VALUES(?1, ?2)",
+    query_async!("REPLACE INTO blockcache (hash, data) VALUES(?1, ?2)",
       bind: [hash, BertInt.encode!(cache)]
     )
 
@@ -130,22 +130,18 @@ defmodule Chain.BlockCache do
   end
 
   defp do_get_cache(block, name, fun) do
-    case cache(block) do
-      # nil ->
-      # apply(Block, name, [block])
-      # fun.()
+    old_cache = cache(block)
 
-      cache ->
-        case Map.get(cache, name) do
-          nil ->
-            value = fun.()
-            cache = Map.put(cache, name, value)
-            put_cache(Block.hash(block), cache)
-            value
+    case Map.get(old_cache, name) do
+      nil ->
+        value = fun.()
+        cache = Map.put(old_cache, name, value)
+        # :io.format("put_cache (~p) => ~p~n~p~n", [name, old_cache, cache])
+        put_cache(Block.hash(block), cache)
+        value
 
-          value ->
-            value
-        end
+      value ->
+        value
     end
   end
 
