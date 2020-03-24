@@ -38,7 +38,12 @@ defmodule Network.Rpc do
         execute_rpc(method, params, opts)
       rescue
         e in ErlangError ->
-          :io.format("Network.Rpc: ErlangError ~p in ~p: ~0p~n", [e, method, __STACKTRACE__])
+          :io.format("Network.Rpc: ErlangError ~p in ~p: ~0p~n", [
+            e,
+            {method, params},
+            __STACKTRACE__
+          ])
+
           {nil, 400, %{"message" => "Bad Request"}}
       catch
         :notfound -> {nil, 404, %{"message" => "Not found"}}
