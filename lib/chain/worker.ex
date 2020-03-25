@@ -137,8 +137,15 @@ defmodule Chain.Worker do
     state = %{state | working: false, candidate: block}
 
     if hash < target do
-      if Block.valid?(block) and Chain.add_block(block) == :added do
-        do_update(state)
+      if Block.valid?(block) do
+        case Chain.add_block(block) do
+          :added ->
+            do_update(state)
+
+          other ->
+            :io.format("Self generated block is valid but is not accepted: ~p~n", [other])
+            %{state | candidate: nil, parent_hash: nil, proposal: nil}
+        end
       else
         :io.format("Self generated block is invalid: ~p~n", [
           Block.validate(block, Block.parent(block))
