@@ -38,7 +38,8 @@ defmodule KademliaSearch do
     {:noreply, %{state | tasks: tasks}}
   end
 
-  def handle_info({:EXIT, worker_pid, _reason}, state) do
+  def handle_info({:EXIT, worker_pid, reason}, state) do
+    :io.format("~p received :EXIT ~p~n", [__MODULE__, reason])
     tasks = Enum.reject(state.tasks, fn pid -> pid == worker_pid end)
     tasks = [start_worker(state) | tasks]
     {:noreply, %{state | tasks: tasks}}
@@ -89,8 +90,7 @@ defmodule KademliaSearch do
   end
 
   defp start_worker(state) do
-    {:ok, pid} = Task.start_link(__MODULE__, :worker_loop, [nil, state.key, self(), state.cmd])
-    pid
+    spawn_link(__MODULE__, :worker_loop, [nil, state.key, self(), state.cmd])
   end
 
   def worker_loop(node, key, father, cmd) do

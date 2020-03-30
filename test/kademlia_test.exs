@@ -12,6 +12,7 @@ defmodule KademliaTest do
   @network_size 2
   setup_all do
     reset()
+    :io.format("Kademlia starting clones~n")
     start_clones(@network_size)
 
     on_exit(fn ->
@@ -29,6 +30,7 @@ defmodule KademliaTest do
     assert map_size(conns) == 0
 
     for n <- 1..@network_size do
+      :io.format("Kademlia connect #{n}~n")
       pid = Server.ensure_node_connection(PeerHandler, Wallet.new(), "localhost", peer_port(n))
       assert GenServer.call(pid, :ping) == :pong
       assert map_size(Server.get_connections(PeerHandler)) == n
@@ -41,17 +43,41 @@ defmodule KademliaTest do
 
   test "send/receive" do
     values = Enum.map(1..100, fn idx -> {"#{idx}", "value_#{idx}"} end)
+    before = Process.list()
 
     for {key, value} <- values do
+      :io.format("Kademlia store #{key}~n")
       Kademlia.store(key, value)
     end
 
     for {key, value} <- values do
+      :io.format("Kademlia find_value #{key}~n")
       assert Kademlia.find_value(key) == value
     end
 
     for {key, _value} <- values do
+      :io.format("Kademlia find_value not_#{key}~n")
       assert Kademlia.find_value("not_#{key}") == nil
     end
+
+    assert length(before) <= length(Process.list())
+  end
+
+  test "failed server" do
+    values = Enum.map(1..50, fn idx -> {"#{idx}", "value_#{idx}"} end)
+
+    for {key, value} <- values do
+      :io.format("Kademlia store #{key}~n")
+      Kademlia.store(key, value)
+    end
+
+    freeze_clone(1)
+
+    for {key, value} <- values do
+      :io.format("Kademlia find_value #{key}~n")
+      assert Kademlia.find_value(key) == value
+    end
+
+    unfreeze_clone(1)
   end
 end

@@ -66,13 +66,14 @@ defmodule TestHelper do
 
     for num <- 1..number do
       clonedir = "#{basedir}/#{num}/"
-      file = File.stream!("#{basedir}/#{num}.log")
+      file = File.open!("#{basedir}/#{num}.log", [:write, :binary])
 
       spawn_link(fn ->
-        System.cmd(
-          "iex",
-          ["--cookie", @cookie, "-S", "mix", "run"],
-          env: [
+        iex = System.find_executable("iex")
+        args = ["--cookie", @cookie, "-S", "mix", "run"]
+
+        env =
+          [
             {"MIX_ENV", "test"},
             {"DATA_DIR", clonedir},
             {"RPC_PORT", "#{rpc_port(num)}"},
@@ -81,10 +82,23 @@ defmodule TestHelper do
             {"EDGE2_PORT", "#{edge2_port(num)}"},
             {"PEER_PORT", "#{peer_port(num)}"},
             {"SEED", "none"}
-          ],
-          stderr_to_stdout: true,
-          into: file
-        )
+          ]
+          |> Enum.map(fn {key, value} -> {String.to_charlist(key), String.to_charlist(value)} end)
+
+        port =
+          Port.open({:spawn_executable, iex}, [
+            {:args, args},
+            {:env, env},
+            :stream,
+            :exit_status,
+            :hide,
+            :use_stdio,
+            :stderr_to_stdout
+          ])
+
+        true = Process.register(port, String.to_atom("clone_#{num}"))
+
+        clone_loop(port, file)
       end)
 
       Process.sleep(1000)
@@ -92,6 +106,32 @@ defmodule TestHelper do
 
     :ok = wait_clones(number, 60)
     Process.sleep(@delay_clone)
+  end
+
+  defp clone_loop(port, file) do
+    receive do
+      {^port, {:data, msg}} ->
+        IO.write(file, msg)
+
+      msg ->
+        :io.format("RECEIVED: ~p~n", [msg])
+    end
+
+    clone_loop(port, file)
+  end
+
+  def freeze_clone(num) do
+    port = Process.whereis(String.to_atom("clone_#{num}"))
+    # :io.format("port info: ~p ~p~n", [port, Port.info(port)])
+    {:os_pid, pid} = Port.info(port, :os_pid)
+    ret = System.cmd("kill", ["-SIGSTOP", "#{pid}"])
+    :io.format("out(~p): ~p~n", [pid, ret])
+  end
+
+  def unfreeze_clone(num) do
+    port = Process.whereis(String.to_atom("clone_#{num}"))
+    {:os_pid, pid} = Port.info(port, :os_pid)
+    System.cmd("kill", ["-SIGCONT", "#{pid}"])
   end
 
   def wait_clones(_target_count, 0) do

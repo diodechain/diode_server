@@ -15,14 +15,16 @@ defmodule Network.Server do
 
   @type sslsocket() :: any()
 
-  defstruct socket: nil, clients: %{}, protocol: nil, port: nil, opts: []
+  defstruct socket: nil, clients: %{}, protocol: nil, port: nil, opts: [], pid: nil, acceptor: nil
 
   @type t :: %Network.Server{
           socket: sslsocket,
           clients: Map.t(),
           protocol: atom(),
           port: integer(),
-          opts: %{}
+          opts: %{},
+          acceptor: pid() | nil,
+          pid: pid()
         }
 
   def start_link({port, protocolHandler, opts}) do
@@ -42,8 +44,14 @@ defmodule Network.Server do
     :erlang.process_flag(:trap_exit, true)
     {:ok, socket} = :ssl.listen(port, protocolHandler.ssl_options(opts))
 
-    {:ok, %Network.Server{socket: socket, protocol: protocolHandler, port: port, opts: opts},
-     {:continue, :accept}}
+    {:ok,
+     %Network.Server{
+       socket: socket,
+       protocol: protocolHandler,
+       port: port,
+       opts: opts,
+       pid: self()
+     }, {:continue, :accept}}
   end
 
   def check(_cert, event, state) do
@@ -61,8 +69,10 @@ defmodule Network.Server do
     GenServer.call(name, {:ensure_node_connection, node_id, address, port})
   end
 
-  def handle_info(:accept, state) do
-    do_accept(state)
+  def handle_info({:EXIT, pid, reason}, state = %{acceptor: pid}) do
+    :io.format("~p acceptor crashed ~p~n", [state.protocol, reason])
+    acceptor = spawn_link(fn -> do_accept(state) end)
+    {:noreply, %{state | acceptor: acceptor}}
   end
 
   def handle_info({:EXIT, pid, reason}, state = %{clients: clients}) do
@@ -167,7 +177,8 @@ defmodule Network.Server do
   end
 
   def handle_continue(:accept, state) do
-    do_accept(state)
+    acceptor = spawn_link(fn -> do_accept(state) end)
+    {:noreply, %{state | acceptor: acceptor}}
   end
 
   defp do_accept(state) do
@@ -192,18 +203,17 @@ defmodule Network.Server do
         end
     end
 
-    send(self(), :accept)
-    {:noreply, state}
+    do_accept(state)
   end
 
   defp start_worker!(state, cmd) do
     worker_state = %{
-      server_pid: self(),
+      server_pid: state.pid,
       ssl_opts: state.opts
     }
 
     {:ok, worker} =
-      GenServer.start_link(state.protocol, {worker_state, cmd},
+      GenServer.start(state.protocol, {worker_state, cmd},
         hibernate_after: 5_000,
         timeout: 4_000
       )

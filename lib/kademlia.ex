@@ -53,7 +53,9 @@ defmodule Kademlia do
 
     case do_node_lookup(key) do
       {_, nearest} ->
-        case do_find_nodes(key, nearest, KBuckets.k(), Client.find_value()) do
+        nodes = do_find_nodes(key, nearest, KBuckets.k(), Client.find_value())
+
+        case nodes do
           {:value, value, visited} ->
             result = KBuckets.nearest_n(visited, key, KBuckets.k())
 
@@ -63,9 +65,10 @@ defmodule Kademlia do
               {:reply, :ok, %Kademlia{state | network: network, cache: cache}}
             end)
 
+            # Kademlia logic: Writing found result to second nearest node
             case Enum.at(result, 1) do
               nil -> :nothing
-              second_nearest -> rpc(second_nearest, [Client.store(), key, value])
+              second_nearest -> rpcast(second_nearest, [Client.store(), key, value])
             end
 
             value
@@ -367,6 +370,14 @@ defmodule Kademlia do
         IO.puts("Failed(2) to get a result from #{Wallet.printable(node_id)}")
         []
     end
+  end
+
+  def rpcast(%KBuckets.Item{object: :self} = node, call) do
+    rpc(node, call)
+  end
+
+  def rpcast(%KBuckets.Item{} = node, call) do
+    GenServer.cast(ensure_node_connection(node), {:rpc, call})
   end
 
   defp ensure_node_connection(%KBuckets.Item{node_id: node_id, object: server}) do
