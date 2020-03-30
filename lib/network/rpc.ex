@@ -506,6 +506,24 @@ defmodule Network.Rpc do
         |> Enum.sum()
         |> result()
 
+      "dio_network" ->
+        conns = Network.Server.get_connections(Network.PeerHandler)
+
+        Kademlia.network()
+        |> KBuckets.to_list()
+        |> Enum.filter(fn item -> item.object != :self end)
+        |> Enum.map(fn item ->
+          address = Wallet.address!(item.node_id)
+
+          %{
+            connected: Map.has_key?(conns, Wallet.address!(item.node_id)),
+            last_seen: item.last_seen,
+            node_id: address,
+            node: item.object
+          }
+        end)
+        |> result()
+
       _ ->
         nil
     end
