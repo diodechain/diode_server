@@ -71,6 +71,12 @@ defmodule Edge2Test do
     ["account does not exist"] =
       rpc(:client_1, ["getaccount", Chain.peak(), "01234567890123456789"])
 
+    ["account does not exist"] =
+      rpc(:client_1, ["getaccount", Chain.peak(), Wallet.address!(Wallet.new())])
+
+    ["account does not exist"] =
+      rpc(:client_1, ["getaccountroots", Chain.peak(), Wallet.address!(Wallet.new())])
+
     {addr, acc} = hd(Chain.GenesisFactory.genesis_accounts())
 
     [ret, _proof] = rpc(:client_1, ["getaccount", Chain.peak(), addr])
