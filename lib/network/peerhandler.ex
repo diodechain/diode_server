@@ -260,7 +260,7 @@ defmodule Network.PeerHandler do
         # Responding to initial call, removing it from the stack
         # e.g. from kademlia.ex `GenServer.cast(pid, {:rpc, msg})`
         err = :io_lib.format("missing_parent ~p but there is no such parent", [parent_hash])
-        :io.format(err)
+        :io.format("~s~n", [err])
         respond(state, err)
 
       _other ->
