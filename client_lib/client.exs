@@ -173,7 +173,7 @@ Process.spawn(Client, :readloop, [self()], [])
   hash: 0,
   conns: 0,
   key: Certs.private_from_file(cert),
-  fleet: Diode.fleetAddress()
+  fleet: Diode.fleet_address()
 }
 |> Client.init()
 |> Client.loop()

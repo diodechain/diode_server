@@ -181,7 +181,7 @@ defmodule Chain.Worker do
         nonce: Chain.Account.nonce(account),
         gasPrice: 0,
         gasLimit: 1_000_000_000,
-        to: Diode.registryAddress(),
+        to: Diode.registry_address(),
         data: ABI.encode_spec("blockReward")
       }
       |> Transaction.sign(Wallet.privkey!(creds))

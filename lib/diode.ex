@@ -199,11 +199,11 @@ defmodule Diode do
     # |> List.insert_at(0, miner())
   end
 
-  def registryAddress() do
+  def registry_address() do
     Base16.decode("0x5000000000000000000000000000000000000000")
   end
 
-  def fleetAddress() do
+  def fleet_address() do
     Base16.decode("0x6000000000000000000000000000000000000000")
   end
 
@@ -233,7 +233,7 @@ defmodule Diode do
     get_env_int("EDGE_PORT", 41045)
   end
 
-  @spec edge_port() :: integer()
+  @spec edge2_port :: integer()
   def edge2_port() do
     get_env_int("EDGE2_PORT", 41046)
   end

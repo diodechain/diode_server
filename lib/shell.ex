@@ -14,7 +14,7 @@ defmodule Shell do
     fleetContract = Base16.decode("0x6728c7bea74db60c2fb117c15de28b0b0686c389")
     Shell.call(fleetContract, "accountant")
 
-    registryContract = Diode.registryAddress()
+    registryContract = Diode.registry_address()
     Shell.call(registryContract, "ContractStake", ["address"], [fleetContract])
 
     addr = Chain.GenesisFactory.genesis_accounts |> hd |> elem(0)
@@ -81,7 +81,7 @@ defmodule Shell do
   @spec get_miner_stake(binary()) :: non_neg_integer()
   def get_miner_stake(address) do
     {value, _gas} =
-      call(Diode.registryAddress(), "MinerValue", ["uint8", "address"], [0, address])
+      call(Diode.registry_address(), "MinerValue", ["uint8", "address"], [0, address])
 
     :binary.decode_unsigned(value)
   end

@@ -65,7 +65,7 @@ defmodule Chain.GenesisFactory do
 
       # The Registry with the accountant placed
       addr_account(
-        Diode.registryAddress(),
+        Diode.registry_address(),
         Account.new(
           balance: ether(100_000_000),
           code: Base16.decode(registryContract())
@@ -75,12 +75,12 @@ defmodule Chain.GenesisFactory do
 
       # The Fleet with the operator and accountant placed
       addr_account(
-        Diode.fleetAddress(),
+        Diode.fleet_address(),
         Account.new(
           balance: 0,
           code: Base16.decode(fleetContract())
         )
-        |> Account.storageSetValue(0, Diode.registryAddress() |> :binary.decode_unsigned())
+        |> Account.storageSetValue(0, Diode.registry_address() |> :binary.decode_unsigned())
         |> Account.storageSetValue(2, accountant)
       )
     ]
@@ -116,7 +116,7 @@ defmodule Chain.GenesisFactory do
         nonce: 0,
         gasPrice: 0,
         gasLimit: 1_000_000_000,
-        to: Diode.registryAddress(),
+        to: Diode.registry_address(),
         data: ABI.encode_spec("blockReward")
       }
       |> Chain.Transaction.sign(priv)

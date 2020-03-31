@@ -64,7 +64,7 @@ defmodule RegistryTest do
         total_bytes: 0,
         local_address: "spam",
         block_number: Chain.peak() - 2,
-        fleet_contract: Diode.fleetAddress()
+        fleet_contract: Diode.fleet_address()
       )
       |> Ticket.device_sign(clientkey(1))
 
@@ -88,7 +88,7 @@ defmodule RegistryTest do
         total_bytes: 0,
         local_address: "spam",
         block_number: Chain.peak() - 2,
-        fleet_contract: Diode.fleetAddress()
+        fleet_contract: Diode.fleet_address()
       )
       |> Ticket.device_sign(clientkey(1))
 

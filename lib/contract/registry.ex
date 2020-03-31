@@ -20,13 +20,13 @@ defmodule Contract.Registry do
   end
 
   def submitTicketRawTx(ticket) do
-    Shell.transaction(Diode.miner(), Diode.registryAddress(), "SubmitTicketRaw", ["bytes32[]"], [
+    Shell.transaction(Diode.miner(), Diode.registry_address(), "SubmitTicketRaw", ["bytes32[]"], [
       ticket
     ])
   end
 
   defp call(name, types, values, blockRef) do
-    {ret, _gas} = Shell.call(Diode.registryAddress(), name, types, values, blockRef: blockRef)
+    {ret, _gas} = Shell.call(Diode.registry_address(), name, types, values, blockRef: blockRef)
     ret
   end
 end

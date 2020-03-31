@@ -10,7 +10,7 @@ defmodule Contract.Fleet do
   def setDeviceWhiteListTx(address, bool) when is_boolean(bool) do
     Shell.transaction(
       Diode.miner(),
-      Diode.fleetAddress(),
+      Diode.fleet_address(),
       "SetDeviceWhitelist",
       ["address", "bool"],
       [address, bool]
@@ -27,7 +27,7 @@ defmodule Contract.Fleet do
   end
 
   defp call(name, types, values, blockRef) do
-    {ret, _gas} = Shell.call(Diode.fleetAddress(), name, types, values, blockRef: blockRef)
+    {ret, _gas} = Shell.call(Diode.fleet_address(), name, types, values, blockRef: blockRef)
     ret
   end
 end
