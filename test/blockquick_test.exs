@@ -3,6 +3,7 @@
 # Licensed under the Diode License, Version 1.0
 defmodule BlockQuickTest do
   use ExUnit.Case, async: false
+  alias Chain.Block
 
   setup_all do
     Chain.reset_state()
@@ -10,18 +11,18 @@ defmodule BlockQuickTest do
   end
 
   test "forced stop" do
-    final = Chain.final_block()
-    build(Chain.window_size() + 10, final)
-    assert Chain.peak() == Chain.window_size() - 10
+    target_size = Chain.window_size() * 2
+    build(target_size)
+    assert Chain.final_block() |> Block.number() == Chain.window_size() - 1
+    assert Chain.peak() == target_size - 11
   end
 
-  defp build(0, _final) do
+  defp build(0) do
     :ok
   end
 
-  defp build(n, final) do
+  defp build(n) do
     Chain.Worker.work()
-    assert final == Chain.final_block()
-    build(n - 1, final)
+    build(n - 1)
   end
 end

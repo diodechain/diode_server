@@ -6,7 +6,6 @@ defmodule RegistryTest do
   import Ticket
   alias Contract.Registry
   use ExUnit.Case, async: false
-  import TestHelper
   import Edge1Client
 
   setup_all do
