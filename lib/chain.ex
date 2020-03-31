@@ -323,7 +323,8 @@ defmodule Chain do
         end)
 
         if relay do
-          Kademlia.publish(block)
+          Block.export(block)
+          |> Kademlia.publish()
         end
 
         {:reply, :added, state}

@@ -111,11 +111,11 @@ defmodule Chain.BlockCache do
     end
   end
 
-  defp put_cache(nil, cache) do
+  def put_cache(nil, cache) do
     cache
   end
 
-  defp put_cache(hash, cache) do
+  def put_cache(hash, cache) do
     query_async!("REPLACE INTO blockcache (hash, data) VALUES(?1, ?2)",
       bind: [hash, BertInt.encode!(cache)]
     )
