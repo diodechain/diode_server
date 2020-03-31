@@ -301,7 +301,7 @@ defmodule Chain do
 
           # Recursively makes a new branch normative
           ChainSql.put_peak(block)
-          ets_prefetch()
+          ets_refetch(block)
         end
 
         state = %{state | peak: block}
@@ -508,13 +508,34 @@ defmodule Chain do
     for block <- ChainSql.alt_blocks(), do: ets_add_alt(block)
   end
 
+  # Just fetching blocks of a newly adopted fork
+  defp ets_refetch(nil) do
+    :ok
+  end
+
+  defp ets_refetch(block) do
+    block_hash = Block.hash(block)
+    idx = Block.number(block)
+
+    case do_ets_lookup(idx) do
+      [{^idx, ^block_hash}] ->
+        :ok
+
+      _other ->
+        ets_add(block)
+
+        Block.parent_hash(block)
+        |> ChainSql.block_by_hash()
+        |> ets_refetch()
+    end
+  end
+
   defp ets_add_alt(block) do
     # block = Block.strip_state(block)
     :ets.insert(__MODULE__, {Block.hash(block), true})
   end
 
   defp ets_add(block) do
-    # block = Block.strip_state(block)
     :ets.insert(__MODULE__, {Block.hash(block), block})
     :ets.insert(__MODULE__, {Block.number(block), Block.hash(block)})
     ets_remove_idx(Block.number(block) - @ets_size)
