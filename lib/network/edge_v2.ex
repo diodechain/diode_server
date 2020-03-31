@@ -256,7 +256,7 @@ defmodule Network.EdgeV2 do
         response(Chain.peak())
 
       ["getblock", index] when is_binary(index) ->
-        response(Chain.block(to_num(index)))
+        response(Chain.block(to_num(index)) |> Chain.Block.export())
 
       ["getblockheader", index] when is_binary(index) ->
         response(block_header(to_num(index)))
