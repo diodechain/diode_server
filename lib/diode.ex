@@ -214,7 +214,20 @@ defmodule Diode do
 
   def host() do
     get_env("HOST", fn ->
-      {:ok, [{{a, b, c, d}, _b, _m} | _]} = :inet.getif()
+      {:ok, interfaces} = :inet.getif()
+      ips = Enum.map(interfaces, fn {ip, _b, _m} -> ip end)
+
+      {a, b, c, d} =
+        Enum.find(ips, hd(ips), fn ip ->
+          case ip do
+            {127, _, _, _} -> false
+            {10, _, _, _} -> false
+            {192, 168, _, _} -> false
+            {172, b, _, _} when b >= 16 and b < 32 -> false
+            _ -> true
+          end
+        end)
+
       "#{a}.#{b}.#{c}.#{d}"
     end)
   end
