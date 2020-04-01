@@ -23,6 +23,11 @@ defmodule Model.Stats do
     end)
   end
 
+  def get(metric, default \\ 0) do
+    GenServer.call(__MODULE__, :get)
+    |> Map.get(metric, default)
+  end
+
   def tc(metric, fun) do
     {time, ret} = :timer.tc(fun)
     incr("#{metric}_time", time)
@@ -42,6 +47,10 @@ defmodule Model.Stats do
 
   def handle_cast({:cast, fun}, state) do
     {:noreply, fun.(state)}
+  end
+
+  def handle_call(:get, _from, state) do
+    {:reply, state.done_counters, state}
   end
 
   def handle_info(:tick, state) do

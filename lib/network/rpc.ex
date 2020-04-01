@@ -4,6 +4,8 @@
 defmodule Network.Rpc do
   alias Chain.BlockCache, as: Block
   alias Chain.Transaction
+  alias Chain.Account
+  alias Chain.State
 
   def handle_jsonrpc(rpcs, opts \\ [])
 
@@ -215,6 +217,9 @@ defmodule Network.Rpc do
           end
 
         result(mining)
+
+      "eth_hashrate" ->
+        result(Model.Stats.get(:hashrate, 0))
 
       "eth_accounts" ->
         addresses =
@@ -522,6 +527,20 @@ defmodule Network.Rpc do
             node: item.object
           }
         end)
+        |> result()
+
+      "dio_accounts" ->
+        Chain.peak_state()
+        |> State.accounts()
+        |> Enum.map(fn {id, acc} ->
+          {id,
+           %{
+             "codehash" => Account.codehash(acc),
+             "balance" => Account.balance(acc),
+             "nonce" => Account.nonce(acc)
+           }}
+        end)
+        |> Map.new()
         |> result()
 
       _ ->
