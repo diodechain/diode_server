@@ -48,6 +48,7 @@ defmodule KademliaSearch do
   def handle_info({:kadret, {:value, value}, _distance, _task}, state) do
     ret = KBuckets.unique(state.visited ++ state.queried)
     GenServer.reply(state.from, {:value, value, ret})
+    Enum.each(state.tasks, fn task -> send(task, :done) end)
     {:stop, :normal, nil}
   end
 
