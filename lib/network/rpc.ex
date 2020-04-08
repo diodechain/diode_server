@@ -276,14 +276,11 @@ defmodule Network.Rpc do
 
         wallet =
           case Map.get(opts, "from") do
-            nil ->
-              Wallet.new()
-
-            from ->
-              Enum.find(Diode.wallets(), Wallet.new(), fn w -> Wallet.address!(w) == from end)
+            nil -> Wallet.new()
+            from -> Wallet.from_address(from)
           end
 
-        tx = create_transaction(wallet, data, opts)
+        tx = create_transaction(wallet, data, opts, false)
         block = get_block(ref)
         state = Block.state(block)
         apply_transaction(tx, block, state)
@@ -554,7 +551,8 @@ defmodule Network.Rpc do
         [%{} = opts] = params
 
         opts = decode_opts(opts)
-        %{"from" => from, "data" => data} = opts
+        %{"from" => from} = opts
+        data = Map.get(opts, "data", "")
         wallet = Enum.find(Diode.wallets(), fn w -> Wallet.address!(w) == from end)
         tx = create_transaction(wallet, data, opts)
 
@@ -675,7 +673,7 @@ defmodule Network.Rpc do
     |> Map.new()
   end
 
-  def create_transaction(wallet, data, opts \\ %{}) do
+  def create_transaction(wallet, data, opts \\ %{}, sign \\ true) do
     from = Wallet.address!(wallet)
 
     gas = Map.get(opts, "gas", 0x15F90)
@@ -714,9 +712,12 @@ defmodule Network.Rpc do
             value: value
           }
       end
-      |> Chain.Transaction.sign(Wallet.privkey!(wallet))
 
-    tx
+    if sign do
+      Chain.Transaction.sign(tx, Wallet.privkey!(wallet))
+    else
+      %{tx | signature: {:fake, Wallet.address!(wallet)}}
+    end
   end
 
   defp result(result, code \\ 200, error \\ nil) do

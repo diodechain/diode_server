@@ -113,6 +113,10 @@ defmodule Chain.Transaction do
   end
 
   @spec origin(Chain.Transaction.t()) :: Wallet.t()
+  def origin(%Chain.Transaction{signature: {:fake, pubkey}}) do
+    Wallet.from_address(pubkey)
+  end
+
   def origin(tx) do
     recover(tx) |> Wallet.from_pubkey()
   end
