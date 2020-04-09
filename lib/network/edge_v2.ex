@@ -612,6 +612,10 @@ defmodule Network.EdgeV2 do
 
         response("ok", ref)
 
+      {:error, reason} ->
+        Process.demonitor(mon, [:flush])
+        error(reason)
+
       :error ->
         Process.demonitor(mon, [:flush])
         error(ref)
