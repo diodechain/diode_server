@@ -119,7 +119,7 @@ defmodule Network.Rpc do
 
         {res, code, err} = apply_transaction(tx, peak, state)
 
-        # Adding transacton, also when :nonce_too_high
+        # Adding transacton, even when :nonce_too_high
         if err == nil or err["code"] == -32001 do
           Chain.Pool.add_transaction(tx, true)
 
@@ -482,6 +482,11 @@ defmodule Network.Rpc do
           item -> result(Object.encode_list!(KBuckets.object(item)))
         end
 
+      "dio_getPool" ->
+        Chain.Pool.transactions()
+        |> Enum.map(&transaction_list/1)
+        |> result()
+
       "dio_codeCount" ->
         codehash = Base16.decode(hd(params))
 
@@ -722,6 +727,23 @@ defmodule Network.Rpc do
 
   defp result(result, code \\ 200, error \\ nil) do
     {result, code, error}
+  end
+
+  defp transaction_list(%Transaction{} = tx) do
+    [v, r, s] = Secp256k1.bitcoin_to_rlp(Transaction.signature(tx))
+
+    %{
+      "from" => Transaction.from(tx),
+      "gasPrice" => Transaction.gas_price(tx),
+      "hash" => Transaction.hash(tx),
+      "input" => Transaction.payload(tx),
+      "nonce" => Transaction.nonce(tx),
+      "to" => Transaction.to(tx),
+      "value" => Transaction.value(tx),
+      "v" => v,
+      "r" => r,
+      "s" => s
+    }
   end
 
   defp transaction_result(%Transaction{} = tx, %Chain.Block{} = block) do
