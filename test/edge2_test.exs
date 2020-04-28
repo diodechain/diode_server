@@ -432,6 +432,30 @@ defmodule Edge2Test do
     assert length(headers) == 10
   end
 
+  test "transaction" do
+    [from, to] = Diode.wallets() |> Enum.reverse() |> Enum.take(2)
+
+    Chain.Worker.set_mode(:disabled)
+    to = Wallet.address!(to)
+
+    tx =
+      Network.Rpc.create_transaction(from, <<"">>, %{
+        "value" => 0,
+        "to" => to,
+        "gasPrice" => 0
+      })
+
+    ["ok"] = rpc(:client_1, ["sendtransaction", to_rlp(tx)])
+
+    Chain.Worker.set_mode(:poll)
+    Chain.Worker.work()
+    tx
+  end
+
+  defp to_rlp(tx) do
+    tx |> Chain.Transaction.to_rlp() |> Rlp.encode!()
+  end
+
   defp check_counters() do
     # Checking counters
     rpc(:client_2, ["bytes"])

@@ -372,6 +372,33 @@ defmodule Network.EdgeV2 do
             response("ok")
         end
 
+      ["sendtransaction", tx] ->
+        # Testing transaction
+        tx = Chain.Transaction.from_rlp(tx)
+        block = Chain.peak_block()
+        state = Chain.Block.state(block)
+
+        err =
+          case Chain.Transaction.apply(tx, block, state) do
+            {:ok, _state, %{msg: :ok}} -> nil
+            {:ok, _state, rcpt} -> "Transaction exception: #{rcpt.msg}"
+            {:error, :nonce_too_high} -> nil
+            {:error, reason} -> "Transaction failed: #{inspect(reason)}"
+          end
+
+        # Adding transacton, even when :nonce_too_high
+        if err == nil do
+          Chain.Pool.add_transaction(tx, true)
+
+          if Diode.dev_mode?() do
+            Chain.Worker.work()
+          end
+
+          response("ok")
+        else
+          error(400, err)
+        end
+
       nil ->
         log(state, "Unhandled message: ~40s~n", [truncate(msg)])
         error(400, "that is not rlp")
