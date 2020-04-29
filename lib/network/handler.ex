@@ -91,25 +91,20 @@ defmodule Network.Handler do
               server_port: nil
             }
 
-            if Wallet.equal?(remote_id, Diode.miner()) do
-              log(state, "Server: Rejecting self-connection~n")
-              {:stop, :normal, state}
-            else
-              # register ensure this process is stored under the correct remote_id
-              # and also ensure setops(active:true) is not sent before server.ex
-              # finished the handshake
-              case GenServer.call(server, {:register, remote_id}) do
-                {:deny, _server_port} ->
-                  log(state, "Server: Rejecting double-connection~n")
-                  {:stop, :normal, state}
+            # register ensure this process is stored under the correct remote_id
+            # and also ensure setops(active:true) is not sent before server.ex
+            # finished the handshake
+            case GenServer.call(server, {:register, remote_id}) do
+              {:deny, _server_port} ->
+                log(state, "Server: Rejecting double-connection~n")
+                {:stop, :normal, state}
 
-                {:ok, server_port} ->
-                  set_keepalive(socket)
-                  :ssl.setopts(socket, active: true)
+              {:ok, server_port} ->
+                set_keepalive(socket)
+                :ssl.setopts(socket, active: true)
 
-                  state = Map.put(state, :server_port, server_port)
-                  do_init(state)
-              end
+                state = Map.put(state, :server_port, server_port)
+                do_init(state)
             end
         end
       end

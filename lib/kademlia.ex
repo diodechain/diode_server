@@ -8,9 +8,6 @@ defmodule Kademlia do
   alias Model.KademliaSql
   @replication_factor 3
 
-  # 2^256
-  @max_oid 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF + 1
-
   defstruct tasks: %{}, network: nil, cache: Lru.new(1024)
   @type t :: %Kademlia{tasks: Map.t(), network: KBuckets.t(), cache: Lru.t()}
 
@@ -140,33 +137,10 @@ defmodule Kademlia do
     end
   end
 
-  defp do_find_nodes(key, nearest, k, cmd) do
-    KademliaSearch.find_nodes(key, nearest, k, cmd)
-  end
-
   @spec find_node_lookup(any()) :: [KBuckets.item()]
   def find_node_lookup(key) do
     {_, nodes} = do_node_lookup(key)
     nodes
-  end
-
-  # Retrieves for the target key either the last cached values or
-  # the nearest k entries from the KBuckets store
-  @spec do_node_lookup(any()) :: {:network | :cached, [KBuckets.item()]}
-  defp do_node_lookup(key) do
-    call(fn _from, state ->
-      nodes =
-        case Lru.get(state.cache, key) do
-          nil -> {:network, KBuckets.nearest_n(state.network, key, KBuckets.k())}
-          cached -> {:cached, cached}
-        end
-
-      {:reply, nodes, state}
-    end)
-  end
-
-  defp call(fun) do
-    GenServer.call(__MODULE__, {:call, fun})
   end
 
   def network() do
@@ -192,6 +166,29 @@ defmodule Kademlia do
     {:noreply, state}
   end
 
+  def handle_info(:contact_seeds, state) do
+    for seed <- Diode.seeds() do
+      %URI{userinfo: node_id, host: address, port: port} = URI.parse(seed)
+
+      id =
+        case node_id do
+          nil -> Wallet.new()
+          str -> Wallet.from_address(Base16.decode(str))
+        end
+
+      Network.Server.ensure_node_connection(Network.PeerHandler, id, address, port)
+    end
+
+    Process.send_after(self(), :contact_seeds, 60_000)
+    {:noreply, state}
+  end
+
+  def handle_continue(:seed, state) do
+    Process.send_after(self(), :save, 60_000)
+    handle_info(:contact_seeds, state)
+    {:noreply, state}
+  end
+
   # Private call used by PeerHandler when connections are established
   def handle_cast({:register_node, node_id, server}, state) do
     kb =
@@ -208,7 +205,9 @@ defmodule Kademlia do
   end
 
   def handle_cast({:publish, object}, state) do
-    broadcast(state, 3, [Client.publish(), object])
+    max = length(KBuckets.to_list(state.network)) |> :math.sqrt() |> trunc
+    num = if max > @replication_factor, do: max, else: @replication_factor
+    broadcast(state, num, [Client.publish(), object])
     {:noreply, state}
   end
 
@@ -230,6 +229,53 @@ defmodule Kademlia do
       nil -> {:noreply, state}
       item -> {:noreply, %{state | network: do_failed_node(item, state.network)}}
     end
+  end
+
+  def rpc(nodes, call) when is_list(nodes) do
+    me = self()
+    ref = make_ref()
+
+    Enum.map(nodes, fn node ->
+      spawn_link(fn ->
+        send(me, {ref, rpc(node, call)})
+      end)
+    end)
+    |> Enum.map(fn _pid ->
+      receive do
+        {^ref, ret} ->
+          ret
+      end
+    end)
+  end
+
+  def rpc(%KBuckets.Item{node_id: node_id} = node, call) do
+    pid = ensure_node_connection(node)
+
+    try do
+      GenServer.call(pid, {:rpc, call}, 2000)
+    rescue
+      _error ->
+        IO.puts("Failed to get a result from #{Wallet.printable(node_id)}")
+        []
+    catch
+      _any, _what ->
+        IO.puts("Failed(2) to get a result from #{Wallet.printable(node_id)}")
+        []
+    end
+  end
+
+  def rpcast(%KBuckets.Item{} = node, call) do
+    GenServer.cast(ensure_node_connection(node), {:rpc, call})
+  end
+
+  # -------------------------------------------------------------------------------------
+  # Private calls
+  # -------------------------------------------------------------------------------------
+
+  defp ensure_node_connection(%KBuckets.Item{node_id: node_id, object: server}) do
+    host = Server.host(server)
+    port = Server.server_port(server)
+    Network.Server.ensure_node_connection(Network.PeerHandler, node_id, host, port)
   end
 
   defp do_failed_node(%{object: :self}, network) do
@@ -266,123 +312,32 @@ defmodule Kademlia do
   end
 
   defp ensure_connections(state, n) do
-    candidates =
-      Network.Server.get_connections(Network.PeerHandler)
-      |> Map.values()
-
-    if length(candidates) < n do
-      list =
-        KBuckets.to_list(state.network)
-        |> Enum.filter(&(not KBuckets.is_self(&1)))
-        |> Enum.filter(&(not Enum.member?(candidates, &1)))
-        |> Enum.take_random(n - length(candidates))
-        |> Enum.map(&ensure_node_connection/1)
-
-      candidates ++ list
-    else
-      Enum.take_random(candidates, n)
-    end
+    KBuckets.to_list(state.network)
+    |> Enum.filter(&(not KBuckets.is_self(&1)))
+    |> Enum.take_random(n)
+    |> Enum.map(&ensure_node_connection/1)
   end
 
-  def handle_continue(:seed, state) do
-    Process.send_after(self(), :save, 60_000)
+  defp do_find_nodes(key, nearest, k, cmd) do
+    KademliaSearch.find_nodes(key, nearest, k, cmd)
+  end
 
-    ensure_connections(state, 3)
-
-    for seed <- Diode.seeds() do
-      %URI{userinfo: node_id, host: address, port: port} = URI.parse(seed)
-
-      id =
-        case node_id do
-          nil -> Wallet.new()
-          str -> Wallet.from_address(Base16.decode(str))
+  # Retrieves for the target key either the last cached values or
+  # the nearest k entries from the KBuckets store
+  @spec do_node_lookup(any()) :: {:network | :cached, [KBuckets.item()]}
+  defp do_node_lookup(key) do
+    call(fn _from, state ->
+      nodes =
+        case Lru.get(state.cache, key) do
+          nil -> {:network, KBuckets.nearest_n(state.network, key, KBuckets.k())}
+          cached -> {:cached, cached}
         end
 
-      Network.Server.ensure_node_connection(Network.PeerHandler, id, address, port)
-    end
-
-    {:noreply, state}
-  end
-
-  @spec oid_multiply(<<_::256>>, integer()) :: [any()]
-  def oid_multiply(oid, factor) do
-    # factor needs to be factor of 2 (2, 4, 8, 16, ...)
-    <<oid_int::256>> = oid
-    step = div(@max_oid, factor)
-
-    2..factor
-    |> Enum.reduce([oid_int], fn _, list ->
-      [rem(List.first(list) + step, @max_oid) | list]
-    end)
-    |> Enum.map(fn integer ->
-      <<integer::unsigned-size(256)>>
+      {:reply, nodes, state}
     end)
   end
 
-  def rpc(nodes, call) when is_list(nodes) do
-    me = self()
-    ref = make_ref()
-
-    Enum.map(nodes, fn node ->
-      spawn_link(fn ->
-        send(me, {ref, rpc(node, call)})
-      end)
-    end)
-    |> Enum.map(fn _pid ->
-      receive do
-        {^ref, ret} ->
-          ret
-      end
-    end)
-  end
-
-  def rpc(%KBuckets.Item{object: :self}, call) do
-    find_node_cmd = Client.find_node()
-    find_value_cmd = Client.find_value()
-    store_cmd = Client.store()
-
-    case call do
-      [^store_cmd, key, value] ->
-        KademliaSql.put_object(key, value)
-
-      [^find_node_cmd, _key] ->
-        []
-
-      [^find_value_cmd, key] ->
-        case KademliaSql.object(key) do
-          nil -> []
-          value -> {:value, value}
-        end
-    end
-  end
-
-  def rpc(%KBuckets.Item{node_id: node_id} = node, call) do
-    pid = ensure_node_connection(node)
-
-    try do
-      GenServer.call(pid, {:rpc, call}, 2000)
-    rescue
-      _error ->
-        IO.puts("Failed to get a result from #{Wallet.printable(node_id)}")
-        []
-    catch
-      _any, _what ->
-        IO.puts("Failed(2) to get a result from #{Wallet.printable(node_id)}")
-        []
-    end
-  end
-
-  def rpcast(%KBuckets.Item{object: :self} = node, call) do
-    rpc(node, call)
-  end
-
-  def rpcast(%KBuckets.Item{} = node, call) do
-    GenServer.cast(ensure_node_connection(node), {:rpc, call})
-  end
-
-  defp ensure_node_connection(%KBuckets.Item{node_id: node_id, object: server}) do
-    host = Server.host(server)
-    port = Server.server_port(server)
-    Network.Server.ensure_node_connection(Network.PeerHandler, node_id, host, port)
+  defp call(fun) do
+    GenServer.call(__MODULE__, {:call, fun})
   end
 end
