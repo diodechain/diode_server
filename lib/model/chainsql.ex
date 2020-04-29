@@ -225,6 +225,10 @@ defmodule Model.ChainSql do
     |> Enum.map(fn [data: data] -> BertInt.decode!(data) end)
   end
 
+  def clear_alt_blocks() do
+    Sql.query!(__MODULE__, "DELETE FROM blocks WHERE number IS NULL", call_timeout: :infinity)
+  end
+
   def transaction(txhash) do
     fetch!("SELECT data FROM transactions WHERE txhash = ?1", txhash)
   end
