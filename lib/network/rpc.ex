@@ -526,7 +526,8 @@ defmodule Network.Rpc do
             connected: Map.has_key?(conns, Wallet.address!(item.node_id)),
             last_seen: item.last_seen,
             node_id: address,
-            node: item.object
+            node: item.object,
+            retries: item.retries
           }
         end)
         |> result()
