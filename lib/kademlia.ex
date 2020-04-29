@@ -272,6 +272,15 @@ defmodule Kademlia do
   # Private calls
   # -------------------------------------------------------------------------------------
 
+  defp ensure_node_connection(%KBuckets.Item{node_id: node_id, object: :self}) do
+    Network.Server.ensure_node_connection(
+      Network.PeerHandler,
+      node_id,
+      "localhost",
+      Diode.peer_port()
+    )
+  end
+
   defp ensure_node_connection(%KBuckets.Item{node_id: node_id, object: server}) do
     host = Server.host(server)
     port = Server.server_port(server)

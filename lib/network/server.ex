@@ -15,7 +15,14 @@ defmodule Network.Server do
 
   @type sslsocket() :: any()
 
-  defstruct socket: nil, clients: %{}, protocol: nil, port: nil, opts: [], pid: nil, acceptor: nil
+  defstruct socket: nil,
+            clients: %{},
+            protocol: nil,
+            port: nil,
+            opts: [],
+            pid: nil,
+            acceptor: nil,
+            self_conns: []
 
   @type t :: %Network.Server{
           socket: sslsocket,
@@ -24,7 +31,8 @@ defmodule Network.Server do
           port: integer(),
           opts: %{},
           acceptor: pid() | nil,
-          pid: pid()
+          pid: pid(),
+          self_conns: []
         }
 
   def start_link({port, protocolHandler, opts}) do
@@ -111,22 +119,35 @@ defmodule Network.Server do
   end
 
   def handle_call({:ensure_node_connection, node_id, address, port}, _from, state) do
-    case Map.get(state.clients, to_key(node_id)) do
-      nil ->
-        worker = start_worker!(state, [:connect, node_id, address, port])
+    if Wallet.equal?(Diode.miner(), node_id) and state.self_conns != [] do
+      {:reply, hd(state.self_conns), state}
+    else
+      case Map.get(state.clients, to_key(node_id)) do
+        nil ->
+          worker = start_worker!(state, [:connect, node_id, address, port])
 
-        clients =
-          Map.put(state.clients, to_key(node_id), worker)
-          |> Map.put(worker, to_key(node_id))
+          clients =
+            Map.put(state.clients, to_key(node_id), worker)
+            |> Map.put(worker, to_key(node_id))
 
-        {:reply, worker, %{state | clients: clients}}
+          {:reply, worker, %{state | clients: clients}}
 
-      client ->
-        {:reply, client, state}
+        client ->
+          {:reply, client, state}
+      end
     end
   end
 
   def handle_call({:register, node_id}, {pid, _}, state) do
+    if Wallet.equal?(Diode.miner(), node_id) do
+      state = %{state | self_conns: [pid | state.self_conns]}
+      {:reply, {:ok, state.port}, state}
+    else
+      register_node(node_id, pid, state)
+    end
+  end
+
+  defp register_node(node_id, pid, state) do
     # Checking whether pid is already registered and needs an update
     clients =
       case Map.get(state.clients, pid) do
