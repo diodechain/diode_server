@@ -102,7 +102,7 @@ defmodule Network.RpcWs do
           {:ok, req, state}
         end
 
-      {:rpc, :sync, bool} ->
+      {:rpc, :syncing, bool} ->
         reply =
           Enum.filter(Process.get(), fn
             {{:subs, _id}, :syncing} -> true
