@@ -25,6 +25,14 @@ defmodule KBucketsTest do
     assert KBuckets.bucket_count(kb) == 2
   end
 
+  test "self duplicate bug" do
+    kb =
+      KBuckets.new(node_id("abcd"))
+      |> KBuckets.insert_item(%Item{node_id: node_id("abcd"), last_seen: 1, object: :fake})
+
+    assert KBuckets.size(kb) == 1
+  end
+
   test "conflict" do
     conflicts = conflicts()
     kb = KBuckets.new(node_id("abcd"))

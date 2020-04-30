@@ -43,7 +43,7 @@ defmodule KBuckets do
     {:kbucket, self_id,
      {:leaf, "",
       %{
-        self_id => self({:kbucket, self_id, nil})
+        hash(self_id) => self({:kbucket, self_id, nil})
       }}}
   end
 
