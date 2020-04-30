@@ -207,7 +207,8 @@ defmodule Chain.Block do
               {state, txs ++ [tx], rcpts ++ [rcpt]}
 
             {:error, message} ->
-              :io.format("Error in transaction: ~p (~p)~n", [message, Transaction.hash(tx)])
+              Transaction.print(tx)
+              IO.puts("\tError:       #{inspect(message)}")
               {state, txs, rcpts}
           end
         end)

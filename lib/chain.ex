@@ -441,22 +441,7 @@ defmodule Chain do
           _ -> {rcpt.msg, rcpt.evmout}
         end
 
-      hash = Base16.encode(Transaction.hash(tx))
-      from = Base16.encode(Transaction.from(tx))
-      to = Base16.encode(Transaction.to(tx))
-      type = Atom.to_string(Transaction.type(tx))
-      value = Transaction.value(tx)
-      code = Base16.encode(Transaction.payload(tx))
-
-      code =
-        if byte_size(code) > 40 do
-          binary_part(code, 0, 37) <> "... [#{byte_size(code)}]"
-        end
-
-      IO.puts("")
-      IO.puts("\tTransaction: #{hash} Type: #{type}")
-      IO.puts("\tFrom:        #{from} To: #{to}")
-      IO.puts("\tValue:       #{value} Code: #{code}")
+      Transaction.print(tx)
       IO.puts("\tStatus:      #{inspect(status)}")
     end
 
