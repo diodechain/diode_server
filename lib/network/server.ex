@@ -119,8 +119,13 @@ defmodule Network.Server do
   end
 
   def handle_call({:ensure_node_connection, node_id, address, port}, _from, state) do
-    if Wallet.equal?(Diode.miner(), node_id) and state.self_conns != [] do
-      {:reply, hd(state.self_conns), state}
+    if Wallet.equal?(Diode.miner(), node_id) do
+      if state.self_conns != [] do
+        {:reply, hd(state.self_conns), state}
+      else
+        worker = start_worker!(state, [:connect, node_id, "localhost", Diode.peer_port()])
+        {:reply, worker, %{state | self_conns: [worker]}}
+      end
     else
       case Map.get(state.clients, to_key(node_id)) do
         nil ->
