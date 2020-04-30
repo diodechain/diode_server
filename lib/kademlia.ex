@@ -211,7 +211,7 @@ defmodule Kademlia do
     {:noreply, state}
   end
 
-  # Private call used by PeerHandler when connections fail
+  # Private call used by PeerHandler when is stable for 10 msgs and 30 seconds
   def handle_cast({:stable_node, node}, state) do
     case KBuckets.item(state.network, node) do
       nil ->
