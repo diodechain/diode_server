@@ -2,11 +2,19 @@
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
 defmodule Kademlia do
+  @moduledoc """
+    Kademlia.ex is in fact a K* implementation. K* star is a modified version of Kademlia
+    using the same KBuckets scheme to keep track of which nodes to remember. But instead of
+    using the XOR metric it is using geometric distance on a ring as node value distance.
+    Node distance is symmetric on the ring.
+  """
   use GenServer
   alias Network.PeerHandler, as: Client
   alias Object.Server, as: Server
   alias Model.KademliaSql
-  @replication_factor 3
+  @k 3
+  @relay_factor 3
+  @broadcast_factor 50
 
   defstruct tasks: %{}, network: nil, cache: Lru.new(1024)
   @type t :: %Kademlia{tasks: Map.t(), network: KBuckets.t(), cache: Lru.t()}
@@ -19,24 +27,41 @@ defmodule Kademlia do
     GenServer.call(__MODULE__, {:ping, node_id})
   end
 
-  def publish(object) do
-    GenServer.cast(__MODULE__, {:publish, object})
+  @doc """
+    broadcast is used to broadcast self generated blocks/transactions through the network
+  """
+  def broadcast(msg) do
+    msg = [Client.publish(), msg]
+    list = KBuckets.to_list(network())
+
+    max = length(list) |> :math.sqrt() |> trunc
+    num = if max > @broadcast_factor, do: max, else: @broadcast_factor
+
+    list
+    |> Enum.reject(fn a -> KBuckets.is_self(a) end)
+    |> Enum.take_random(num)
+    |> Enum.each(fn item -> rpcast(item, msg) end)
   end
 
-  # def store_device(device_id) do
-  #  store("client/" <> device_id, Model.CredSql.identity())
-  #  # proof ?
-  # end
+  @doc """
+    relay is used to forward NEW received blocks/transactions further through the network
+  """
+  def relay(msg) do
+    msg = [Client.publish(), msg]
+
+    KBuckets.next_n(network(), @relay_factor)
+    |> Enum.each(fn item -> rpcast(item, msg) end)
+  end
 
   @doc """
-    store() stores the given key-value pair in the @replication_factor nodes
+    store() stores the given key-value pair in the @k nodes
     that are closest to the key
   """
   @spec store(binary(), any()) :: any()
   def store(key, value) do
     key = KBuckets.hash(key)
     nodes = find_nodes(key)
-    nearest = KBuckets.nearest_n(nodes, key, @replication_factor)
+    nearest = KBuckets.nearest_n(nodes, key, @k)
     rpc(nearest, [Client.store(), key, value])
   end
 
@@ -204,13 +229,6 @@ defmodule Kademlia do
     {:noreply, %Kademlia{network: kb}}
   end
 
-  def handle_cast({:publish, object}, state) do
-    max = length(KBuckets.to_list(state.network)) |> :math.sqrt() |> trunc
-    num = if max > @replication_factor, do: max, else: @replication_factor
-    broadcast(state, num, [Client.publish(), object])
-    {:noreply, state}
-  end
-
   # Private call used by PeerHandler when is stable for 10 msgs and 30 seconds
   def handle_cast({:stable_node, node}, state) do
     case KBuckets.item(state.network, node) do
@@ -311,20 +329,6 @@ defmodule Kademlia do
         next = now + round(:math.pow(5, factor))
         KBuckets.update_item(network, %{item | retries: failures + 1, last_seen: next})
     end
-  end
-
-  defp broadcast(state, n, msg) do
-    ensure_connections(state, n)
-    |> Enum.each(fn pid ->
-      GenServer.cast(pid, {:rpc, msg})
-    end)
-  end
-
-  defp ensure_connections(state, n) do
-    KBuckets.to_list(state.network)
-    |> Enum.filter(&(not KBuckets.is_self(&1)))
-    |> Enum.take_random(n)
-    |> Enum.map(&ensure_node_connection/1)
   end
 
   defp do_find_nodes(key, nearest, k, cmd) do

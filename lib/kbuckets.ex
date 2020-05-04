@@ -134,6 +134,23 @@ defmodule KBuckets do
     |> Enum.take(n)
   end
 
+  @doc """
+    next_n returns the n next nodes in clockwise order on the ring.
+  """
+  def next_n(kb, n) when is_tuple(kb) do
+    to_list(kb)
+    |> next_n(n)
+  end
+
+  def next_n(list, n) when is_list(list) do
+    {pre, [_self | post]} =
+      list
+      |> Enum.sort(fn a, b -> integer(key(a)) < integer(key(b)) end)
+      |> Enum.split_while(fn a -> not is_self(a) end)
+
+    Enum.take(post ++ pre, n)
+  end
+
   def unique(list) when is_list(list) do
     Enum.reduce(list, %{}, fn node, acc ->
       Map.put(acc, key(node), node)

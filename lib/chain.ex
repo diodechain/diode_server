@@ -323,8 +323,11 @@ defmodule Chain do
         end)
 
         if relay do
-          Block.export(block)
-          |> Kademlia.publish()
+          if Wallet.equal?(Block.miner(block), Diode.miner()) do
+            Kademlia.broadcast(Block.export(block))
+          else
+            Kademlia.relay(Block.export(block))
+          end
         end
 
         {:reply, :added, state}

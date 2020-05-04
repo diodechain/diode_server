@@ -33,17 +33,24 @@ defmodule Chain.Pool do
     end)
   end
 
-  @spec add_transaction(Transaction.t()) :: :ok
-  def add_transaction(%Transaction{} = tx, publish \\ false) do
+  @spec add_transaction(Transaction.t(), boolean()) :: :ok
+  def add_transaction(%Transaction{} = tx, broadcast \\ false) do
     key = Transaction.hash(tx)
 
-    call(fn pool = %{transactions: transactions}, _from ->
-      txs = Map.put(transactions, key, tx)
-      {:reply, :ok, %{pool | transactions: txs}}
-    end)
+    exists =
+      call(fn pool = %{transactions: old_txs}, _from ->
+        new_txs = Map.put(old_txs, key, tx)
+        {:reply, Map.has_key?(old_txs, key), %{pool | transactions: new_txs}}
+      end)
 
-    if publish, do: Kademlia.publish(tx)
+    if broadcast do
+      Kademlia.broadcast(tx)
+    else
+      if not exists, do: Kademlia.relay(tx)
+    end
+
     Chain.Worker.update()
+    tx
   end
 
   def replace_transaction(old_tx, new_tx) do
