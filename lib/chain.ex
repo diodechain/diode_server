@@ -354,17 +354,18 @@ defmodule Chain do
     |> import_blocks()
   end
 
-  def import_blocks([first | blocks]) do
+  def import_blocks(blocks) do
+    first = hd(blocks)
+    last = List.last(blocks)
+    len = length(blocks)
     ProcessLru.new(:blocks, 10)
 
-    case Block.validate(first, Block.parent(first)) do
+    case Block.parent(first) do
       %Chain.Block{} = block ->
-        Chain.add_block(block, false)
-
         # replay block backup list
-        Enum.reduce_while(blocks, block, fn nextblock, lastblock ->
-          if lastblock != nil do
-            ProcessLru.put(:blocks, Block.hash(lastblock), lastblock)
+        Enum.reduce_while(blocks, block, fn nextblock, prevblock ->
+          if prevblock != nil do
+            ProcessLru.put(:blocks, Block.hash(prevblock), prevblock)
           end
 
           block_hash = Block.hash(nextblock)
@@ -376,15 +377,15 @@ defmodule Chain do
             nil ->
               ret =
                 Model.Stats.tc(:validate, fn ->
-                  Block.validate(nextblock, lastblock)
+                  Block.validate(nextblock, prevblock)
                 end)
 
               case ret do
                 %Chain.Block{} = block ->
-                  throttle_sync(true)
+                  throttle_sync(len > 3)
 
                   Model.Stats.tc(:addblock, fn ->
-                    Chain.add_block(block, false)
+                    Chain.add_block(block, nextblock == last)
                   end)
 
                   {:cont, block}
