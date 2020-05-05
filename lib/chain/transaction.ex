@@ -68,6 +68,9 @@ defmodule Chain.Transaction do
     IO.puts("\tTransaction: #{hash} Type: #{type}")
     IO.puts("\tFrom:        #{from} To: #{to}")
     IO.puts("\tValue:       #{value} Code: #{code}")
+
+    # rlp = to_rlp(tx) |> Rlp.encode!()
+    # IO.puts("\tRLP:          #{Base16.encode(rlp)}")
     :ok
   end
 
