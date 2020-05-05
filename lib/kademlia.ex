@@ -59,9 +59,11 @@ defmodule Kademlia do
   """
   @spec store(binary(), any()) :: any()
   def store(key, value) do
-    key = KBuckets.hash(key)
     nodes = find_nodes(key)
+    key = hash(key)
     nearest = KBuckets.nearest_n(nodes, key, @k)
+
+    # :io.format("Storing #{value} at ~p as #{Base16.encode(key)}~n", [Enum.map(nearest, &port/1)])
     rpc(nearest, [Client.store(), key, value])
   end
 
@@ -71,7 +73,7 @@ defmodule Kademlia do
   """
   @spec find_value(binary()) :: any()
   def find_value(key) do
-    key = KBuckets.hash(key)
+    key = hash(key)
 
     case do_node_lookup(key) do
       {_, nearest} ->
@@ -106,35 +108,15 @@ defmodule Kademlia do
     end
   end
 
-  def init(:ok) do
-    kb =
-      Chain.load_file(Diode.data_dir("kademlia.etf"), fn ->
-        %Kademlia{network: KBuckets.new(Diode.miner())}
-      end)
-
-    {:ok, kb, {:continue, :seed}}
-  end
-
-  @doc "Method used for testing"
-  def reset() do
-    call(fn _from, _state ->
-      {:reply, :ok, %Kademlia{network: KBuckets.new(Diode.miner())}}
-    end)
-  end
-
-  def append(key, value, store_self \\ false) do
-    GenServer.call(__MODULE__, {:append, key, value, store_self})
-  end
-
-  @spec find_node(any()) :: nil | KBuckets.Item.t()
-  def find_node(key) do
-    case find_nodes(key) do
+  @spec find_node(Wallet.address()) :: nil | KBuckets.Item.t()
+  def find_node(address) do
+    case find_nodes(address) do
       [] ->
         nil
 
       [first | _] ->
         case Wallet.address!(first.node_id) do
-          ^key -> first
+          ^address -> first
           _ -> nil
         end
     end
@@ -142,7 +124,7 @@ defmodule Kademlia do
 
   @spec find_nodes(any()) :: [KBuckets.Item.t()]
   def find_nodes(key) do
-    key = KBuckets.hash(key)
+    key = hash(key)
 
     case do_node_lookup(key) do
       {:cached, result} ->
@@ -216,27 +198,30 @@ defmodule Kademlia do
 
   # Private call used by PeerHandler when connections are established
   def handle_cast({:register_node, node_id, server}, state) do
-    kb =
-      KBuckets.insert_item(
-        state.network,
-        %KBuckets.Item{
-          node_id: node_id,
-          object: server,
-          last_seen: System.os_time(:second)
-        }
-      )
+    if KBuckets.member?(state.network, node_id) or state == server do
+      {:noreply, state}
+    else
+      node = %KBuckets.Item{
+        node_id: node_id,
+        object: server,
+        last_seen: System.os_time(:second)
+      }
 
-    {:noreply, %Kademlia{network: kb}}
+      network = KBuckets.insert_item(state.network, node)
+      redistribute(network, node)
+      {:noreply, %{state | network: network}}
+    end
   end
 
   # Private call used by PeerHandler when is stable for 10 msgs and 30 seconds
-  def handle_cast({:stable_node, node}, state) do
-    case KBuckets.item(state.network, node) do
+  def handle_cast({:stable_node, node_id, server}, state) do
+    case KBuckets.item(state.network, node_id) do
       nil ->
-        {:noreply, state}
+        handle_cast({:register_node, node_id, server}, state)
 
-      item ->
-        network = KBuckets.update_item(state.network, %{item | retries: 0})
+      node ->
+        network = KBuckets.update_item(state.network, %{node | retries: 0})
+        if node.retries > 0, do: redistribute(network, node)
         {:noreply, %{state | network: network}}
     end
   end
@@ -286,6 +271,56 @@ defmodule Kademlia do
     GenServer.cast(ensure_node_connection(node), {:rpc, call})
   end
 
+  @doc """
+    redistribute resends all key/values that are nearer to the given node to
+    that node
+  """
+  @max_key 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+  def redistribute(network, node) do
+    # IO.puts("redistribute(#{inspect(node)})")
+    previ = KBuckets.prev_n(network, node, 1) |> hd() |> KBuckets.integer()
+    nodei = KBuckets.integer(node)
+    nexti = KBuckets.next_n(network, node, 1) |> hd() |> KBuckets.integer()
+
+    range_start = rem(div(previ + nodei, 2), @max_key)
+    range_end = rem(div(nexti + nodei, 2), @max_key)
+
+    objs = KademliaSql.objects(range_start, range_end)
+    # IO.puts("redistribute() -> #{length(objs)}")
+    Enum.each(objs, fn {key, value} -> rpcast(node, [Client.store(), key, value]) end)
+  end
+
+  # -------------------------------------------------------------------------------------
+  # Helpers calls
+  # -------------------------------------------------------------------------------------
+  def port(nil) do
+    nil
+  end
+
+  def port(node) do
+    if is_atom(node.object), do: node.object, else: Object.Server.edge_port(node.object)
+  end
+
+  def init(:ok) do
+    kb =
+      Chain.load_file(Diode.data_dir("kademlia.etf"), fn ->
+        %Kademlia{network: KBuckets.new(Diode.miner())}
+      end)
+
+    {:ok, kb, {:continue, :seed}}
+  end
+
+  @doc "Method used for testing"
+  def reset() do
+    call(fn _from, _state ->
+      {:reply, :ok, %Kademlia{network: KBuckets.new(Diode.miner())}}
+    end)
+  end
+
+  def append(key, value, store_self \\ false) do
+    GenServer.call(__MODULE__, {:append, key, value, store_self})
+  end
+
   # -------------------------------------------------------------------------------------
   # Private calls
   # -------------------------------------------------------------------------------------
@@ -332,6 +367,7 @@ defmodule Kademlia do
   end
 
   defp do_find_nodes(key, nearest, k, cmd) do
+    # :io.format("KademliaSearch.find_nodes(key=#{Base16.encode(key)}, nearest=~p, k=#{k}, cmd=#{cmd})~n", [Enum.map(nearest, &port/1)])
     KademliaSearch.find_nodes(key, nearest, k, cmd)
   end
 
@@ -340,17 +376,22 @@ defmodule Kademlia do
   @spec do_node_lookup(any()) :: {:network | :cached, [KBuckets.item()]}
   defp do_node_lookup(key) do
     call(fn _from, state ->
-      nodes =
-        case Lru.get(state.cache, key) do
-          nil -> {:network, KBuckets.nearest_n(state.network, key, KBuckets.k())}
-          cached -> {:cached, cached}
-        end
+      # case Lru.get(state.cache, key) do
+      # nil ->
+      nodes = {:network, KBuckets.nearest_n(state.network, key, KBuckets.k())}
+      # cached -> {:cached, cached}
+      # end
 
+      # :io.format("do_node_lookup(key) -> ~p, ~p~n", [elem(nodes, 0), length(elem(nodes, 1))])
       {:reply, nodes, state}
     end)
   end
 
   defp call(fun) do
     GenServer.call(__MODULE__, {:call, fun})
+  end
+
+  defp hash(binary) do
+    Diode.hash(binary)
   end
 end

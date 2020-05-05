@@ -39,4 +39,21 @@ defmodule Model.KademliaSql do
   def object(key) do
     Sql.fetch!(__MODULE__, "SELECT object FROM p2p_objects WHERE key = ?1", key)
   end
+
+  @spec objects(integer, integer) :: any
+  def objects(range_start, range_end) do
+    bstart = <<range_start::integer-size(256)>>
+    bend = <<range_end::integer-size(256)>>
+
+    if range_start < range_end do
+      query!("SELECT key, object FROM p2p_objects WHERE key >= ?1 AND key <= ?2",
+        bind: [bstart, bend]
+      )
+    else
+      query!("SELECT key, object FROM p2p_objects WHERE key >= ?1 OR key <= ?2",
+        bind: [bstart, bend]
+      )
+    end
+    |> Enum.map(fn [key: key, object: obj] -> {key, BertInt.decode!(obj)} end)
+  end
 end

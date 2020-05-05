@@ -45,17 +45,19 @@ defmodule KademliaSearch do
     {:noreply, %{state | tasks: tasks}}
   end
 
-  def handle_info({:kadret, {:value, value}, _distance, _task}, state) do
+  def handle_info({:kadret, {:value, value}, _node, _task}, state) do
+    # :io.format("Found ~p on node ~p~n", [value, node])
     ret = KBuckets.unique(state.visited ++ state.queried)
     GenServer.reply(state.from, {:value, value, ret})
     Enum.each(state.tasks, fn task -> send(task, :done) end)
     {:stop, :normal, nil}
   end
 
-  def handle_info({:kadret, nodes, distance, task}, state) do
+  def handle_info({:kadret, nodes, node, task}, state) do
     waiting = [task | state.waiting]
     visited = KBuckets.unique(state.visited ++ nodes)
 
+    distance = if node == nil, do: @max_oid, else: KBuckets.distance(node, state.key)
     min_distance = min(distance, state.min_distance)
 
     # only those that are nearer
@@ -95,16 +97,10 @@ defmodule KademliaSearch do
   end
 
   def worker_loop(node, key, father, cmd) do
-    # :io.format("worker_loop(#{inspect(node)}, ~n~400p, ~400p)~n", [key, father])
+    ret = if node == nil, do: [], else: Kademlia.rpc(node, [cmd, key])
 
-    case node do
-      nil ->
-        send(father, {:kadret, [], @max_oid, self()})
-
-      node ->
-        ret = Kademlia.rpc(node, [cmd, key])
-        send(father, {:kadret, ret, KBuckets.distance(node, key), self()})
-    end
+    # :io.format("Kademlia.rpc(#{Kademlia.port(node)}, #{cmd}, #{Base16.encode(key)}) -> ~1200p~n", [ret])
+    send(father, {:kadret, ret, node, self()})
 
     receive do
       {:next, node} -> worker_loop(node, key, father, cmd)

@@ -65,47 +65,52 @@ defmodule TestHelper do
     File.mkdir!(basedir)
 
     for num <- 1..number do
-      clonedir = "#{basedir}/#{num}/"
-      file = File.open!("#{basedir}/#{num}.log", [:write, :binary])
-
-      spawn_link(fn ->
-        iex = System.find_executable("iex")
-        args = ["--cookie", @cookie, "-S", "mix", "run"]
-
-        env =
-          [
-            {"MIX_ENV", "test"},
-            {"DATA_DIR", clonedir},
-            {"RPC_PORT", "#{rpc_port(num)}"},
-            {"RPCS_PORT", "#{rpcs_port(num)}"},
-            {"EDGE_PORT", "#{edge_port(num)}"},
-            {"EDGE2_PORT", "#{edge2_port(num)}"},
-            {"PEER_PORT", "#{peer_port(num)}"},
-            {"SEED", "none"}
-          ]
-          |> Enum.map(fn {key, value} -> {String.to_charlist(key), String.to_charlist(value)} end)
-
-        port =
-          Port.open({:spawn_executable, iex}, [
-            {:args, args},
-            {:env, env},
-            :stream,
-            :exit_status,
-            :hide,
-            :use_stdio,
-            :stderr_to_stdout
-          ])
-
-        true = Process.register(port, String.to_atom("clone_#{num}"))
-
-        clone_loop(port, file)
-      end)
-
-      Process.sleep(1000)
+      add_clone(num)
     end
 
     :ok = wait_clones(number, 60)
     Process.sleep(@delay_clone)
+  end
+
+  def add_clone(num) do
+    basedir = File.cwd!() <> "/clones"
+    clonedir = "#{basedir}/#{num}/"
+    file = File.open!("#{basedir}/#{num}.log", [:write, :binary])
+
+    spawn_link(fn ->
+      iex = System.find_executable("iex")
+      args = ["--cookie", @cookie, "-S", "mix", "run"]
+
+      env =
+        [
+          {"MIX_ENV", "test"},
+          {"DATA_DIR", clonedir},
+          {"RPC_PORT", "#{rpc_port(num)}"},
+          {"RPCS_PORT", "#{rpcs_port(num)}"},
+          {"EDGE_PORT", "#{edge_port(num)}"},
+          {"EDGE2_PORT", "#{edge2_port(num)}"},
+          {"PEER_PORT", "#{peer_port(num)}"},
+          {"SEED", "none"}
+        ]
+        |> Enum.map(fn {key, value} -> {String.to_charlist(key), String.to_charlist(value)} end)
+
+      port =
+        Port.open({:spawn_executable, iex}, [
+          {:args, args},
+          {:env, env},
+          :stream,
+          :exit_status,
+          :hide,
+          :use_stdio,
+          :stderr_to_stdout
+        ])
+
+      true = Process.register(port, String.to_atom("clone_#{num}"))
+
+      clone_loop(port, file)
+    end)
+
+    Process.sleep(1000)
   end
 
   defp clone_loop(port, file) do
@@ -124,8 +129,7 @@ defmodule TestHelper do
     port = Process.whereis(String.to_atom("clone_#{num}"))
     # :io.format("port info: ~p ~p~n", [port, Port.info(port)])
     {:os_pid, pid} = Port.info(port, :os_pid)
-    ret = System.cmd("kill", ["-SIGSTOP", "#{pid}"])
-    :io.format("out(~p): ~p~n", [pid, ret])
+    System.cmd("kill", ["-SIGSTOP", "#{pid}"])
   end
 
   def unfreeze_clone(num) do

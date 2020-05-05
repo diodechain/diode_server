@@ -43,7 +43,7 @@ defmodule KBuckets do
     {:kbucket, self_id,
      {:leaf, "",
       %{
-        hash(self_id) => self({:kbucket, self_id, nil})
+        key(self_id) => self({:kbucket, self_id, nil})
       }}}
   end
 
@@ -94,9 +94,13 @@ defmodule KBuckets do
     do_bucket_count(zero) + do_bucket_count(one)
   end
 
-  @spec to_list(kbuckets()) :: [item()]
+  @spec to_list(kbuckets() | [item()]) :: [item()]
   def to_list({:kbucket, _self_id, tree}) do
     do_to_list(tree)
+  end
+
+  def to_list(list) when is_list(list) do
+    list
   end
 
   defp do_to_list({:leaf, _prefix, bucket}) do
@@ -112,7 +116,7 @@ defmodule KBuckets do
   """
   @spec nearer_n(kbuckets() | [item()], item() | item_id(), pos_integer()) :: [item()]
   def nearer_n({:kbucket, self, _tree} = kbuckets, item, n) do
-    min_dist = distance(hash(self), item)
+    min_dist = distance(self, item)
 
     nearest_n(kbuckets, item, n)
     |> Enum.filter(fn a -> distance(a, item) <= min_dist end)
@@ -121,34 +125,46 @@ defmodule KBuckets do
   @doc """
     nearest_n finds the n nodes nearer or equal to the current node to the provided item.
   """
-  @spec nearest_n(kbuckets() | [item()], item() | item_id(), pos_integer()) :: [item()]
-  def nearest_n({:kbucket, _self, tree}, item, n) do
-    do_nearest_n(tree, key(item), n)
-    # Selecting down to nearest items
-    |> nearest_n(item, n)
-  end
-
-  def nearest_n(list, item, n) when is_list(list) do
-    list
+  def nearest_n(kb, item, n) do
+    to_list(kb)
     |> Enum.sort(fn a, b -> distance(item, a) < distance(item, b) end)
     |> Enum.take(n)
   end
 
   @doc """
-    next_n returns the n next nodes in clockwise order on the ring.
+    to_ring_list returns a list ordered in ring order, excluding the current element but
+    starting at it's position, not at ring position 0.
   """
-  def next_n(kb, n) when is_tuple(kb) do
-    to_list(kb)
-    |> next_n(n)
+  def to_ring_list(kb = {:kbucket, self, _tree}, nil) do
+    to_ring_list(kb, self)
   end
 
-  def next_n(list, n) when is_list(list) do
-    {pre, [_self | post]} =
-      list
-      |> Enum.sort(fn a, b -> integer(key(a)) < integer(key(b)) end)
-      |> Enum.split_while(fn a -> not is_self(a) end)
+  def to_ring_list(kb, item) do
+    key = key(item)
 
-    Enum.take(post ++ pre, n)
+    {pre, [_self | post]} =
+      to_list(kb)
+      |> Enum.sort(fn a, b -> integer(a) < integer(b) end)
+      |> Enum.split_while(fn a -> key(a) != key end)
+
+    post ++ pre
+  end
+
+  @doc """
+    next_n returns the n next nodes in clockwise order on the ring.
+  """
+  def next_n(kb, item \\ nil, n) do
+    to_ring_list(kb, item)
+    |> Enum.take(n)
+  end
+
+  @doc """
+    prev_n returns the n previous nodes in counter-clockwise order on the ring.
+  """
+  def prev_n(kb, item \\ nil, n) do
+    to_ring_list(kb, item)
+    |> Enum.reverse()
+    |> Enum.take(n)
   end
 
   def unique(list) when is_list(list) do
@@ -168,7 +184,7 @@ defmodule KBuckets do
 
   """
   def distance(a, b) do
-    dist = abs(integer(key(a)) - integer(key(b)))
+    dist = abs(integer(a) - integer(b))
 
     if dist > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF do
       0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF - dist
@@ -177,24 +193,24 @@ defmodule KBuckets do
     end
   end
 
-  def hash(wallet() = w) do
-    Diode.hash(Wallet.address!(w))
+  defp hash(data) do
+    Diode.hash(data)
   end
 
-  def hash(value) when is_binary(value) do
-    Diode.hash(value)
+  @spec key(item_id() | node_id() | KBuckets.Item.t()) :: item_id()
+  def key(wallet() = w) do
+    hash(Wallet.address!(w))
   end
 
-  # Converting secp256k into 256 hash by removing the first byte
-  def key(%Item{node_id: w}) do
-    hash(w)
+  def key(%Item{node_id: wallet() = w}) do
+    key(w)
   end
 
   def key(<<key::bitstring-size(256)>>) do
     key
   end
 
-  defp do_nearest_n({:leaf, _prefix, bucket}, _key, _n) do
+  def do_nearest_n({:leaf, _prefix, bucket}, _key, _n) do
     now = System.os_time(:second)
 
     # Filtering items that had a connection failure through
@@ -204,7 +220,7 @@ defmodule KBuckets do
     |> Enum.reject(fn item -> KBuckets.Item.disabled?(item, now) end)
   end
 
-  defp do_nearest_n({:node, prefix, zero, one}, key, n) do
+  def do_nearest_n({:node, prefix, zero, one}, key, n) do
     x = bit_size(prefix)
 
     {far, near} =
@@ -253,21 +269,26 @@ defmodule KBuckets do
     {:kbucket, self_id, tree}
   end
 
-  def member?(list, item) when is_list(list) do
-    Enum.any?(list, fn a -> key(a) == key(item) end)
-  end
-
-  def member?(kb, item) do
-    kb != delete_item(kb, item)
+  @spec member?(kbuckets(), item() | item_id()) :: boolean()
+  def member?(kb, item_id) do
+    item(kb, item_id) != nil
   end
 
   # Return an item for the given wallet address
-  def item(kb, wallet) do
-    item_id = hash(wallet)
+  @spec item(kbuckets(), item() | item_id()) :: item() | nil
+  def item(kb, item_id) do
+    key = key(item_id)
 
-    case nearest_n(kb, item_id, 1) do
-      [ret] -> ret
-      [] -> nil
+    case nearest_n(kb, key, 1) do
+      [ret] ->
+        if key(ret) == key do
+          ret
+        else
+          nil
+        end
+
+      [] ->
+        nil
     end
   end
 
@@ -345,8 +366,11 @@ defmodule KBuckets do
     Enum.any?(bucket, fn {_, item} -> is_self(item) end)
   end
 
-  defp integer(key) do
-    <<x::integer-size(256)>> = key
+  def integer(<<x::integer-size(256)>>) do
     x
+  end
+
+  def integer(item) do
+    integer(key(item))
   end
 end

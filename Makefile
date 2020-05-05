@@ -13,7 +13,7 @@ clean:
 
 .PHONY: test $(TESTS)
 test:
-	-rm -rf data_test/
+	-rm -rf data_test/ clones/
 	$(MAKE) --no-print-directory $(TESTS)
 
 .PHONY: $(TESTS)

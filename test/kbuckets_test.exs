@@ -73,10 +73,19 @@ defmodule KBucketsTest do
     assert length(near) == 1
 
     # Should be exactly @k
-    opposite = binary_not(KBuckets.hash(node_id("abcd")))
+    opposite = binary_not(KBuckets.key(node_id("abcd")))
     near = KBuckets.nearest_n(kb, opposite, KBuckets.k())
     assert not Enum.member?(near, KBuckets.self(kb))
     assert length(near) == 20
+
+    # Checking that distance is correct
+    ref =
+      KBuckets.to_list(kb)
+      |> Enum.sort(fn a, b -> KBuckets.distance(opposite, a) < KBuckets.distance(opposite, b) end)
+      |> Enum.take(20)
+      |> Enum.sort()
+
+    assert ref == Enum.sort(near)
 
     nearer = KBuckets.nearest_n(kb, opposite, div(KBuckets.k(), 2))
     assert not Enum.member?(nearer, KBuckets.self(kb))
@@ -85,6 +94,14 @@ defmodule KBucketsTest do
     nearest = KBuckets.nearest_n(kb, opposite, 1)
     assert not Enum.member?(nearest, KBuckets.self(kb))
     assert length(nearest) == 1
+  end
+
+  test "symmetric distance" do
+    for x <- 1..100 do
+      a = node_id("distance_a_#{x}")
+      b = node_id("distance_b_#{x}")
+      assert KBuckets.distance(a, b) == KBuckets.distance(b, a)
+    end
   end
 
   test "no duplicate" do

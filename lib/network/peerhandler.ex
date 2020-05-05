@@ -34,7 +34,8 @@ defmodule Network.PeerHandler do
         random_blocks: 0,
         stable: false,
         msg_count: 0,
-        start_time: System.os_time(:second)
+        start_time: System.os_time(:second),
+        server: nil
       })
     )
   end
@@ -105,7 +106,7 @@ defmodule Network.PeerHandler do
       if state.stable == false and
            state.msg_count > 10 and
            state.start_time + 300 < System.os_time(:second) do
-        GenServer.cast(Kademlia, {:stable_node, state.node_id})
+        GenServer.cast(Kademlia, {:stable_node, state.node_id, state.server})
         %{state | stable: true}
       else
         state
@@ -159,7 +160,7 @@ defmodule Network.PeerHandler do
         log(state, "hello from: #{Wallet.printable(state.node_id)}")
         state = Map.put(state, :peer_port, port)
         GenServer.cast(Kademlia, {:register_node, state.node_id, server})
-        {:noreply, state}
+        {:noreply, %{state | server: server}}
       end
     end
   end
