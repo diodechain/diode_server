@@ -20,11 +20,15 @@ defmodule Network.PeerHandler do
   @store :store
 
   @publish :publish
+  @ping :ping
+  @pong :pong
 
   def find_node, do: @find_node
   def find_value, do: @find_value
   def store, do: @store
   def publish, do: @publish
+  def ping, do: @ping
+  def pong, do: @pong
 
   def do_init(state) do
     send_hello(
@@ -49,10 +53,6 @@ defmodule Network.PeerHandler do
     send!(state, call)
     calls = :queue.in({call, nil}, state.calls)
     {:noreply, %{state | calls: calls}}
-  end
-
-  def handle_call(:ping, _from, state) do
-    {:reply, :pong, state}
   end
 
   def handle_call({:rpc, call}, from, state) do
@@ -193,6 +193,14 @@ defmodule Network.PeerHandler do
   defp handle_msg([@store, key, value], state) do
     KademliaSql.put_object(key, value)
     {[@response, @store, "ok"], state}
+  end
+
+  defp handle_msg([@ping], state) do
+    {[@response, @ping, @pong], state}
+  end
+
+  defp handle_msg([@pong], state) do
+    {[@response, @pong, @ping], state}
   end
 
   defp handle_msg([@publish, %Chain.Transaction{} = tx], state) do
@@ -353,6 +361,10 @@ defmodule Network.PeerHandler do
     raw = encode(data)
     # log(state, format("Sending ~p bytes: ~p", [byte_size(raw), data]))
     :ok = :ssl.send(socket, raw)
+  end
+
+  def on_nodeid(nil) do
+    :ok
   end
 
   def on_nodeid(node) do

@@ -18,7 +18,7 @@ defmodule Network.Handler do
 
       def init({state, [:connect, node_id, address, port]}) do
         Process.link(state.server_pid)
-        log({node_id, address}, "Creating connect worker")
+        log({node_id, address, port}, "Creating connect worker")
         {:ok, state, {:continue, [:connect, node_id, address, port]}}
       end
 
@@ -29,7 +29,7 @@ defmodule Network.Handler do
               socket
           after
             5000 ->
-              log({nil, nil}, "Socket continue timeout")
+              log(nil, "Socket continue timeout")
               {:stop, :normal, state}
           end
 
@@ -52,12 +52,14 @@ defmodule Network.Handler do
 
             if node_id != nil and not Wallet.equal?(node_id, remote_id) do
               log(
-                {node_id, address},
+                {node_id, address, port},
                 "Expected #{Wallet.printable(node_id)} different from found #{
                   Wallet.printable(remote_id)
                 }"
               )
+            end
 
+            if not Wallet.equal?(node_id, remote_id) do
               on_nodeid(remote_id)
             end
 
@@ -65,7 +67,7 @@ defmodule Network.Handler do
 
           other ->
             log(
-              {node_id, address},
+              {node_id, address, port},
               "Connection failed in ssl.connect(): ~p",
               [other]
             )
@@ -77,17 +79,18 @@ defmodule Network.Handler do
       defp enter_loop(state = %{socket: socket, server_pid: server}) do
         case :ssl.connection_information(socket) do
           {:error, reason} ->
-            log({nil, nil}, "Connection gone away ~p", [reason])
+            log(nil, "Connection gone away ~p", [reason])
             {:stop, :normal, state}
 
           {:ok, info} ->
-            {:ok, {address, _port}} = :ssl.peername(socket)
+            {:ok, {address, port}} = :ssl.peername(socket)
             remote_id = Wallet.from_pubkey(Certs.extract(socket))
 
             state = %{
               socket: socket,
               node_id: remote_id,
               node_address: address,
+              node_port: port,
               server_port: nil
             }
 
@@ -152,12 +155,16 @@ defmodule Network.Handler do
         :ssl.setopts(socket, [{:raw, ipproto_tcp, opt, <<value::unsigned-size(32)>>}])
       end
 
-      def name(%{node_id: node_id, node_address: node_address}) do
-        name({node_id, node_address})
+      def name(%{node_id: node_id, node_address: node_address, node_port: node_port}) do
+        name({node_id, node_address, node_port})
       end
 
-      def name({node_id, node_address}) do
-        :io_lib.format("~s @ ~0p", [Wallet.nick(node_id), node_address])
+      def name({node_id, node_address, node_port}) do
+        :io_lib.format("~s @ ~0p", [Wallet.nick(node_id), {node_address, node_port}])
+      end
+
+      def name(nil) do
+        "nil"
       end
 
       def log(state, format, args \\ []) do

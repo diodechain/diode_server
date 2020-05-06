@@ -104,6 +104,10 @@ defmodule Network.Server do
     {:noreply, state}
   end
 
+  defp to_key(nil) do
+    Wallet.new() |> Wallet.address!()
+  end
+
   defp to_key(wallet) do
     Wallet.address!(wallet)
   end
@@ -127,13 +131,15 @@ defmodule Network.Server do
         {:reply, worker, %{state | self_conns: [worker]}}
       end
     else
-      case Map.get(state.clients, to_key(node_id)) do
+      key = to_key(node_id)
+
+      case Map.get(state.clients, key) do
         nil ->
           worker = start_worker!(state, [:connect, node_id, address, port])
 
           clients =
-            Map.put(state.clients, to_key(node_id), worker)
-            |> Map.put(worker, to_key(node_id))
+            Map.put(state.clients, key, worker)
+            |> Map.put(worker, key)
 
           {:reply, worker, %{state | clients: clients}}
 
@@ -160,8 +166,10 @@ defmodule Network.Server do
         key -> Map.delete(state.clients, key)
       end
 
+    key = to_key(node_id)
+
     # Checking whether node_id is already registered
-    case Map.get(clients, to_key(node_id)) do
+    case Map.get(clients, key) do
       nil ->
         :ok
 
@@ -196,8 +204,8 @@ defmodule Network.Server do
     end
 
     clients =
-      Map.put(clients, to_key(node_id), pid)
-      |> Map.put(pid, to_key(node_id))
+      Map.put(clients, key, pid)
+      |> Map.put(pid, key)
 
     {:reply, {:ok, state.port}, %{state | clients: clients}}
   end

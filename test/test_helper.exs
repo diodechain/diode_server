@@ -105,6 +105,7 @@ defmodule TestHelper do
           :stderr_to_stdout
         ])
 
+      # :io.format("port clone_#{num}: ~p~n", [port])
       true = Process.register(port, String.to_atom("clone_#{num}"))
 
       clone_loop(port, file)

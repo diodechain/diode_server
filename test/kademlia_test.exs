@@ -6,10 +6,11 @@ defmodule KademliaTest do
   alias Network.Server, as: Server
   alias Network.PeerHandler, as: PeerHandler
   import TestHelper
+  import While
 
   # Need bigger number to have a not connected network
   # 30
-  @network_size 6
+  @network_size 50
   setup_all do
     reset()
     :io.format("Kademlia starting clones~n")
@@ -22,8 +23,8 @@ defmodule KademliaTest do
 
   defp connect_clones(range) do
     for n <- range do
-      pid = Server.ensure_node_connection(PeerHandler, Wallet.new(), "localhost", peer_port(n))
-      assert GenServer.call(pid, :ping) == :pong
+      pid = Server.ensure_node_connection(PeerHandler, nil, "localhost", peer_port(n))
+      assert GenServer.call(pid, {:rpc, [PeerHandler.ping()]}) == [PeerHandler.pong()]
     end
   end
 
@@ -37,7 +38,10 @@ defmodule KademliaTest do
     assert map_size(conns) == 0
     connect_clones(1..@network_size)
     assert map_size(Server.get_connections(PeerHandler)) == @network_size
-    assert KBuckets.size(Kademlia.network()) == @network_size + 1
+
+    # For network size > k() not all nodes might be stored
+    if @network_size < KBuckets.k(),
+      do: assert(KBuckets.size(Kademlia.network()) == @network_size + 1)
   end
 
   test "send/receive" do
@@ -86,10 +90,17 @@ defmodule KademliaTest do
 
     :io.format("~n")
 
-    add_clone(@network_size + 1)
-    wait_clones(@network_size + 1, 60)
-    connect_clones(1..(@network_size + 1))
-    assert KBuckets.size(Kademlia.network()) == @network_size + 2
+    before = KBuckets.size(Kademlia.network())
+
+    while KBuckets.size(Kademlia.network()) < before + 1 do
+      :io.format("Adding clone~n")
+      new_clone = map_size(Server.get_connections(PeerHandler)) + 1
+      add_clone(new_clone)
+      wait_clones(new_clone, 60)
+      connect_clones(1..new_clone)
+    end
+
+    assert KBuckets.size(Kademlia.network()) == before + 1
 
     for {key, value} <- values do
       :io.format("Kademlia find_value #{key}~n")

@@ -23,8 +23,9 @@ defmodule Kademlia do
     GenServer.start_link(__MODULE__, :ok, name: __MODULE__, hibernate_after: 5_000)
   end
 
+  @spec ping(any) :: any
   def ping(node_id) do
-    GenServer.call(__MODULE__, {:ping, node_id})
+    rpc(find_node(node_id), [Client.ping()])
   end
 
   @doc """
@@ -167,6 +168,10 @@ defmodule Kademlia do
     {:reply, state.network, state}
   end
 
+  def handle_call({:register_node, node_id, server}, _from, state) do
+    {:reply, :ok, register_node(state, node_id, server)}
+  end
+
   def handle_info(:save, state) do
     spawn(fn -> Chain.store_file(Diode.data_dir("kademlia.etf"), state) end)
     Process.send_after(self(), :save, 60_000)
@@ -198,26 +203,14 @@ defmodule Kademlia do
 
   # Private call used by PeerHandler when connections are established
   def handle_cast({:register_node, node_id, server}, state) do
-    if KBuckets.member?(state.network, node_id) or state == server do
-      {:noreply, state}
-    else
-      node = %KBuckets.Item{
-        node_id: node_id,
-        object: server,
-        last_seen: System.os_time(:second)
-      }
-
-      network = KBuckets.insert_item(state.network, node)
-      redistribute(network, node)
-      {:noreply, %{state | network: network}}
-    end
+    {:noreply, register_node(state, node_id, server)}
   end
 
   # Private call used by PeerHandler when is stable for 10 msgs and 30 seconds
   def handle_cast({:stable_node, node_id, server}, state) do
     case KBuckets.item(state.network, node_id) do
       nil ->
-        handle_cast({:register_node, node_id, server}, state)
+        {:noreply, register_node(state, node_id, server)}
 
       node ->
         network = KBuckets.update_item(state.network, %{node | retries: 0})
@@ -231,6 +224,27 @@ defmodule Kademlia do
     case KBuckets.item(state.network, node) do
       nil -> {:noreply, state}
       item -> {:noreply, %{state | network: do_failed_node(item, state.network)}}
+    end
+  end
+
+  defp register_node(state, node_id, server) do
+    if KBuckets.member?(state.network, node_id) do
+      state
+    else
+      node = %KBuckets.Item{
+        node_id: node_id,
+        object: server,
+        last_seen: System.os_time(:second)
+      }
+
+      network = KBuckets.insert_item(state.network, node)
+
+      # Because of bucket size limit, the new node might not get stored
+      if KBuckets.member?(network, node_id) do
+        redistribute(network, node)
+      end
+
+      %{state | network: network}
     end
   end
 
@@ -277,6 +291,8 @@ defmodule Kademlia do
   """
   @max_key 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
   def redistribute(network, node) do
+    node = %KBuckets.Item{} = KBuckets.item(network, node)
+
     # IO.puts("redistribute(#{inspect(node)})")
     previ = KBuckets.prev_n(network, node, 1) |> hd() |> KBuckets.integer()
     nodei = KBuckets.integer(node)

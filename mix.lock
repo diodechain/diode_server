@@ -25,4 +25,5 @@
   "ranch": {:hex, :ranch, "1.3.2", "e4965a144dc9fbe70e5c077c65e73c57165416a901bd02ea899cfd95aa890986", [:rebar3], [], "hexpm", "6e56493a862433fccc3aca3025c946d6720d8eedf6e3e6fb911952a7071c357f"},
   "sha3": {:hex, :sha3, "2.0.0", "fbe5db75a8389fdc810b682446c053b91e591d38d5422808f3a702ed2b270515", [:rebar3], [{:hex2bin, "1.0.0", [hex: :hex2bin, repo: "hexpm", optional: false]}], "hexpm"},
   "sqlitex": {:git, "https://github.com/diodechain/sqlitex.git", "27e2c4687cd4f107131bf84772776665ab6ff764", []},
+  "while": {:hex, :while, "0.2.2", "027baa0b81f26601d98737e02aeb806cff90a2cf1505f7abbe7a85772acd0abb", [:mix], [], "hexpm", "d4feac3e2a73a3bf3d28409cc81ab7cbfee9371a918c33a41df246ddedfc1472"},
 }

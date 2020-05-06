@@ -140,12 +140,13 @@ defmodule KBuckets do
   end
 
   def to_ring_list(kb, item) do
-    key = key(item)
+    key = integer(item)
 
-    {pre, [_self | post]} =
+    {pre, post} =
       to_list(kb)
+      |> Enum.reject(fn a -> integer(a) == key end)
       |> Enum.sort(fn a, b -> integer(a) < integer(b) end)
-      |> Enum.split_while(fn a -> key(a) != key end)
+      |> Enum.split_while(fn a -> integer(a) < key end)
 
     post ++ pre
   end
