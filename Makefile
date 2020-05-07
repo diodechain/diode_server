@@ -18,4 +18,6 @@ test:
 
 .PHONY: $(TESTS)
 $(TESTS):
+	# bug in mix, should be auto-compiled
+	MIX_ENV=test mix deps.compile profiler
 	mix test $@

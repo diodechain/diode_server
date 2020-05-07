@@ -38,7 +38,7 @@ defmodule PeerTest do
 
     # Creating peer connection
     pid = Server.ensure_node_connection(PeerHandler, Wallet.new(), "localhost", peer_port(1))
-    assert GenServer.call(pid, :ping) == :pong
+    assert GenServer.call(pid, {:rpc, [PeerHandler.ping()]}) == [PeerHandler.pong()]
 
     # Waiting for the connection to settle
     wait_for(
