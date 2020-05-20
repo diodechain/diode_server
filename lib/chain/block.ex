@@ -289,9 +289,9 @@ defmodule Chain.Block do
     %Block{block | header: header}
   end
 
-  @spec transactionIndex(Chain.Block.t(), Chain.Transaction.t()) ::
+  @spec transaction_index(Chain.Block.t(), Chain.Transaction.t()) ::
           nil | non_neg_integer()
-  def transactionIndex(%Block{} = block, %Transaction{} = tx) do
+  def transaction_index(%Block{} = block, %Transaction{} = tx) do
     Enum.find_index(transactions(block), fn elem ->
       elem == tx
     end)
@@ -316,7 +316,7 @@ defmodule Chain.Block do
       step = div(diff, 10)
 
       diff =
-        if delta < Chain.blocktimeGoal() do
+        if delta < Chain.blocktime_goal() do
           diff + step
         else
           diff - step
@@ -376,29 +376,29 @@ defmodule Chain.Block do
     Enum.reduce(receipts(block), 0, fn receipt, acc -> acc + receipt.gas_used end)
   end
 
-  @spec transactionReceipt(Chain.Block.t(), Chain.Transaction.t()) ::
+  @spec transaction_receipt(Chain.Block.t(), Chain.Transaction.t()) ::
           Chain.TransactionReceipt.t()
-  def transactionReceipt(%Block{} = block, %Transaction{} = tx) do
-    Enum.at(receipts(block), transactionIndex(block, tx))
+  def transaction_receipt(%Block{} = block, %Transaction{} = tx) do
+    Enum.at(receipts(block), transaction_index(block, tx))
   end
 
-  @spec transactionGas(Chain.Block.t(), Chain.Transaction.t()) :: non_neg_integer()
-  def transactionGas(%Block{} = block, %Transaction{} = tx) do
-    transactionReceipt(block, tx).gas_used
+  @spec transaction_gas(Chain.Block.t(), Chain.Transaction.t()) :: non_neg_integer()
+  def transaction_gas(%Block{} = block, %Transaction{} = tx) do
+    transaction_receipt(block, tx).gas_used
   end
 
-  @spec transactionStatus(Chain.Block.t(), Chain.Transaction.t()) :: 0 | 1
-  def transactionStatus(%Block{} = block, %Transaction{} = tx) do
-    case transactionReceipt(block, tx).msg do
+  @spec transaction_status(Chain.Block.t(), Chain.Transaction.t()) :: 0 | 1
+  def transaction_status(%Block{} = block, %Transaction{} = tx) do
+    case transaction_receipt(block, tx).msg do
       :evmc_revert -> 0
       :ok -> 1
       _other -> 0
     end
   end
 
-  @spec transactionOut(Chain.Block.t(), Chain.Transaction.t()) :: binary() | nil
-  def transactionOut(%Block{} = block, %Transaction{} = tx) do
-    transactionReceipt(block, tx).evmout
+  @spec transaction_out(Chain.Block.t(), Chain.Transaction.t()) :: binary() | nil
+  def transaction_out(%Block{} = block, %Transaction{} = tx) do
+    transaction_receipt(block, tx).evmout
   end
 
   def logs(%Block{} = block) do
@@ -409,7 +409,7 @@ defmodule Chain.Block do
 
         # Note: truffle is picky on the size of the address, failed before 'Hash.to_address()' call.
         %{
-          "transactionIndex" => Block.transactionIndex(block, tx),
+          "transactionIndex" => Block.transaction_index(block, tx),
           "transactionHash" => Transaction.hash(tx),
           "blockHash" => Block.hash(block),
           "blockNumber" => Block.number(block),
@@ -564,7 +564,7 @@ defmodule Chain.Block do
 
   @spec gasLimit(Block.t()) :: non_neg_integer()
   def gasLimit(%Block{} = _block) do
-    Chain.gasLimit()
+    Chain.gas_limit()
   end
 
   #########################################################

@@ -84,7 +84,7 @@ defmodule Chain do
   end
 
   @doc "Gaslimit for block validation and estimation"
-  def gasLimit() do
+  def gas_limit() do
     100_000_000_000
   end
 
@@ -93,18 +93,13 @@ defmodule Chain do
     0
   end
 
-  @spec averageTransactionGas() :: 200_000
-  def averageTransactionGas() do
+  @spec average_transaction_gas() :: 200_000
+  def average_transaction_gas() do
     200_000
   end
 
-  def blocktimeGoal() do
+  def blocktime_goal() do
     15
-  end
-
-  @spec blockchainDelta() :: non_neg_integer()
-  def blockchainDelta() do
-    1
   end
 
   @spec peak() :: integer()

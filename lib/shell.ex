@@ -29,7 +29,7 @@ defmodule Shell do
       when is_list(types) and is_list(values) do
     opts =
       opts
-      |> Keyword.put_new(:gas, Chain.gasLimit() * 100)
+      |> Keyword.put_new(:gas, Chain.gas_limit() * 100)
       |> Keyword.put_new(:gasPrice, 0)
 
     tx = transaction(wallet, address, name, types, values, opts)
@@ -61,7 +61,7 @@ defmodule Shell do
       when is_list(types) and is_list(values) do
     opts =
       opts
-      |> Keyword.put_new(:gas, Chain.gasLimit())
+      |> Keyword.put_new(:gas, Chain.gas_limit())
       |> Keyword.put_new(:gasPrice, 0)
       |> Keyword.put(:to, address)
       |> Enum.map(fn {key, value} -> {Atom.to_string(key), value} end)
@@ -89,7 +89,7 @@ defmodule Shell do
   def get_slot(address, slot) do
     Chain.peak_state()
     |> Chain.State.ensure_account(address)
-    |> Chain.Account.storageValue(slot)
+    |> Chain.Account.storage_value(slot)
   end
 
   def get_code(address) do

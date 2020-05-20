@@ -255,7 +255,7 @@ defmodule Network.Rpc do
         [address, location, ref] = params
 
         get_account([address, ref])
-        |> Chain.Account.storageValue(Base16.decode_int(location))
+        |> Chain.Account.storage_value(Base16.decode_int(location))
         |> result()
 
       "eth_getStorage" ->
@@ -266,7 +266,7 @@ defmodule Network.Rpc do
 
       "eth_estimateGas" ->
         # TODO real estimate
-        result(Chain.gasLimit())
+        result(Chain.gas_limit())
 
       "eth_call" ->
         [%{} = opts, ref] = params
@@ -305,23 +305,23 @@ defmodule Network.Rpc do
 
             ret = %{
               "transactionHash" => txh,
-              "transactionIndex" => Block.transactionIndex(block, tx),
+              "transactionIndex" => Block.transaction_index(block, tx),
               "blockHash" => Block.hash(block),
               "blockNumber" => Block.number(block),
               "from" => Transaction.from(tx),
               "to" => Transaction.to(tx),
-              "gasUsed" => Block.transactionGas(block, tx),
+              "gasUsed" => Block.transaction_gas(block, tx),
               "cumulativeGasUsed" => Block.gas_used(block),
               "contractAddress" => Transaction.new_contract_address(tx),
               "logs" => logs,
-              "status" => Block.transactionStatus(block, tx),
+              "status" => Block.transaction_status(block, tx),
               "logsBloom" => Block.logs_bloom(block),
               "v" => v,
               "r" => r,
               "s" => s
 
               # Blockscout does not handle extra keys
-              # "out" => Block.transactionOut(block, tx)
+              # "out" => Block.transaction_out(block, tx)
             }
 
             result(ret)
@@ -402,7 +402,7 @@ defmodule Network.Rpc do
                 "subtraces" => {:raw, 0},
                 "traceAddress" => [],
                 "transactionHash" => Transaction.hash(tx),
-                "transactionPosition" => {:raw, Block.transactionIndex(block, tx)},
+                "transactionPosition" => {:raw, Block.transaction_index(block, tx)},
                 "blockNumber" => {:raw, Block.number(block)},
                 "type" =>
                   if Transaction.contract_creation?(tx) do
@@ -754,13 +754,13 @@ defmodule Network.Rpc do
       "blockHash" => Block.hash(block),
       "blockNumber" => Block.number(block),
       "from" => Transaction.from(tx),
-      "gas" => Block.transactionGas(block, tx),
+      "gas" => Block.transaction_gas(block, tx),
       "gasPrice" => Transaction.gas_price(tx),
       "hash" => Transaction.hash(tx),
       "input" => Transaction.payload(tx),
       "nonce" => Transaction.nonce(tx),
       "to" => Transaction.to(tx),
-      "transactionIndex" => Block.transactionIndex(block, tx),
+      "transactionIndex" => Block.transaction_index(block, tx),
       "value" => Transaction.value(tx),
       "v" => v,
       "r" => r,

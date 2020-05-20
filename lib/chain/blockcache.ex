@@ -205,11 +205,11 @@ defmodule Chain.BlockCache do
   defdelegate state_hash(block), to: Block
   defdelegate strip_state(block), to: Block
   defdelegate timestamp(block), to: Block
-  defdelegate transactionGas(block, transaction), to: Block
-  defdelegate transactionIndex(block, transaction), to: Block
-  defdelegate transactionOut(block, transaction), to: Block
+  defdelegate transaction_gas(block, transaction), to: Block
+  defdelegate transaction_index(block, transaction), to: Block
+  defdelegate transaction_out(block, transaction), to: Block
   defdelegate transactions(block), to: Block
-  defdelegate transactionStatus(block, transaction), to: Block
+  defdelegate transaction_status(block, transaction), to: Block
   defdelegate txhash(block), to: Block
   defdelegate validate(block, parent), to: Block
   defdelegate valid?(block), to: Block

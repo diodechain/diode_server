@@ -49,36 +49,28 @@ defmodule Chain.Account do
     %Chain.Account{acc | root_hash: root_hash(acc)}
   end
 
-  def storageSetValue(acc, key = <<_k::256>>, value = <<_v::256>>) do
+  def storage_set_value(acc, key = <<_k::256>>, value = <<_v::256>>) do
     store = MerkleTree.insert(root(acc), key, value)
     %Chain.Account{acc | storage_root: store, root_hash: nil}
   end
 
-  def storageSetValue(acc, key, value) when is_integer(key) do
-    storageSetValue(acc, <<key::unsigned-size(256)>>, value)
+  def storage_set_value(acc, key, value) when is_integer(key) do
+    storage_set_value(acc, <<key::unsigned-size(256)>>, value)
   end
 
-  def storageSetValue(acc, key, value) when is_integer(value) do
-    storageSetValue(acc, key, <<value::unsigned-size(256)>>)
+  def storage_set_value(acc, key, value) when is_integer(value) do
+    storage_set_value(acc, key, <<value::unsigned-size(256)>>)
   end
 
-  @spec storageValue(Chain.Account.t(), binary() | integer()) :: binary() | nil
-  def storageValue(acc, key) when is_integer(key) do
-    storageValue(acc, <<key::unsigned-size(256)>>)
+  @spec storage_value(Chain.Account.t(), binary() | integer()) :: binary() | nil
+  def storage_value(acc, key) when is_integer(key) do
+    storage_value(acc, <<key::unsigned-size(256)>>)
   end
 
-  def storageValue(%Chain.Account{} = acc, key) when is_binary(key) do
+  def storage_value(%Chain.Account{} = acc, key) when is_binary(key) do
     case MerkleTree.get(root(acc), key) do
       nil -> <<0::unsigned-size(256)>>
       bin -> bin
-    end
-  end
-
-  @spec storageInteger(Chain.Account.t(), binary() | integer()) :: non_neg_integer()
-  def storageInteger(acc, key) do
-    case storageValue(acc, key) do
-      nil -> 0
-      other -> :binary.decode_unsigned(other)
     end
   end
 

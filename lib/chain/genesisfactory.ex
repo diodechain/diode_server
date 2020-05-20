@@ -70,7 +70,7 @@ defmodule Chain.GenesisFactory do
           balance: ether(100_000_000),
           code: Base16.decode(registryContract())
         )
-        |> Account.storageSetValue(1, accountant)
+        |> Account.storage_set_value(1, accountant)
       ),
 
       # The Fleet with the operator and accountant placed
@@ -80,8 +80,8 @@ defmodule Chain.GenesisFactory do
           balance: 0,
           code: Base16.decode(fleetContract())
         )
-        |> Account.storageSetValue(0, Diode.registry_address() |> :binary.decode_unsigned())
-        |> Account.storageSetValue(2, accountant)
+        |> Account.storage_set_value(0, Diode.registry_address() |> :binary.decode_unsigned())
+        |> Account.storage_set_value(2, accountant)
       )
     ]
 
