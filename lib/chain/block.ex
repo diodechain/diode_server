@@ -91,11 +91,11 @@ defmodule Chain.Block do
 
     with {_, %Block{}} <- {:is_block, block},
          {_, true} <-
-           test(:has_parent, fn -> Block.parent_hash(block) == Block.hash(parent) end),
+           test(:has_parent, fn -> parent_hash(block) == hash(parent) end),
          {_, true} <-
-           test(:correct_number, fn -> Block.number(block) == Block.number(parent) + 1 end),
+           test(:correct_number, fn -> number(block) == number(parent) + 1 end),
          {_, true} <-
-           test(:diverse, fn -> Block.number(block) < 11000 or is_diverse?(block, parent) end),
+           test(:diverse, fn -> number(block) < 11000 or is_diverse?(block, parent) end),
          {_, true} <-
            test(:last_final_window, fn -> in_final_window?(block, parent) end),
          {_, true} <- test(:hash_valid, fn -> hash_valid?(block) end),
@@ -104,13 +104,16 @@ defmodule Chain.Block do
              Enum.map(transactions(block), &Transaction.validate/1)
              |> Enum.reject(fn tx -> tx == true end)
            end),
+         {_, [hdtx | _rest]} <- {:has_regtx, transactions(block)},
+         {_, true} <- {:reg_tx, is_reg_tx?(hdtx, block)},
          {_, true} <-
            test(:tx_hash_valid, fn ->
              Diode.hash(encode_transactions(transactions(block))) == txhash(block)
            end),
          {_, sim_block} <- test(:simulate, fn -> simulate(block) end),
-         {_, true} <- test(:state_equal, fn -> state_equal(sim_block, block) end) do
-      %{sim_block | header: %{block.header | state_hash: sim_block.header.state_hash}}
+         {_, final_block} <- test(:hardforks, fn -> hardforks(sim_block) end),
+         {_, true} <- test(:state_equal, fn -> state_equal(final_block, block) end) do
+      %{final_block | header: %{block.header | state_hash: sim_block.header.state_hash}}
     else
       {nr, error} -> {nr, error}
     end
@@ -118,6 +121,24 @@ defmodule Chain.Block do
 
   def validate(_block, nil) do
     {:has_parent, false}
+  end
+
+  defp hardforks(block) do
+    case number(block) do
+      _ -> block
+    end
+  end
+
+  defp is_reg_tx?(tx, block) do
+    wallet = miner(block)
+    account = Chain.State.ensure_account(state(parent(block)), wallet)
+
+    Wallet.equal?(Transaction.origin(tx), wallet) and
+      Transaction.nonce(tx) == Chain.Account.nonce(account) and
+      Transaction.gas_price(tx) == 0 and
+      Transaction.gas_limit(tx) == 1_000_000_000 and
+      Transaction.to(tx) == Diode.registry_address() and
+      Transaction.data(tx) == ABI.encode_spec("blockReward")
   end
 
   defp state_equal(sim_block, block) do
