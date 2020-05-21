@@ -250,7 +250,7 @@ defmodule Chain.Block do
       tc(:create_header, fn ->
         %Header{
           block.header
-          | state_hash: tc(:optimize, fn -> Chain.State.optimize(nstate) end),
+          | state_hash: tc(:normalize, fn -> Chain.State.normalize(nstate) end),
             transaction_hash: Diode.hash(encode_transactions(transactions))
         }
       end)

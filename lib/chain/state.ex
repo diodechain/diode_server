@@ -12,7 +12,7 @@ defmodule Chain.State do
     %Chain.State{}
   end
 
-  def optimize(%Chain.State{hash: nil, accounts: accounts} = state) do
+  def normalize(%Chain.State{hash: nil, accounts: accounts} = state) do
     accounts =
       accounts
       |> Enum.map(fn {id, acc} -> {id, Account.normalize(acc)} end)
@@ -22,7 +22,7 @@ defmodule Chain.State do
     %{state | hash: hash(state)}
   end
 
-  def optimize(%Chain.State{} = state) do
+  def normalize(%Chain.State{} = state) do
     state
   end
 
