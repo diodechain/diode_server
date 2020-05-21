@@ -96,7 +96,7 @@ defmodule Chain.State do
       Map.put(map, id, %{
         nonce: acc.nonce,
         balance: acc.balance,
-        data: Account.root(acc) |> MerkleTree.to_list(),
+        data: Account.tree(acc) |> MerkleTree.to_list(),
         code: acc.code
       })
     end)

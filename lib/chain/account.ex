@@ -25,16 +25,16 @@ defmodule Chain.Account do
   def nonce(%Chain.Account{nonce: nonce}), do: nonce
   def balance(%Chain.Account{balance: balance}), do: balance
 
-  @spec root(Chain.Account.t()) :: MerkleTree.t()
-  def root(%Chain.Account{storage_root: nil}), do: MapMerkleTree.new()
-  def root(%Chain.Account{storage_root: root}), do: root
+  @spec tree(Chain.Account.t()) :: MerkleTree.t()
+  def tree(%Chain.Account{storage_root: nil}), do: MapMerkleTree.new()
+  def tree(%Chain.Account{storage_root: root}), do: root
 
-  def put_root(%Chain.Account{} = acc, root) do
+  def put_tree(%Chain.Account{} = acc, root) do
     %Chain.Account{acc | storage_root: root, root_hash: nil}
   end
 
   def root_hash(%Chain.Account{root_hash: nil} = acc) do
-    MerkleTree.root_hash(root(acc))
+    MerkleTree.root_hash(tree(acc))
   end
 
   def root_hash(%Chain.Account{root_hash: root_hash}) do
@@ -50,7 +50,7 @@ defmodule Chain.Account do
   end
 
   def storage_set_value(acc, key = <<_k::256>>, value = <<_v::256>>) do
-    store = MerkleTree.insert(root(acc), key, value)
+    store = MerkleTree.insert(tree(acc), key, value)
     %Chain.Account{acc | storage_root: store, root_hash: nil}
   end
 
@@ -68,7 +68,7 @@ defmodule Chain.Account do
   end
 
   def storage_value(%Chain.Account{} = acc, key) when is_binary(key) do
-    case MerkleTree.get(root(acc), key) do
+    case MerkleTree.get(tree(acc), key) do
       nil -> <<0::unsigned-size(256)>>
       bin -> bin
     end

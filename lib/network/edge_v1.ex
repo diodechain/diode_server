@@ -297,7 +297,7 @@ defmodule Network.EdgeV1 do
             send!(state, [
               "response",
               "getaccountroots",
-              MerkleTree.root_hashes(Chain.Account.root(acc))
+              MerkleTree.root_hashes(Chain.Account.tree(acc))
             ])
         end
 
@@ -312,7 +312,7 @@ defmodule Network.EdgeV1 do
             send!(state, [
               "response",
               "getaccountvalue",
-              MerkleTree.get_proofs(Chain.Account.root(acc), key)
+              MerkleTree.get_proofs(Chain.Account.tree(acc), key)
             ])
         end
 

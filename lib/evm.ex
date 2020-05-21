@@ -44,7 +44,7 @@ defmodule Evm do
     @spec store(Evm.State.t()) :: MerkleTree.merkle()
     def store(%State{chain_state: st} = state) do
       Chain.State.ensure_account(st, address(state))
-      |> Account.root()
+      |> Account.tree()
     end
 
     def code(%State{code: code}), do: code
@@ -450,7 +450,7 @@ defmodule Evm do
   defp cache_account(state, port, address) do
     values =
       Chain.State.ensure_account(state, address)
-      |> Chain.Account.root()
+      |> Chain.Account.tree()
       |> MerkleTree.to_list()
       |> Enum.map(fn {k, v} -> [k, v] end)
 
@@ -501,7 +501,7 @@ defmodule Evm do
        ) do
     value =
       Chain.State.ensure_account(state(evm), addr)
-      |> Chain.Account.root()
+      |> Chain.Account.tree()
       |> MerkleTree.get(key)
 
     if value == nil do
@@ -527,8 +527,8 @@ defmodule Evm do
     state =
       Enum.reduce(updates, state(evm), fn {addr, kvs}, state ->
         acc = Chain.State.ensure_account(state, addr)
-        root = MerkleTree.insert_items(Account.root(acc), Map.to_list(kvs))
-        acc = Chain.Account.put_root(acc, root)
+        root = MerkleTree.insert_items(Account.tree(acc), Map.to_list(kvs))
+        acc = Chain.Account.put_tree(acc, root)
         Chain.State.set_account(state, addr, acc)
       end)
 

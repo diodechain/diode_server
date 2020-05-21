@@ -320,7 +320,7 @@ defmodule Network.EdgeV2 do
 
         case Chain.State.account(mstate, id) do
           nil -> error("account does not exist")
-          acc -> response(MerkleTree.root_hashes(Chain.Account.root(acc)))
+          acc -> response(MerkleTree.root_hashes(Chain.Account.tree(acc)))
         end
 
       ["getaccountvalue", index, id, key] ->
@@ -328,7 +328,7 @@ defmodule Network.EdgeV2 do
 
         case Chain.State.account(mstate, id) do
           nil -> error("account does not exist")
-          acc -> response(MerkleTree.get_proofs(Chain.Account.root(acc), key))
+          acc -> response(MerkleTree.get_proofs(Chain.Account.tree(acc), key))
         end
 
       ["portopen", device_id, port, flags] ->
