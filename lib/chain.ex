@@ -377,7 +377,7 @@ defmodule Chain do
 
               case ret do
                 %Chain.Block{} = block ->
-                  throttle_sync(len > 3)
+                  if len > 0, do: throttle_sync(true)
 
                   Model.Stats.tc(:addblock, fn ->
                     Chain.add_block(block, nextblock == last)
