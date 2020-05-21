@@ -81,9 +81,53 @@ defmodule Chain.State do
     diff = MerkleTree.difference(tree(state_a), tree(state_b))
 
     Enum.map(diff, fn {id, _} ->
-      acc_a = Chain.State.account(state_a, id)
-      acc_b = Chain.State.account(state_b, id)
-      {Base16.encode(id), MerkleTree.difference(Account.root(acc_a), Account.root(acc_b))}
+      acc_a = account(state_a, id)
+      acc_b = account(state_b, id)
+
+      delta = %{
+        nonce: {Account.nonce(acc_a), Account.nonce(acc_b)},
+        balance: {Account.balance(acc_a), Account.balance(acc_b)},
+        code: {Account.code(acc_a), Account.code(acc_b)}
+      }
+
+      report = %{state: MerkleTree.difference(Account.tree(acc_a), Account.tree(acc_b))}
+
+      report =
+        Enum.reduce(delta, report, fn {key, {a, b}}, report ->
+          if a == b do
+            report
+          else
+            Map.put(report, key, {a, b})
+          end
+        end)
+
+      {id, report}
+    end)
+  end
+
+  def apply_difference(%Chain.State{} = state, difference) do
+    Enum.reduce(difference, state, fn {id, report}, state ->
+      acc = ensure_account(state, id)
+
+      acc =
+        Enum.reduce(report, acc, fn {key, delta}, acc ->
+          case key do
+            :state ->
+              Enum.reduce(delta, acc, fn {key, {a, b}}, acc ->
+                tree = Account.tree(acc)
+                ^a = MerkleTree.get(tree, key)
+                tree = MerkleTree.insert(tree, key, b)
+                Account.put_tree(acc, tree)
+              end)
+
+            _other ->
+              {a, b} = delta
+              ^a = apply(Account, key, [acc])
+              %{acc | key => b}
+          end
+        end)
+
+      set_account(state, id, acc)
     end)
   end
 
