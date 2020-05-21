@@ -54,7 +54,23 @@ defmodule MapMerkleTree do
   end
 
   def insert_items({MapMerkleTree, opts, dict}, items) do
-    dict = for item <- items, into: dict, do: item
+    dict =
+      Enum.reduce(items, dict, fn {key, value}, dict ->
+        if null?(value) do
+          Map.delete(dict, key)
+        else
+          Map.put(dict, key, value)
+        end
+      end)
+
     {MapMerkleTree, opts, dict}
+  end
+
+  defp null?(binary) when is_binary(binary) do
+    binary == <<0::unsigned-size(256)>>
+  end
+
+  defp null?(int) when is_integer(int) do
+    null?(<<int::unsigned-size(256)>>)
   end
 end

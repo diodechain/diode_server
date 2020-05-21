@@ -80,6 +80,15 @@ defmodule MapMerkleTreeTest do
     assert MerkleTree.size(tree) == 1
   end
 
+  test "no nulls" do
+    tree =
+      new()
+      |> MerkleTree.insert_item({"a", 1})
+      |> MerkleTree.insert_item({"a", 0})
+
+    assert MerkleTree.size(tree) == 0
+  end
+
   test "proof" do
     size = 20
     tree0 = new()

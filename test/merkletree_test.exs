@@ -4,14 +4,18 @@
 defmodule MerkleTreeTest do
   use ExUnit.Case
 
+  defp new() do
+    MerkleTree.new()
+  end
+
   test "initialize" do
-    tree = MerkleTree.new()
+    tree = new()
     assert MerkleTree.size(tree) == 0
     assert MerkleTree.bucket_count(tree) == 1
   end
 
   test "inserts" do
-    tree = MerkleTree.new()
+    tree = new()
 
     size = 16
 
@@ -54,7 +58,7 @@ defmodule MerkleTreeTest do
     }
 
     tree =
-      Enum.reduce(data, MerkleTree.new(), fn {key, value}, tree ->
+      Enum.reduce(data, new(), fn {key, value}, tree ->
         value = :binary.decode_unsigned(value)
         value = <<value::unsigned-size(256)>>
         key = :binary.decode_unsigned(key)
@@ -69,16 +73,25 @@ defmodule MerkleTreeTest do
 
   test "no duplicate" do
     tree =
-      MerkleTree.new()
+      new()
       |> MerkleTree.insert_item({"a", 1})
       |> MerkleTree.insert_item({"a", 2})
 
     assert MerkleTree.size(tree) == 1
   end
 
+  test "no nulls" do
+    tree =
+      new()
+      |> MerkleTree.insert_item({"a", 1})
+      |> MerkleTree.insert_item({"a", 0})
+
+    assert MerkleTree.size(tree) == 0
+  end
+
   test "proof" do
     size = 20
-    tree0 = MerkleTree.new()
+    tree0 = new()
 
     tree20 =
       Enum.reduce(pairs(size), tree0, fn item, acc ->
@@ -117,7 +130,7 @@ defmodule MerkleTreeTest do
 
   test "equality" do
     size = 20
-    tree = MerkleTree.new()
+    tree = new()
 
     tree20 =
       Enum.reduce(pairs(size), tree, fn item, acc ->
@@ -137,7 +150,7 @@ defmodule MerkleTreeTest do
     size = 20
     sizeh = div(size, 2)
 
-    tree0 = MerkleTree.new()
+    tree0 = new()
 
     tree20 =
       Enum.reduce(pairs(size), tree0, fn item, acc ->
