@@ -103,8 +103,7 @@ defmodule Model.ChainSql do
   end
 
   def put_new_block(block) do
-    state = %Chain.State{} = Block.state(block)
-    state_data = BertInt.encode!(state)
+    state_data = prepare_state(block)
     block_hash = Block.hash(block)
     data = Block.strip_state(block) |> BertInt.encode!()
 
@@ -142,8 +141,7 @@ defmodule Model.ChainSql do
 
   @spec put_block(Chain.Block.t()) :: Chain.Block.t()
   def put_block(block) do
-    state = %Chain.State{} = Block.state(block)
-    state_data = BertInt.encode!(state)
+    state_data = prepare_state(block)
     block_hash = Block.hash(block)
     data = Block.strip_state(block) |> BertInt.encode!()
 
@@ -197,7 +195,13 @@ defmodule Model.ChainSql do
   end
 
   def state(block_hash) do
-    fetch!("SELECT state FROM blocks WHERE hash = ?1", block_hash)
+    case fetch!("SELECT state FROM blocks WHERE hash = ?1", block_hash) do
+      %Chain.State{} = state ->
+        state
+
+      {prev_hash, delta} ->
+        Chain.State.apply_difference(state(prev_hash), delta)
+    end
   end
 
   def block_by_txhash(txhash) do
@@ -234,5 +238,27 @@ defmodule Model.ChainSql do
 
   def transaction(txhash) do
     fetch!("SELECT data FROM transactions WHERE txhash = ?1", txhash)
+  end
+
+  defp prepare_state(block) do
+    state = %Chain.State{} = Block.state(block)
+    nr = Block.number(block)
+
+    if nr > 0 and rem(nr, 100) == 1 do
+      BertInt.encode!(state)
+    else
+      prev = nr - rem(nr, 100) + 1
+
+      case Sql.query!(__MODULE__, "SELECT hash, state FROM blocks WHERE number = ?1", bind: [prev]) do
+        [[hash: hash, state: bin]] ->
+          prev_state = %Chain.State{} = BertInt.decode!(bin)
+
+          {hash, Chain.State.difference(prev_state, state)}
+          |> BertInt.encode!()
+
+        [] ->
+          BertInt.encode!(state)
+      end
+    end
   end
 end
