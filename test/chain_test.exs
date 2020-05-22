@@ -264,7 +264,7 @@ defmodule ChainTest do
         # for {key, value} <- to_list(result.storage_root) do
         #   assert {key, value} == {key, Account.storageInteger(account, key)}
         # end
-        assert to_list(Account.root(result)) == to_list(Account.root(account))
+        assert to_list(Account.tree(result)) == to_list(Account.tree(account))
       end
     end
 

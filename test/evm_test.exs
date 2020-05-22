@@ -64,7 +64,7 @@ defmodule EvmTest do
 
     # Checking value of i at position 0
     acc = Chain.State.account(state, Transaction.new_contract_address(ctx))
-    value = Chain.Account.storageInteger(acc, 0)
+    value = Chain.Account.storage_value(acc, 0) |> :binary.decode_unsigned()
     assert value == 0
 
     # Method call increment
@@ -92,7 +92,7 @@ defmodule EvmTest do
 
     # Checking value of i at position 0
     acc = Chain.State.account(state, Transaction.new_contract_address(ctx))
-    value = Chain.Account.storageInteger(acc, 0)
+    value = Chain.Account.storage_value(acc, 0) |> :binary.decode_unsigned()
     assert value == 1
   end
 
