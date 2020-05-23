@@ -81,8 +81,8 @@ defmodule Chain.State do
     diff = MerkleTree.difference(tree(state_a), tree(state_b))
 
     Enum.map(diff, fn {id, _} ->
-      acc_a = account(state_a, id)
-      acc_b = account(state_b, id)
+      acc_a = ensure_account(state_a, id)
+      acc_b = ensure_account(state_b, id)
 
       delta = %{
         nonce: {Account.nonce(acc_a), Account.nonce(acc_b)},
