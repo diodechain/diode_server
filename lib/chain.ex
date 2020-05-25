@@ -194,17 +194,26 @@ defmodule Chain do
   end
 
   # returns all blocks from the given hash
-  @spec blocks(any()) :: Enumerable.t()
-  def blocks(%Chain.Block{} = block) do
-    blocks(Block.hash(block))
-  end
+  @spec blocks(Chain.Block.t() | binary()) :: Enumerable.t()
+  def blocks(block_or_hash) do
+    Stream.unfold([block_or_hash], fn
+      [] ->
+        nil
 
-  def blocks(hash) do
-    Stream.unfold(hash, fn hash ->
-      case block_by_hash(hash) do
-        nil -> nil
-        block -> {block, Block.parent_hash(block)}
-      end
+      [hash] when is_binary(hash) ->
+        case ChainSql.blocks_by_hash(hash, 100) do
+          [] -> nil
+          [block | rest] -> {block, rest}
+        end
+
+      [block] ->
+        case ChainSql.blocks_by_hash(Block.hash(block), 100) do
+          [] -> nil
+          [block | rest] -> {block, rest}
+        end
+
+      [block | rest] ->
+        {block, rest}
     end)
   end
 

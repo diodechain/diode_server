@@ -156,8 +156,14 @@ defmodule Chain.BlockCache do
     final
   end
 
-  def blockquick_window(block) do
-    do_get_cache(block, :blockquick_window)
+  def blockquick_window(block, parent \\ nil) do
+    nr = Block.number(block)
+
+    if nr > 100 and rem(nr, 10) == 1 do
+      do_get_cache(block, :blockquick_window)
+    else
+      Block.blockquick_window(block, parent)
+    end
   end
 
   def total_difficulty(block) do

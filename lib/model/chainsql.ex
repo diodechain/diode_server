@@ -21,6 +21,7 @@ defmodule Model.ChainSql do
       query!(db, """
           CREATE TABLE IF NOT EXISTS blocks (
             hash BLOB PRIMARY KEY,
+            miner BLOB,
             parent BLOB,
             number INTEGER NULL,
             final BOOL DEFAULT false,
@@ -109,19 +110,19 @@ defmodule Model.ChainSql do
   end
 
   def put_new_block(block) do
-    state_data = prepare_state(block)
-    block_hash = Block.hash(block)
-    data = Block.strip_state(block) |> BertInt.encode!()
-
     with_transaction(fn db ->
-      ret =
-        query(
-          db,
-          "INSERT OR FAIL INTO blocks (hash, parent, data, state) VALUES(?1, ?2, ?3, ?4)",
-          bind: [block_hash, Block.parent_hash(block), data, state_data]
-        )
-
-      case ret do
+      query(
+        db,
+        "INSERT OR FAIL INTO blocks (hash, parent, miner, data, state) VALUES(?1, ?2, ?3, ?4, ?5)",
+        bind: [
+          Block.hash(block),
+          Block.parent_hash(block),
+          Block.miner(block) |> Wallet.pubkey!(),
+          Block.strip_state(block) |> BertInt.encode!(),
+          prepare_state(block)
+        ]
+      )
+      |> case do
         {:ok, _some} ->
           put_transactions(db, block)
           true
@@ -130,6 +131,34 @@ defmodule Model.ChainSql do
           false
       end
     end)
+  end
+
+  @spec put_block(Chain.Block.t()) :: Chain.Block.t()
+  def put_block(block) do
+    with_transaction(fn db ->
+      query(
+        db,
+        "REPLACE INTO blocks (hash, parent, miner, number, data, state) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+        bind: [
+          Block.hash(block),
+          Block.parent_hash(block),
+          Block.miner(block) |> Wallet.pubkey!(),
+          Block.number(block),
+          Block.strip_state(block) |> BertInt.encode!(),
+          prepare_state(block)
+        ]
+      )
+      |> case do
+        {:ok, _some} ->
+          put_transactions(db, block)
+          true
+
+        {:error, _some} ->
+          false
+      end
+    end)
+
+    block
   end
 
   def put_peak(block) do
@@ -140,33 +169,6 @@ defmodule Model.ChainSql do
 
       put_block_number(db, block)
       set_normative(db, Block.parent(block))
-    end)
-
-    block
-  end
-
-  @spec put_block(Chain.Block.t()) :: Chain.Block.t()
-  def put_block(block) do
-    state_data = prepare_state(block)
-    block_hash = Block.hash(block)
-    data = Block.strip_state(block) |> BertInt.encode!()
-
-    with_transaction(fn db ->
-      ret =
-        query(
-          db,
-          "REPLACE INTO blocks (hash, parent, number, data, state) VALUES(?1, ?2, ?3, ?4, ?5)",
-          bind: [block_hash, Block.parent_hash(block), Block.number(block), data, state_data]
-        )
-
-      case ret do
-        {:ok, _some} ->
-          put_transactions(db, block)
-          true
-
-        {:error, _some} ->
-          false
-      end
     end)
 
     block
@@ -196,6 +198,40 @@ defmodule Model.ChainSql do
 
   def block_by_hash(hash) do
     fetch!("SELECT data FROM blocks WHERE hash = ?1", hash)
+  end
+
+  def blocks_by_hash(hash, count) when is_integer(count) do
+    # 25/05/2020: 8ms with count=100 per execution
+    query!(
+      __MODULE__,
+      """
+      WITH RECURSIVE parents_of(n, level) AS (
+        VALUES(?1, 0) UNION SELECT parent, parents_of.level+1 FROM blocks, parents_of
+          WHERE blocks.hash=parents_of.n LIMIT #{count}
+      )
+      SELECT data FROM parents_of JOIN blocks WHERE hash=n ORDER BY level ASC
+      """,
+      bind: [hash]
+    )
+    |> Enum.map(fn [data: raw] -> BertInt.decode!(raw) end)
+  end
+
+  def blockquick_window(hash) do
+    # 25/05/2020: 5ms per execution
+    query!(
+      __MODULE__,
+      """
+      WITH RECURSIVE parents_of(n, level) AS (
+        VALUES(?1, 0) UNION SELECT parent, parents_of.level+1 FROM blocks, parents_of
+          WHERE blocks.hash=parents_of.n LIMIT #{Chain.window_size()}
+      )
+      SELECT miner FROM parents_of JOIN blocks WHERE hash=n ORDER BY level DESC
+      """,
+      bind: [hash]
+    )
+    |> Enum.map(fn [miner: pubkey] ->
+      Wallet.from_pubkey(pubkey) |> Wallet.address!() |> :binary.decode_unsigned()
+    end)
   end
 
   def state(block_hash) do
