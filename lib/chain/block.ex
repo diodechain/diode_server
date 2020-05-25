@@ -297,6 +297,10 @@ defmodule Chain.Block do
     end)
   end
 
+  def transaction(%Block{} = block, tx_hash) do
+    Enum.find(transactions(block), fn tx -> Transaction.hash(tx) == tx_hash end)
+  end
+
   # The second parameter is an optimizaton for cache bootstrap
   @spec difficulty(Block.t(), Block.t() | nil) :: non_neg_integer()
   def difficulty(%Block{} = block, parent \\ nil) do

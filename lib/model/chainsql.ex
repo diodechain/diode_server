@@ -45,7 +45,6 @@ defmodule Model.ChainSql do
           CREATE TABLE IF NOT EXISTS transactions (
             txhash BLOB PRIMARY KEY,
             blhash BLOB,
-            data BLOB,
             FOREIGN KEY(blhash) REFERENCES blocks(hash) ON DELETE CASCADE
           )
       """)
@@ -177,10 +176,8 @@ defmodule Model.ChainSql do
     block_hash = Block.hash(block)
 
     for tx <- block.transactions do
-      txdata = BertInt.encode!(tx)
-
-      query(db, "INSERT INTO transactions (txhash, blhash, data) VALUES(?1, ?2, ?3)",
-        bind: [Transaction.hash(tx), block_hash, txdata]
+      query(db, "INSERT INTO transactions (txhash, blhash) VALUES(?1, ?2)",
+        bind: [Transaction.hash(tx), block_hash]
       )
     end
   end
@@ -244,7 +241,8 @@ defmodule Model.ChainSql do
   end
 
   def transaction(txhash) do
-    fetch!("SELECT data FROM transactions WHERE txhash = ?1", txhash)
+    block_by_txhash(txhash)
+    |> Block.transaction(txhash)
   end
 
   defp prepare_state(block) do
