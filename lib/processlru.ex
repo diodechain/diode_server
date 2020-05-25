@@ -66,8 +66,14 @@ defmodule ProcessLru do
 
   def fetch(name, key, fun) do
     case Map.get(map(name), {:key, key}) do
-      {value, _n} -> value
-      nil -> put(name, key, fun.())
+      {value, _n} ->
+        value
+
+      nil ->
+        case fun.() do
+          nil -> nil
+          value -> put(name, key, value)
+        end
     end
   end
 

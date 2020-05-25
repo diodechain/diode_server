@@ -21,6 +21,7 @@ defmodule Model.ChainSql do
       query!(db, """
           CREATE TABLE IF NOT EXISTS blocks (
             hash BLOB PRIMARY KEY,
+            parent BLOB,
             number INTEGER NULL,
             final BOOL DEFAULT false,
             data BLOB,
@@ -31,6 +32,12 @@ defmodule Model.ChainSql do
       query!(db, """
           CREATE INDEX IF NOT EXISTS block_number ON blocks (
             number
+          )
+      """)
+
+      query!(db, """
+          CREATE INDEX IF NOT EXISTS block_parent ON blocks (
+            parent
           )
       """)
 
@@ -111,8 +118,8 @@ defmodule Model.ChainSql do
       ret =
         query(
           db,
-          "INSERT OR FAIL INTO blocks (hash, data, state) VALUES(?1, ?2, ?3)",
-          bind: [block_hash, data, state_data]
+          "INSERT OR FAIL INTO blocks (hash, parent, data, state) VALUES(?1, ?2, ?3, ?4)",
+          bind: [block_hash, Block.parent_hash(block), data, state_data]
         )
 
       case ret do
@@ -149,8 +156,8 @@ defmodule Model.ChainSql do
       ret =
         query(
           db,
-          "REPLACE INTO blocks (hash, number, data, state) VALUES(?1, ?2, ?3, ?4)",
-          bind: [block_hash, Block.number(block), data, state_data]
+          "REPLACE INTO blocks (hash, parent, number, data, state) VALUES(?1, ?2, ?3, ?4, ?5)",
+          bind: [block_hash, Block.parent_hash(block), Block.number(block), data, state_data]
         )
 
       case ret do

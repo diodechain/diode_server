@@ -12,6 +12,11 @@ defmodule EtsLruTest do
     assert EtsLru.size(lru) == 1
 
     assert EtsLru.get(lru, "key") == "value"
+
+    # EtsLru should not cache nil return values
+    assert EtsLru.fetch(lru, "nothing", fn -> nil end) == nil
+    assert EtsLru.fetch(lru, "nothing", fn -> "yay" end) == "yay"
+    assert EtsLru.get(lru, "nothing") == "yay"
   end
 
   test "limit" do

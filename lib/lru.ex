@@ -40,15 +40,17 @@ defmodule Lru do
     end
   end
 
-  @spec get_or_fill(Lru.t(), any(), fun()) :: {any(), Lru.t()}
-  def get_or_fill(lru, key, filler) do
+  @spec fetch(Lru.t(), any(), fun()) :: {Lru.t(), any()}
+  def fetch(lru, key, filler) do
     case Map.get(lru.map, key) do
       {_, value} ->
-        {value, lru}
+        {lru, value}
 
       _ ->
-        value = filler.()
-        {value, insert(lru, key, value)}
+        case filler.() do
+          nil -> {lru, nil}
+          value -> {insert(lru, key, value), value}
+        end
     end
   end
 

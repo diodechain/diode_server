@@ -12,6 +12,11 @@ defmodule LruTest do
     assert Lru.size(lru) == 1
 
     assert Lru.get(lru, "key") == "value"
+
+    # Lru should not cache nil return values
+    assert Lru.fetch(lru, "nothing", fn -> nil end) == {lru, nil}
+    {lru, "yay"} = Lru.fetch(lru, "nothing", fn -> "yay" end)
+    assert Lru.get(lru, "nothing") == "yay"
   end
 
   test "limit" do

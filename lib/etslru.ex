@@ -53,8 +53,14 @@ defmodule EtsLru do
 
   def fetch(lru, key, fun) do
     case :ets.lookup(lru, {:key, key}) do
-      [{_key, value, _n}] -> value
-      [] -> put(lru, key, fun.())
+      [{_key, value, _n}] ->
+        value
+
+      [] ->
+        case fun.() do
+          nil -> nil
+          value -> put(lru, key, value)
+        end
     end
   end
 

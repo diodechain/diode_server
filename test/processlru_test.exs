@@ -12,6 +12,11 @@ defmodule ProcessLruTest do
     assert ProcessLru.size(lru) == 1
 
     assert ProcessLru.get(lru, "key") == "value"
+
+    # ProcessLru should not cache nil return values
+    assert ProcessLru.fetch(lru, "nothing", fn -> nil end) == nil
+    assert ProcessLru.fetch(lru, "nothing", fn -> "yay" end) == "yay"
+    assert ProcessLru.get(lru, "nothing") == "yay"
   end
 
   test "limit" do
