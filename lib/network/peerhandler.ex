@@ -215,7 +215,8 @@ defmodule Network.PeerHandler do
   defp handle_msg([@publish, blocks], state) when is_list(blocks) do
     # For better resource usage we only let one process sync at full
     # throttle
-    Chain.throttle_sync()
+    len = length(state.blocks)
+    Chain.throttle_sync(len > 10, "Downloading #{len}")
 
     # Actual syncing
     Enum.reduce_while(blocks, {"ok", state}, fn block, {_, state} ->

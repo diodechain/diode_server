@@ -401,7 +401,7 @@ defmodule Chain do
     end
   end
 
-  def throttle_sync(register \\ false) do
+  def throttle_sync(register \\ false, msg \\ "Syncing") do
     # For better resource usage we only let one process sync at full
     # throttle
     me = self()
@@ -413,14 +413,14 @@ defmodule Chain do
           PubSub.publish(:rpc, {:rpc, :syncing, true})
         end
 
-        :io.format("Syncing ...~n")
+        :io.format("#{msg} ...~n")
 
       ^me ->
-        :io.format("Syncing ...~n")
+        :io.format("#{msg} ...~n")
 
       _other ->
-        :io.format("Syncing slow ...~n")
-        Process.sleep(1000)
+        :io.format("#{msg} slow ...~n")
+        Process.sleep(5000)
     end
   end
 
