@@ -200,7 +200,7 @@ defmodule Network.Rpc do
           "totalDifficulty" => Block.total_difficulty(block),
           "extraData" => Block.extra_data(block),
           "size" => Block.size(block),
-          "gasLimit" => Block.gasLimit(block),
+          "gasLimit" => Block.gas_limit(block),
           "gasUsed" => Block.gas_used(block),
           "timestamp" => Block.timestamp(block),
           "transactions" => txs,

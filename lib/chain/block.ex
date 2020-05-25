@@ -566,8 +566,8 @@ defmodule Chain.Block do
     miner(block) |> Wallet.address!() |> :binary.decode_unsigned()
   end
 
-  @spec gasLimit(Block.t()) :: non_neg_integer()
-  def gasLimit(%Block{} = _block) do
+  @spec gas_limit(Block.t()) :: non_neg_integer()
+  def gas_limit(%Block{} = _block) do
     Chain.gas_limit()
   end
 

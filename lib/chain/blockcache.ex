@@ -177,7 +177,7 @@ defmodule Chain.BlockCache do
   defdelegate encode_transactions(transactions), to: Block
   defdelegate export(block), to: Block
   defdelegate extra_data(block), to: Block
-  defdelegate gasLimit(block), to: Block
+  defdelegate gas_limit(block), to: Block
   defdelegate gas_price(block), to: Block
   defdelegate gas_used(block), to: Block
   defdelegate has_state?(block), to: Block

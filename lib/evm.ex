@@ -259,7 +259,7 @@ defmodule Evm do
       origin: from,
       coinbase: Chain.Block.coinbase(block),
       difficulty: Chain.Block.difficulty(block),
-      gas_limit: Chain.Block.gasLimit(block),
+      gas_limit: Chain.Block.gas_limit(block),
       timestamp: Chain.Block.timestamp(block),
       number: Chain.Block.number(block)
     }
