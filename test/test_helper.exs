@@ -1,7 +1,14 @@
 # Diode Server
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
+import While
+
 ExUnit.start(seed: 0)
+
+while Stages.stage() < 1 do
+  IO.puts("Waiting for RPC")
+  Process.sleep(1_000)
+end
 
 defmodule TestHelper do
   @delay_clone 10_000

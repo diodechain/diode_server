@@ -7,7 +7,6 @@ defmodule Diode do
   use Application
 
   def start(_type, args) do
-    import Supervisor.Spec, warn: false
     :persistent_term.put(:env, Mix.env())
 
     if travis_mode?() do
@@ -48,7 +47,7 @@ defmodule Diode do
     puts("")
 
     base_children = [
-      supervisor(Model.Sql, []),
+      supervisor(Model.Sql),
       worker(PubSub, [args]),
       worker(Model.CredSql, [args]),
       worker(Chain.BlockCache, [args]),
@@ -61,18 +60,11 @@ defmodule Diode do
       if Mix.env() == :benchmark do
         base_children
       else
-        {:ok, _pid} = rpc_api(:http, port: rpc_port())
-
-        if not dev_mode?() do
-          start_ssl()
-        end
-
         network_children = [
           # Starting External Interfaces
-          Network.Server.child(edge2_port(), Network.EdgeV2),
-          Network.Server.child(edge_port(), Network.EdgeV1),
           Network.Server.child(peer_port(), Network.PeerHandler),
-          worker(Kademlia, [args])
+          worker(Kademlia, [args]),
+          worker(Stages)
         ]
 
         base_children ++ network_children
@@ -81,11 +73,45 @@ defmodule Diode do
     Supervisor.start_link(children, strategy: :one_for_one, name: Diode.Supervisor)
   end
 
+  # To be started from the stage gen_server
+  def start_client_network() do
+    rpc_api(:http, port: rpc_port())
+
+    if not dev_mode?() do
+      ssl_rpc_api()
+    end
+
+    Supervisor.start_child(Diode.Supervisor, Network.Server.child(edge2_port(), Network.EdgeV2))
+    Supervisor.start_child(Diode.Supervisor, Network.Server.child(edge_port(), Network.EdgeV1))
+  end
+
+  defp worker(module, args \\ []) do
+    %{id: module, start: {Diode, :start_worker, [module, args]}}
+  end
+
+  defp supervisor(module, args \\ []) do
+    %{
+      id: module,
+      start: {Diode, :start_worker, [module, args]},
+      shutdown: :infinity,
+      type: :supervisor
+    }
+  end
+
+  def start_worker(module, args) do
+    puts("Starting #{module}...")
+    {t, ret} = :timer.tc(module, :start_link, args)
+    puts("=======> #{module} loaded after #{Float.round(t / 1_000_000, 3)}s")
+    ret
+  end
+
   def puts(string, format \\ []) do
     if not test_mode?(), do: :io.format("#{string}~n", format)
   end
 
   defp rpc_api(scheme, opts) do
+    puts("Starting rpc_#{scheme}...")
+
     apply(Plug.Cowboy, scheme, [
       Network.RpcHttp,
       [],
@@ -103,7 +129,7 @@ defmodule Diode do
     ])
   end
 
-  defp start_ssl() do
+  defp ssl_rpc_api() do
     case File.read("priv/privkey.pem") do
       {:ok, _} ->
         puts("++++++  SSL ON  ++++++")
