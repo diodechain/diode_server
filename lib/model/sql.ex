@@ -50,7 +50,7 @@ defmodule Model.Sql do
         worker(Sqlitex.Server, [Diode.data_dir(file) |> to_charlist(), opts], id: atom)
       end)
 
-    children = children ++ [worker(Stats, [], id: Stats)]
+    children = children ++ [worker(Stats, [], id: Stats), worker(Model.CredSql, [])]
     Supervisor.init(children, strategy: :one_for_one)
   end
 

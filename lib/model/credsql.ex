@@ -9,8 +9,8 @@ defmodule Model.CredSql do
   require Record
   Record.defrecord(:key_value, key: nil, value: nil)
 
-  @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
-  def start_link(_opts) do
+  @spec start_link() :: :ignore | {:error, any()} | {:ok, pid()}
+  def start_link() do
     GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
   end
 
