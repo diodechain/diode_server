@@ -9,6 +9,8 @@ defmodule RegistryTest do
   import Edge1Client
 
   setup_all do
+    Chain.reset_state()
+
     if Chain.peak() < 2 do
       Chain.Worker.work()
       Chain.Worker.work()
@@ -74,11 +76,11 @@ defmodule RegistryTest do
 
   test "registered device" do
     # Registering the device:
-    tx = Contract.Fleet.setDeviceWhiteListTx(clientid(1), true)
+    tx = Contract.Fleet.set_device_whitelist(clientid(1), true)
     Chain.Pool.add_transaction(tx)
     Chain.Worker.work()
 
-    assert Contract.Fleet.deviceWhitelist(clientid(1)) == true
+    assert Contract.Fleet.device_whitelisted?(clientid(1)) == true
 
     tck =
       ticket(

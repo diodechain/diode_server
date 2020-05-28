@@ -104,7 +104,7 @@ defmodule Edge1Test do
         total_bytes: 0,
         local_address: "spam",
         block_number: Chain.peak(),
-        fleet_contract: <<0::unsigned-size(160)>>
+        fleet_contract: Diode.fleet_address()
       )
       |> Ticket.device_sign(clientkey(1))
 

@@ -6,7 +6,9 @@ defmodule Edge2Test do
   alias Network.Server, as: Server
   alias Network.EdgeV2, as: EdgeHandler
   alias Object.Ticket, as: Ticket
+  alias Object.Channel, as: Channel
   import Ticket
+  import Channel
   import Edge2Client
 
   @ticket_grace 4096
@@ -14,6 +16,7 @@ defmodule Edge2Test do
 
   setup do
     TicketStore.clear()
+    Model.KademliaSql.clear()
     :persistent_term.put(:no_tickets, false)
     ensure_clients()
   end
@@ -113,7 +116,7 @@ defmodule Edge2Test do
         total_bytes: 0,
         local_address: "spam",
         block_number: Chain.peak(),
-        fleet_contract: <<0::unsigned-size(160)>>
+        fleet_contract: Diode.fleet_address()
       )
       |> Ticket.device_sign(clientkey(1))
 
@@ -259,6 +262,119 @@ defmodule Edge2Test do
     assert rpc(:client_1, ["portsend", ref1, "ping from 1!"]) == [
              "port does not exist"
            ]
+  end
+
+  test "channel" do
+    # Checking non existing channel
+    assert rpc(:client_1, ["portopen", "12345678901234567890123456789012", @port]) == [
+             "not found"
+           ]
+
+    ch =
+      channel(
+        server_id: Wallet.address!(Diode.miner()),
+        block_number: Chain.peak(),
+        fleet_contract: Diode.fleet_address(),
+        type: "broadcast",
+        name: "testchannel"
+      )
+      |> Channel.sign(clientkey(1))
+
+    port = Object.Channel.key(ch)
+
+    [channel] =
+      rpc(:client_1, [
+        "channel",
+        Channel.block_number(ch),
+        Channel.fleet_contract(ch),
+        Channel.type(ch),
+        Channel.name(ch),
+        Channel.params(ch),
+        Channel.signature(ch)
+      ])
+
+    assert Object.decode_rlp_list!(channel) == ch
+    assert ["ok", ref1] = rpc(:client_1, ["portopen", port, @port])
+    ch2 = Channel.sign(ch, clientkey(2))
+
+    [channel2] =
+      rpc(:client_2, [
+        "channel",
+        Channel.block_number(ch2),
+        Channel.fleet_contract(ch2),
+        Channel.type(ch2),
+        Channel.name(ch2),
+        Channel.params(ch2),
+        Channel.signature(ch2)
+      ])
+
+    # Asserting that the retrieved channel is actually the one openend by client1
+    assert Object.decode_rlp_list!(channel2) == ch
+
+    assert ["ok", ref2] = rpc(:client_2, ["portopen", port, @port])
+
+    for n <- 1..50 do
+      # Sending traffic
+      msg = String.duplicate("ping from 2!", n * n)
+      assert rpc(:client_2, ["portsend", ref2, msg]) == ["ok"]
+      assert {:ok, [_req, ["portsend", ^ref1, ^msg]]} = crecv(:client_1)
+
+      # Both ways
+      msg = String.duplicate("ping from 1!", n * n)
+      assert rpc(:client_1, ["portsend", ref1, msg]) == ["ok"]
+      assert {:ok, [_req, ["portsend", ^ref2, ^msg]]} = crecv(:client_2)
+    end
+
+    # Closing port
+    # Channels always stay open for all other participants
+    # So client_1 closing does leave the port open for client_2
+    assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
+
+    # Sending to closed port
+    assert rpc(:client_1, ["portsend", ref1, "ping from 1!"]) == ["port does not exist"]
+    assert rpc(:client_2, ["portsend", ref2, "ping from 2!"]) == ["ok"]
+  end
+
+  test "channel-mailbox" do
+    ch =
+      channel(
+        server_id: Wallet.address!(Diode.miner()),
+        block_number: Chain.peak(),
+        fleet_contract: Diode.fleet_address(),
+        type: "mailbox",
+        name: "testchannel"
+      )
+      |> Channel.sign(clientkey(1))
+
+    port = Object.Channel.key(ch)
+
+    [channel] =
+      rpc(:client_1, [
+        "channel",
+        Channel.block_number(ch),
+        Channel.fleet_contract(ch),
+        Channel.type(ch),
+        Channel.name(ch),
+        Channel.params(ch),
+        Channel.signature(ch)
+      ])
+
+    assert Object.decode_rlp_list!(channel) == ch
+    assert ["ok", ref1] = rpc(:client_1, ["portopen", port, @port])
+
+    for n <- 1..50 do
+      assert rpc(:client_1, ["portsend", ref1, "ping #{n}"]) == ["ok"]
+    end
+
+    assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
+    assert ["ok", ref2] = rpc(:client_2, ["portopen", port, @port])
+
+    for n <- 1..50 do
+      msg = "ping #{n}"
+      assert {:ok, [_req, ["portsend", ^ref2, ^msg]]} = crecv(:client_2)
+    end
+
+    assert rpc(:client_2, ["portclose", ref2]) == ["ok"]
   end
 
   test "porthalfopen_a" do
