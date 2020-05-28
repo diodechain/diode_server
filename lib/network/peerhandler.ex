@@ -240,11 +240,11 @@ defmodule Network.PeerHandler do
   defp handle_msg([@publish, %Chain.Block{} = block], state) do
     block = Block.export(block)
 
-    case Chain.block_by_hash(Chain.Block.hash(block)) do
-      nil ->
+    case Chain.block_by_hash?(Chain.Block.hash(block)) do
+      false ->
         handle_block(Block.parent(block), block, state)
 
-      _ ->
+      true ->
         log(state, "Chain.add_block: Skipping existing block #{Block.printable(block)}")
         # delete backup list on first successfull block
         {[@response, @publish, "ok"], %{state | blocks: []}}

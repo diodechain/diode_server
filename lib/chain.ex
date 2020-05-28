@@ -150,6 +150,25 @@ defmodule Chain do
     ets_lookup_idx(n, fn -> ChainSql.block(n) end)
   end
 
+  @doc """
+    Checks for existance of the given block. This is faster
+    than using block_by_hash() as it can be fullfilled with
+    a single ets lookoup and no need to ever fetch the full
+    block.
+  """
+  @spec block_by_hash?(any()) :: boolean()
+  def block_by_hash?(nil) do
+    false
+  end
+
+  def block_by_hash?(hash) do
+    case ets_lookup(hash, fn -> true end) do
+      nil -> false
+      true -> true
+      %Chain.Block{} -> true
+    end
+  end
+
   @spec block_by_hash(any()) :: Chain.Block.t() | nil
   def block_by_hash(nil) do
     nil
@@ -259,7 +278,7 @@ defmodule Chain do
     true = Block.has_state?(block)
 
     cond do
-      block_by_hash(block_hash) != nil ->
+      block_by_hash?(block_hash) ->
         IO.puts("Chain.add_block: Skipping existing block (2)")
         :added
 
@@ -286,11 +305,15 @@ defmodule Chain do
     info = Block.printable(block)
 
     cond do
+      block_by_hash?(Block.hash(block)) ->
+        IO.puts("Chain.add_block: Skipping existing block (3)")
+        {:reply, :added, state}
+
       peak_hash != parent_hash and Block.total_difficulty(block) <= Block.total_difficulty(peak) ->
         ChainSql.put_new_block(block)
         ets_add_alt(block)
         IO.puts("Chain.add_block: Extended   alt #{info} | (@#{Block.printable(peak)}")
-        {:reply, :stored, %{state | peak: peak}}
+        {:reply, :stored, state}
 
       true ->
         # Update the state
@@ -374,7 +397,7 @@ defmodule Chain do
 
           block_hash = Block.hash(nextblock)
 
-          case Chain.block_by_hash(block_hash) do
+          case block_by_hash(block_hash) do
             %Chain.Block{} = existing ->
               {:cont, existing}
 
