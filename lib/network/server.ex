@@ -3,7 +3,7 @@
 # Licensed under the Diode License, Version 1.0
 defmodule Network.Server do
   @moduledoc """
-    General TLS socket server that ensures:
+    General TLS 1.2 socket server that ensures:
       * Secp256k1 handshakes
       * Identities on server and client
       * Self-signed certs on both of them

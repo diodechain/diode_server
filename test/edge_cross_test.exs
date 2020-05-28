@@ -32,7 +32,9 @@ defmodule EdgeCrossTest do
   test "cross v1/v2 port communication " do
     IO.puts("Starting clients")
     Edge1Client.ensure_client(:client_1, 1)
+    Edge1Client.whitelist_client(1)
     Edge2Client.ensure_client(:client_2, 2)
+    Edge2Client.whitelist_client(2)
 
     # Connecting to "right" port id
     client2id = Wallet.address!(Edge2Client.clientid(2))

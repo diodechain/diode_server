@@ -167,7 +167,7 @@ defmodule Network.EdgeV1 do
     end
   end
 
-  def handle_cast({:portsend, ref, data}, state) do
+  def handle_cast({:portsend, ref, data, _pid}, state) do
     {:noreply, send!(state, ["portsend", ref, data])}
   end
 
@@ -341,7 +341,7 @@ defmodule Network.EdgeV1 do
           %Port{state: :open, clients: clients} ->
             for client <- clients do
               if client.write do
-                GenServer.cast(client.pid, {:portsend, client.ref, data})
+                GenServer.cast(client.pid, {:portsend, client.ref, data, self()})
               end
             end
 
@@ -417,13 +417,13 @@ defmodule Network.EdgeV1 do
   end
 
   defp handle_ticket(
-         [block, fleet_contract, total_connections, total_bytes, local_address, device_signature],
+         [block, fleet, total_connections, total_bytes, local_address, device_signature],
          state
        ) do
     dl =
       ticket(
         server_id: Wallet.address!(Diode.miner()),
-        fleet_contract: fleet_contract,
+        fleet_contract: fleet,
         total_connections: total_connections,
         total_bytes: total_bytes,
         local_address: local_address,
@@ -431,38 +431,46 @@ defmodule Network.EdgeV1 do
         device_signature: device_signature
       )
 
-    if Ticket.device_verify(dl, device_id(state)) do
-      dl = Ticket.server_sign(dl, Wallet.privkey!(Diode.miner()))
+    device = Ticket.device_address(dl)
 
-      case TicketStore.add(dl) do
-        {:ok, bytes} ->
-          key = Object.key(dl)
+    cond do
+      not Wallet.equal?(device, device_id(state)) ->
+        log(state, "Received invalid ticket signature!")
+        send!(state, ["error", "ticket", "signature mismatch"])
 
-          Debouncer.immediate(key, fn ->
-            Kademlia.store(key, Object.encode!(dl))
-          end)
+      not Contract.Fleet.device_whitelisted?(fleet, device) ->
+        log(state, "Received invalid ticket fleet!")
+        send!(state, ["error", "ticket", "device not whitelisted"])
 
-          %{state | unpaid_bytes: state.unpaid_bytes - bytes, last_ticket: Time.utc_now()}
-          |> send!(["response", "ticket", "thanks!", bytes])
+      true ->
+        dl = Ticket.server_sign(dl, Wallet.privkey!(Diode.miner()))
 
-        {:too_old, min} ->
-          send!(state, ["response", "ticket", "too_old", min])
+        case TicketStore.add(dl) do
+          {:ok, bytes} ->
+            key = Object.key(dl)
 
-        {:too_low, last} ->
-          send!(state, [
-            "response",
-            "ticket",
-            "too_low",
-            Ticket.block_hash(last),
-            Ticket.total_connections(last),
-            Ticket.total_bytes(last),
-            Ticket.local_address(last) |> Base16.encode(),
-            Ticket.device_signature(last)
-          ])
-      end
-    else
-      log(state, "Received invalid ticket!")
-      send!(state, ["error", "ticket", "signature mismatch"])
+            Debouncer.immediate(key, fn ->
+              Kademlia.store(key, Object.encode!(dl))
+            end)
+
+            %{state | unpaid_bytes: state.unpaid_bytes - bytes, last_ticket: Time.utc_now()}
+            |> send!(["response", "ticket", "thanks!", bytes])
+
+          {:too_old, min} ->
+            send!(state, ["response", "ticket", "too_old", min])
+
+          {:too_low, last} ->
+            send!(state, [
+              "response",
+              "ticket",
+              "too_low",
+              Ticket.block_hash(last),
+              Ticket.total_connections(last),
+              Ticket.total_bytes(last),
+              Ticket.local_address(last) |> Base16.encode(),
+              Ticket.device_signature(last)
+            ])
+        end
     end
   end
 

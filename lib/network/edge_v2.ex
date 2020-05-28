@@ -4,7 +4,9 @@
 defmodule Network.EdgeV2 do
   use Network.Handler
   alias Object.Ticket, as: Ticket
+  alias Object.Channel, as: Channel
   import Ticket, only: :macros
+  import Channel, only: :macros
 
   defmodule PortClient do
     defstruct pid: nil, mon: nil, ref: nil, write: true
@@ -22,7 +24,8 @@ defmodule Network.EdgeV2 do
               from: nil,
               clients: [],
               portname: nil,
-              shared: false
+              shared: false,
+              mailbox: :queue.new()
 
     @type ref :: binary()
     @type t :: %Port{
@@ -31,7 +34,8 @@ defmodule Network.EdgeV2 do
             from: nil | {pid(), reference()},
             clients: [PortClient.t()],
             portname: any(),
-            shared: true | false
+            shared: true | false,
+            mailbox: :queue.queue(binary())
           }
   end
 
@@ -177,7 +181,7 @@ defmodule Network.EdgeV2 do
     fun.(state)
   end
 
-  def handle_cast({:portsend, ref, data}, state) do
+  def handle_cast({:portsend, ref, data, _pid}, state) do
     {:noreply, send_socket(state, random_ref(), ["portsend", ref, data])}
   end
 
@@ -219,7 +223,7 @@ defmodule Network.EdgeV2 do
           %Port{state: :open, clients: clients} ->
             for client <- clients do
               if client.write do
-                GenServer.cast(client.pid, {:portsend, client.ref, data})
+                GenServer.cast(client.pid, {:portsend, client.ref, data, state.pid})
               end
             end
 
@@ -236,14 +240,53 @@ defmodule Network.EdgeV2 do
       ["ping"] ->
         response("pong")
 
-      ["getobject", key] ->
-        value =
-          case Kademlia.find_value(key) do
-            nil -> nil
-            binary -> Object.encode_list!(Object.decode!(binary))
-          end
+      ["channel", block_number, fleet, type, name, params, signature] ->
+        obj =
+          channel(
+            server_id: Diode.miner() |> Wallet.address!(),
+            block_number: to_num(block_number),
+            fleet_contract: fleet,
+            type: type,
+            name: name,
+            params: params,
+            signature: signature
+          )
 
-        response(value)
+        device = Object.Channel.device_address(obj)
+
+        cond do
+          not Wallet.equal?(device, device_id(state)) ->
+            error("invalid channel signature")
+
+          not Contract.Fleet.device_whitelisted?(fleet, device) ->
+            error("device not whitelisted for this fleet")
+
+          not Object.Channel.valid_type?(obj) ->
+            error("invalid channel type")
+
+          not Object.Channel.valid_params?(obj) ->
+            error("invalid channel parameters")
+
+          true ->
+            key = Object.Channel.key(obj)
+
+            case Kademlia.find_value(key) do
+              nil ->
+                Kademlia.store(key, Object.encode!(obj))
+                Object.encode_list!(obj)
+
+              binary ->
+                Object.encode_list!(Object.decode!(binary))
+            end
+            |> response()
+        end
+
+      ["getobject", key] ->
+        case Kademlia.find_value(key) do
+          nil -> nil
+          binary -> Object.encode_list!(Object.decode!(binary))
+        end
+        |> response()
 
       ["getnode", node] ->
         case Kademlia.find_node(node) do
@@ -506,13 +549,13 @@ defmodule Network.EdgeV2 do
   end
 
   defp handle_ticket(
-         [block, fleet_contract, total_connections, total_bytes, local_address, device_signature],
+         [block, fleet, total_connections, total_bytes, local_address, device_signature],
          state
        ) do
     dl =
       ticket(
         server_id: Wallet.address!(Diode.miner()),
-        fleet_contract: fleet_contract,
+        fleet_contract: fleet,
         total_connections: to_num(total_connections),
         total_bytes: to_num(total_bytes),
         local_address: local_address,
@@ -520,36 +563,44 @@ defmodule Network.EdgeV2 do
         device_signature: device_signature
       )
 
-    if Ticket.device_verify(dl, device_id(state)) do
-      dl = Ticket.server_sign(dl, Wallet.privkey!(Diode.miner()))
+    device = Ticket.device_address(dl)
 
-      case TicketStore.add(dl) do
-        {:ok, bytes} ->
-          key = Object.key(dl)
+    cond do
+      not Wallet.equal?(device, device_id(state)) ->
+        log(state, "Received invalid ticket signature!")
+        error("signature mismatch")
 
-          Debouncer.immediate(key, fn ->
-            Kademlia.store(key, Object.encode!(dl))
-          end)
+      not Contract.Fleet.device_whitelisted?(fleet, device) ->
+        log(state, "Received invalid ticket fleet!")
+        error("device not whitelisted")
 
-          {response("thanks!", bytes),
-           %{state | unpaid_bytes: state.unpaid_bytes - bytes, last_ticket: Time.utc_now()}}
+      true ->
+        dl = Ticket.server_sign(dl, Wallet.privkey!(Diode.miner()))
 
-        {:too_old, min} ->
-          response("too_old", min)
+        case TicketStore.add(dl) do
+          {:ok, bytes} ->
+            key = Object.key(dl)
 
-        {:too_low, last} ->
-          response_array([
-            "too_low",
-            Ticket.block_hash(last),
-            Ticket.total_connections(last),
-            Ticket.total_bytes(last),
-            Ticket.local_address(last),
-            Ticket.device_signature(last)
-          ])
-      end
-    else
-      log(state, "Received invalid ticket!")
-      error("signature mismatch")
+            Debouncer.immediate(key, fn ->
+              Kademlia.store(key, Object.encode!(dl))
+            end)
+
+            {response("thanks!", bytes),
+             %{state | unpaid_bytes: state.unpaid_bytes - bytes, last_ticket: Time.utc_now()}}
+
+          {:too_old, min} ->
+            response("too_old", min)
+
+          {:too_low, last} ->
+            response_array([
+              "too_low",
+              Ticket.block_hash(last),
+              Ticket.total_connections(last),
+              Ticket.total_bytes(last),
+              Ticket.local_address(last),
+              Ticket.device_signature(last)
+            ])
+        end
     end
   end
 
@@ -565,6 +616,26 @@ defmodule Network.EdgeV2 do
     :io_lib.format("~0p", [other])
     |> :erlang.iolist_to_binary()
     |> truncate()
+  end
+
+  defp portopen(state, <<channel_id::binary-size(32)>>, portname, flags) do
+    case Kademlia.find_value(channel_id) do
+      nil ->
+        error("not found")
+
+      bin ->
+        channel = Object.decode!(bin)
+
+        Object.Channel.server_id(channel)
+        |> Wallet.from_address()
+        |> Wallet.equal?(Diode.miner())
+        |> if do
+          pid = Channels.ensure(channel)
+          do_portopen(device_address(state), state.pid, portname, flags, pid)
+        else
+          error("wrong host")
+        end
+    end
   end
 
   defp portopen(state, device_id, portname, flags) do

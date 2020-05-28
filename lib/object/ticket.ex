@@ -20,7 +20,7 @@ defmodule Object.Ticket do
   @type ticket ::
           record(:ticket,
             server_id: binary(),
-            block_number: binary(),
+            block_number: integer(),
             fleet_contract: binary(),
             total_connections: integer(),
             total_bytes: integer(),
@@ -45,10 +45,6 @@ defmodule Object.Ticket do
 
   def device_sign(tck = ticket(), private) do
     ticket(tck, device_signature: Secp256k1.sign(private, device_blob(tck), :kec))
-  end
-
-  def device_verify(tck = ticket(), id) do
-    Wallet.equal?(device_address(tck), id)
   end
 
   def server_sign(tck = ticket(), private) do

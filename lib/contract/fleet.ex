@@ -7,18 +7,20 @@ defmodule Contract.Fleet do
     as needed by the tests
   """
 
-  def setDeviceWhiteListTx(address, bool) when is_boolean(bool) do
+  @spec set_device_whitelist(any, any, boolean) :: Chain.Transaction.t()
+  def set_device_whitelist(fleet \\ Diode.fleet_address(), address, bool) when is_boolean(bool) do
     Shell.transaction(
       Diode.miner(),
-      Diode.fleet_address(),
+      fleet,
       "SetDeviceWhitelist",
       ["address", "bool"],
       [address, bool]
     )
   end
 
-  def deviceWhitelist(address) do
-    ret = call("deviceWhitelist", ["address"], [address], "latest")
+  @spec device_whitelisted?(any, any) :: boolean
+  def device_whitelisted?(fleet \\ Diode.fleet_address(), address) do
+    ret = call(fleet, "deviceWhitelist", ["address"], [address], "latest")
 
     case :binary.decode_unsigned(ret) do
       1 -> true
@@ -26,8 +28,8 @@ defmodule Contract.Fleet do
     end
   end
 
-  defp call(name, types, values, blockRef) do
-    {ret, _gas} = Shell.call(Diode.fleet_address(), name, types, values, blockRef: blockRef)
+  defp call(fleet, name, types, values, blockRef) do
+    {ret, _gas} = Shell.call(fleet, name, types, values, blockRef: blockRef)
     ret
   end
 end

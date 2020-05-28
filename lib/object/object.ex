@@ -40,6 +40,19 @@ defmodule Object do
     {:server, host, Rlpx.bin2num(edge_port), Rlpx.bin2num(server_port), signature}
   end
 
+  def decode_rlp_list!([
+        "channel",
+        server_id,
+        block_num,
+        fleet_contract,
+        type,
+        name,
+        params,
+        signature
+      ]) do
+    {:channel, server_id, Rlpx.bin2num(block_num), fleet_contract, type, name, params, signature}
+  end
+
   def encode!(record) do
     encode_list!(record)
     |> BertExt.encode!()
@@ -73,6 +86,9 @@ defmodule Object do
 
       :server ->
         "server"
+
+      :channel ->
+        "channel"
         # _ -> nil
     end
   end
@@ -84,6 +100,9 @@ defmodule Object do
 
       "server" ->
         :server
+
+      "channel" ->
+        :channel
         # _ -> nil
     end
   end

@@ -48,6 +48,7 @@ defmodule Diode do
 
     base_children = [
       supervisor(Model.Sql),
+      supervisor(Channels),
       worker(PubSub, [args]),
       worker(Chain.BlockCache, [args]),
       worker(Chain, [args]),

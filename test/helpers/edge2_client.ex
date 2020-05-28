@@ -8,8 +8,17 @@ defmodule Edge2Client do
   def ensure_clients() do
     # :io.format("ensure_clients()~n")
     ensure_client(:client_1, 1)
+    whitelist_client(1)
     ensure_client(:client_2, 2)
+    whitelist_client(2)
     :ok
+  end
+
+  def whitelist_client(num) do
+    Contract.Fleet.set_device_whitelist(clientid(num), true)
+    |> Chain.Pool.add_transaction()
+
+    Chain.Worker.work()
   end
 
   def to_bin(num) do
@@ -75,7 +84,7 @@ defmodule Edge2Client do
         total_bytes: paid_bytes + @ticket_grace * count,
         local_address: "spam",
         block_number: Chain.peak(),
-        fleet_contract: <<0::unsigned-size(160)>>
+        fleet_contract: Diode.fleet_address()
       )
       |> Ticket.device_sign(state.key)
 
@@ -123,7 +132,10 @@ defmodule Edge2Client do
 
         create_ticket(socket, state)
 
-      _ ->
+      [^req, other] ->
+        throw("Unexpected ticket reply: #{inspect(other)}")
+
+      _other ->
         handle_ticket(socket, %{state | events: :queue.in(msg, events)}, req)
     end
   end
@@ -325,7 +337,7 @@ defmodule Edge2Client do
     {:ok, socket} = :ssl.connect('localhost', Diode.edge2_port(), options(cert), 5000)
     wallet = clientid(n)
     key = Wallet.privkey!(wallet)
-    fleet = <<0::160>>
+    fleet = Diode.fleet_address()
 
     {conns, bytes} =
       case TicketStore.find(Wallet.address!(wallet), fleet, Chain.epoch()) do
