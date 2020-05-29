@@ -36,6 +36,7 @@ defmodule Model.Sql do
   end
 
   defp init_connection(conn) do
+    query!(conn, "PRAGMA soft_heap_limit = 1000000000")
     query!(conn, "PRAGMA journal_mode = WAL")
     query!(conn, "PRAGMA synchronous = NORMAL")
     query!(conn, "PRAGMA OPTIMIZE", call_timeout: :infinity)
