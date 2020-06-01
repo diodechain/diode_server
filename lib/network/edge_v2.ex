@@ -570,9 +570,10 @@ defmodule Network.EdgeV2 do
         log(state, "Received invalid ticket signature!")
         error("signature mismatch")
 
-      not Contract.Fleet.device_whitelisted?(fleet, device) ->
-        log(state, "Received invalid ticket fleet!")
-        error("device not whitelisted")
+      # TODO: Needs to be re-enabled after dev-contract is all-yes
+      # not Contract.Fleet.device_whitelisted?(fleet, device) ->
+      #   log(state, "Received invalid ticket fleet!")
+      #   error("device not whitelisted")
 
       true ->
         dl = Ticket.server_sign(dl, Wallet.privkey!(Diode.miner()))
