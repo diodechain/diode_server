@@ -185,7 +185,7 @@ defmodule Chain.Block do
       if blockRef == nil do
         1
       else
-        Contract.Registry.minerValue(0, BlockCache.coinbase(block), blockRef)
+        Contract.Registry.miner_value(0, BlockCache.coinbase(block), blockRef)
         |> div(Shell.ether(1000))
         |> max(1)
         |> min(50)
