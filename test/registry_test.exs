@@ -6,7 +6,7 @@ defmodule RegistryTest do
   import Ticket
   alias Contract.Registry
   use ExUnit.Case, async: false
-  import Edge1Client
+  import Edge2Client
 
   setup_all do
     Chain.reset_state()
