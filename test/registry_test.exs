@@ -33,7 +33,7 @@ defmodule RegistryTest do
       )
 
     raw = Ticket.raw(tck)
-    tx = Registry.submitTicketRawTx(raw)
+    tx = Registry.submit_ticket_taw_tx(raw)
     ret = Shell.call_tx(tx, "latest")
     {{:evmc_revert, "Ticket from the future?"}, _} = ret
     # if you get a  {{:evmc_revert, ""}, 85703} here it means for some reason the transaction
@@ -53,7 +53,7 @@ defmodule RegistryTest do
       |> Ticket.device_sign(clientkey(1))
 
     raw = Ticket.raw(tck)
-    tx = Registry.submitTicketRawTx(raw)
+    tx = Registry.submit_ticket_taw_tx(raw)
     {{:evmc_revert, ""}, _} = Shell.call_tx(tx, "latest")
   end
 
@@ -70,7 +70,7 @@ defmodule RegistryTest do
       |> Ticket.device_sign(clientkey(1))
 
     raw = Ticket.raw(tck)
-    tx = Registry.submitTicketRawTx(raw)
+    tx = Registry.submit_ticket_taw_tx(raw)
     {{:evmc_revert, "Unregistered device"}, _} = Shell.call_tx(tx, "latest")
   end
 
@@ -94,7 +94,7 @@ defmodule RegistryTest do
       |> Ticket.device_sign(clientkey(1))
 
     raw = Ticket.raw(tck)
-    tx = Registry.submitTicketRawTx(raw)
+    tx = Registry.submit_ticket_taw_tx(raw)
     {"", _gas_cost} = Shell.call_tx(tx, "latest")
   end
 end

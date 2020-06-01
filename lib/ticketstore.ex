@@ -35,7 +35,7 @@ defmodule TicketStore do
         tickets
         |> Enum.map(fn tck -> Ticket.raw(tck) end)
         |> List.flatten()
-        |> Contract.Registry.submitTicketRawTx()
+        |> Contract.Registry.submit_ticket_taw_tx()
         |> Chain.Pool.add_transaction(true)
 
         Enum.map(tickets, fn tck -> TicketSql.delete(tck) end)
