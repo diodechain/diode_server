@@ -40,10 +40,6 @@ defmodule TestHelper do
     end
   end
 
-  def edge_port(num) do
-    20000 + num * @max_ports
-  end
-
   def edge2_port(num) do
     20004 + num * @max_ports
   end
@@ -94,7 +90,6 @@ defmodule TestHelper do
           {"DATA_DIR", clonedir},
           {"RPC_PORT", "#{rpc_port(num)}"},
           {"RPCS_PORT", "#{rpcs_port(num)}"},
-          {"EDGE_PORT", "#{edge_port(num)}"},
           {"EDGE2_PORT", "#{edge2_port(num)}"},
           {"PEER_PORT", "#{peer_port(num)}"},
           {"SEED", "none"}

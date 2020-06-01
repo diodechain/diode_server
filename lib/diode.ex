@@ -18,7 +18,7 @@ defmodule Diode do
     end
 
     puts("====== ENV #{Mix.env()} ======")
-    puts("Edge Port: #{edge_port()}")
+    puts("Edge Port: #{edge2_port()}")
     puts("Peer Port: #{peer_port()}")
     puts("RPC  Port: #{rpc_port()}")
     puts("Data Dir : #{data_dir()}")
@@ -82,7 +82,6 @@ defmodule Diode do
     end
 
     Supervisor.start_child(Diode.Supervisor, Network.Server.child(edge2_port(), Network.EdgeV2))
-    Supervisor.start_child(Diode.Supervisor, Network.Server.child(edge_port(), Network.EdgeV1))
   end
 
   defp worker(module, args \\ []) do
@@ -267,11 +266,6 @@ defmodule Diode do
     get_env_int("RPCS_PORT", 8443)
   end
 
-  @spec edge_port() :: integer()
-  def edge_port() do
-    get_env_int("EDGE_PORT", 41045)
-  end
-
   @spec edge2_port :: integer()
   def edge2_port() do
     get_env_int("EDGE2_PORT", 41046)
@@ -305,7 +299,7 @@ defmodule Diode do
   def self(), do: self(host())
 
   def self(hostname) do
-    Object.Server.new(hostname, peer_port(), edge_port())
+    Object.Server.new(hostname, peer_port(), edge2_port())
     |> Object.Server.sign(Wallet.privkey!(Diode.miner()))
   end
 
