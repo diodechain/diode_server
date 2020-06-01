@@ -78,6 +78,7 @@ defmodule KademliaSearch do
     if queryable == [] and length(waiting) == @alpha do
       ret = KBuckets.unique(visited ++ queried)
       GenServer.reply(state.from, ret)
+      Enum.each(state.tasks, fn task -> send(task, :done) end)
       {:stop, :normal, nil}
     else
       {:noreply,

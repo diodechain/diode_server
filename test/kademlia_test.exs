@@ -73,7 +73,7 @@ defmodule KademliaTest do
 
     :io.format("~n")
 
-    assert length(before) <= length(Process.list())
+    assert length(before) >= length(Process.list())
   end
 
   test "redistribute" do
