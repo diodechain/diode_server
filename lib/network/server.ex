@@ -95,6 +95,14 @@ defmodule Network.Server do
 
       key ->
         clients = Map.drop(clients, [pid, key])
+
+        clients =
+          Enum.find(clients, nil, fn {_pid, key0} -> key0 == key end)
+          |> case do
+            nil -> clients
+            {pid0, key0} -> Map.put(clients, key0, pid0)
+          end
+
         {:noreply, %{state | clients: clients}}
     end
   end
@@ -178,29 +186,9 @@ defmodule Network.Server do
 
       other_pid ->
         :io.format(
-          "~p Handshake anomaly(~p): #{Wallet.printable(node_id)} was already connected: ~180p~n",
+          "~p Handshake anomaly(~p): #{Wallet.printable(node_id)} is already connected: ~180p~n",
           [state.protocol, pid, {other_pid, Process.alive?(other_pid)}]
         )
-
-        Process.exit(other_pid, :disconnect)
-
-        receive do
-          {:EXIT, ^other_pid, :disconnect} ->
-            :ok
-
-          {:EXIT, ^other_pid, other_reason} ->
-            :io.format("~p process exited for unexpected reason: ~p~n", [
-              state.protocol,
-              other_reason
-            ])
-        after
-          500 ->
-            if Process.alive?(other_pid) do
-              throw(:inconsistent_process)
-            else
-              :io.format("~p process exited without reason~n", [state.protocol])
-            end
-        end
     end
 
     clients =
