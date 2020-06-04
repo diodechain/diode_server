@@ -1,7 +1,7 @@
 # Diode Server
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
-defmodule Model.Stats do
+defmodule Stats do
   use GenServer
 
   def init(_args) do
@@ -57,7 +57,17 @@ defmodule Model.Stats do
   end
 
   def handle_info(:tick, state) do
-    if state.show, do: :io.format("Stats: ~p~n", [state.done_counters])
+    if state.show do
+      :io.format(" Stats~n")
+      :io.format("==================================~n")
+
+      for {key, value} <- Enum.sort(state.done_counters) do
+        :io.format("| ~-14s: ~14B |~n", [key, value])
+      end
+
+      :io.format("==================================~n~n")
+    end
+
     {:noreply, %{state | done_counters: state.counters, counters: %{}}}
   end
 end

@@ -268,7 +268,7 @@ defmodule Evm do
   end
 
   def eval(evm) do
-    Model.Stats.tc(:eval_time, fn -> eval_timed(evm) end)
+    Stats.tc(:eval_time, fn -> eval_timed(evm) end)
   end
 
   defp eval_timed(evm) do
@@ -369,7 +369,7 @@ defmodule Evm do
   end
 
   defp do_eval(evm) do
-    Model.Stats.tc(:evm, fn -> do_eval2(evm) end)
+    Stats.tc(:evm, fn -> do_eval2(evm) end)
   end
 
   defp release_port(port) do
@@ -404,7 +404,7 @@ defmodule Evm do
       0::unsigned-size(256)
     >>
 
-    Model.Stats.tc(:evm_init_release, fn ->
+    Stats.tc(:evm_init_release, fn ->
       true = Port.command(port, init_context)
       evm = %{evm | port: port}
       ret = do_eval2(evm)
@@ -426,7 +426,7 @@ defmodule Evm do
     code_len = byte_size(code)
 
     message =
-      Model.Stats.tc(:prep_message, fn ->
+      Stats.tc(:prep_message, fn ->
         [
           <<"r", evm.chain_state.from::unsigned-size(160), to::unsigned-size(160),
             value::unsigned-size(256), input_len::signed-little-size(64)>>,
@@ -441,7 +441,7 @@ defmodule Evm do
         ]
       end)
 
-    Model.Stats.tc(:evm_loop, fn ->
+    Stats.tc(:evm_loop, fn ->
       Port.command(evm.port, message)
       loop({:cont, evm})
     end)
@@ -465,7 +465,7 @@ defmodule Evm do
   defp loop({:cont, evm}) do
     receive do
       {_port, {:data, data}} ->
-        loop(Model.Stats.tc(:process_data, fn -> process_data(data, evm) end))
+        loop(Stats.tc(:process_data, fn -> process_data(data, evm) end))
 
       {'EXIT', _port, _reason} ->
         throw({:evm_crash, evm, 0})

@@ -4,7 +4,6 @@
 defmodule Model.Sql do
   # Automatically defines child_spec/1
   use Supervisor
-  alias Model.Stats
 
   defp databases() do
     [
@@ -54,7 +53,7 @@ defmodule Model.Sql do
         worker(Sqlitex.Server, [Diode.data_dir(file) |> to_charlist(), opts], id: atom)
       end)
 
-    children = children ++ [worker(Stats, [], id: Stats), worker(Model.CredSql, [])]
+    children = children ++ [worker(Model.CredSql, [])]
     Supervisor.init(children, strategy: :one_for_one)
   end
 

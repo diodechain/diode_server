@@ -133,7 +133,7 @@ defmodule Chain.Worker do
         end
       end)
 
-    Model.Stats.incr(:hashrate, 100)
+    Stats.incr(:hashrate, 100)
 
     hash = Block.hash(block) |> Hash.integer()
     state = %{state | working: false, candidate: block}

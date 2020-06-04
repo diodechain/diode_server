@@ -99,7 +99,7 @@ defmodule Shell do
   end
 
   def profile_import() do
-    Model.Stats.toggle_print()
+    Stats.toggle_print()
     :observer.start()
     spawn(fn -> Chain.import_blocks("blocks.dat") end)
   end

@@ -219,7 +219,7 @@ defmodule Network.Rpc do
         result(mining)
 
       "eth_hashrate" ->
-        result(Model.Stats.get(:hashrate, 0))
+        result(Stats.get(:hashrate, 0))
 
       "eth_accounts" ->
         addresses =

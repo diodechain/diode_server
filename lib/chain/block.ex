@@ -73,7 +73,7 @@ defmodule Chain.Block do
   end
 
   defp tc(test, fun) do
-    Model.Stats.tc(test, fun)
+    Stats.tc(test, fun)
   end
 
   @blockquick_margin div(Chain.window_size(), 10)
@@ -235,7 +235,7 @@ defmodule Chain.Block do
         end)
       end)
 
-    Model.Stats.incr(:create_tx, diff)
+    Stats.incr(:create_tx, diff)
     {nstate, transactions, receipts} = ret
 
     if diff > 50_000 and block.header.previous_block != nil do

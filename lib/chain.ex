@@ -179,7 +179,7 @@ defmodule Chain do
     # {:current_stacktrace, what} = :erlang.process_info(self(), :current_stacktrace)
     # :io.format("block_by_hash: ~p~n", [what])
 
-    Model.Stats.tc(:block_by_hash, fn ->
+    Stats.tc(:block_by_hash, fn ->
       do_block_by_hash(hash)
     end)
   end
@@ -187,7 +187,7 @@ defmodule Chain do
   defp do_block_by_hash(hash) do
     ProcessLru.fetch(:blocks, hash, fn ->
       ets_lookup(hash, fn ->
-        Model.Stats.tc(:sql_block_by_hash, fn ->
+        Stats.tc(:sql_block_by_hash, fn ->
           EtsLru.fetch(Chain.Lru, hash, fn ->
             block = ChainSql.block_by_hash(hash)
             :io.format("block = ~p ~p~n", [Block.number(block), Base16.encode(hash)])
@@ -320,7 +320,7 @@ defmodule Chain do
         if peak_hash == parent_hash do
           IO.puts("Chain.add_block: Extending main #{info}")
 
-          Model.Stats.incr(:block)
+          Stats.incr(:block)
           ChainSql.put_block(block)
           ets_add(block)
         else
@@ -403,7 +403,7 @@ defmodule Chain do
 
             nil ->
               ret =
-                Model.Stats.tc(:validate, fn ->
+                Stats.tc(:validate, fn ->
                   Block.validate(nextblock, prevblock)
                 end)
 
@@ -411,7 +411,7 @@ defmodule Chain do
                 %Chain.Block{} = block ->
                   if len > 3, do: throttle_sync(true)
 
-                  Model.Stats.tc(:addblock, fn ->
+                  Stats.tc(:addblock, fn ->
                     Chain.add_block(block, nextblock == last)
                   end)
 

@@ -47,6 +47,7 @@ defmodule Diode do
     puts("")
 
     base_children = [
+      worker(Stats, []),
       supervisor(Model.Sql),
       supervisor(Channels),
       worker(PubSub, [args]),
