@@ -194,6 +194,7 @@ defmodule Chain.BlockCache do
   defdelegate header(block), to: Block
   defdelegate in_final_window?(block), to: Block
   defdelegate increment_nonce(block), to: Block
+  defdelegate set_timestamp(block, timestamp), to: Block
   defdelegate logs(block), to: Block
   defdelegate logs_bloom(block), to: Block
   defdelegate miner(block), to: Block

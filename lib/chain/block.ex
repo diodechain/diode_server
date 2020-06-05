@@ -436,6 +436,11 @@ defmodule Chain.Block do
     %{block | header: %{header | nonce: nonce(block) + 1}}
   end
 
+  @spec set_timestamp(Chain.Block.t(), integer()) :: Chain.Block.t()
+  def set_timestamp(%Block{header: header} = block, timestamp) do
+    %{block | header: %{header | timestamp: timestamp}}
+  end
+
   @doc """
     export removes additional internal field in the block record
     and prepares it for export through public apis or to the disk

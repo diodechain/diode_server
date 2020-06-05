@@ -12,7 +12,6 @@ defmodule Chain.Worker do
             candidate: nil,
             target: 0,
             mode: 75,
-            time: nil,
             working: false
 
   @type t :: %Chain.Worker{
@@ -22,7 +21,6 @@ defmodule Chain.Worker do
           candidate: Chain.Block.t(),
           target: non_neg_integer(),
           mode: non_neg_integer() | :poll | :disabled,
-          time: integer(),
           working: bool()
         }
 
@@ -118,6 +116,8 @@ defmodule Chain.Worker do
     state = generate_candidate(state)
     %{creds: creds, candidate: candidate, target: target} = state
 
+    candidate = Block.set_timestamp(candidate, System.os_time(:second))
+
     block =
       Enum.reduce_while(1..100, candidate, fn _, candidate ->
         candidate =
@@ -173,7 +173,6 @@ defmodule Chain.Worker do
   defp generate_candidate(state = %{candidate: nil, creds: creds}) do
     prev_hash = parent_hash(state)
     parent = %Chain.Block{} = Chain.block_by_hash(prev_hash)
-    time = System.os_time(:second)
     miner = Wallet.address!(creds)
     account = Chain.State.ensure_account(Block.state(parent), miner)
 
@@ -201,7 +200,7 @@ defmodule Chain.Worker do
         end
       end)
 
-    block = Block.create(parent, txs, creds, time)
+    block = Block.create(parent, txs, creds, System.os_time(:second))
     done = Block.transactions(block)
 
     if done != txs do
@@ -212,7 +211,7 @@ defmodule Chain.Worker do
     end
 
     target = Block.hash_target(block)
-    generate_candidate(%{state | candidate: block, target: target, time: time, proposal: tl(txs)})
+    generate_candidate(%{state | candidate: block, target: target, proposal: tl(txs)})
   end
 
   defp generate_candidate(state) do
