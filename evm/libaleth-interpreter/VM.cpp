@@ -1077,15 +1077,16 @@ void VM::interpretCases()
             m_runGas = VMSchedule::stepGas6;
             updateIOGas();
 
-            const int64_t blockNumber = getTxContext().block_number;
+            // const int64_t blockNumber = getTxContext().block_number;
             intx::uint256 number = m_SP[0];
 
-            if (number < blockNumber && number >= std::max(int64_t(256), blockNumber) - 256)
-            {
+            // Diode Modification
+            // if (number < blockNumber && number >= std::max(int64_t(256), blockNumber) - 256)
+            // {
                 m_SPP[0] = intx::be::load<intx::uint256>(m_context->host->get_block_hash(m_context, int64_t(number)));
-            }
-            else
-                m_SPP[0] = 0;
+            // }
+            // else
+                // m_SPP[0] = 0;
         }
         NEXT
 

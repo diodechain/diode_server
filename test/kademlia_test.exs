@@ -22,6 +22,9 @@ defmodule KademliaTest do
   end
 
   defp connect_clones(range) do
+    pid = Server.ensure_node_connection(PeerHandler, nil, "localhost", Diode.peer_port())
+    assert GenServer.call(pid, {:rpc, [PeerHandler.ping()]}) == [PeerHandler.pong()]
+
     for n <- range do
       pid = Server.ensure_node_connection(PeerHandler, nil, "localhost", peer_port(n))
       assert GenServer.call(pid, {:rpc, [PeerHandler.ping()]}) == [PeerHandler.pong()]
@@ -37,7 +40,7 @@ defmodule KademliaTest do
     conns = Server.get_connections(PeerHandler)
     assert map_size(conns) == 0
     connect_clones(1..@network_size)
-    assert map_size(Server.get_connections(PeerHandler)) == @network_size
+    assert map_size(Server.get_connections(PeerHandler)) == @network_size + 1
 
     # For network size > k() not all nodes might be stored
     if @network_size < KBuckets.k(),
@@ -76,6 +79,7 @@ defmodule KademliaTest do
     assert length(before) >= length(Process.list())
   end
 
+  @tag timeout: 120_000
   test "redistribute" do
     connect_clones(1..@network_size)
 
@@ -94,7 +98,7 @@ defmodule KademliaTest do
 
     while KBuckets.size(Kademlia.network()) < before + 1 do
       :io.format("Adding clone~n")
-      new_clone = map_size(Server.get_connections(PeerHandler)) + 1
+      new_clone = count_clones() + 1
       add_clone(new_clone)
       wait_clones(new_clone, 60)
       connect_clones(1..new_clone)

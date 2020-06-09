@@ -147,14 +147,16 @@ defmodule TestHelper do
 
   def wait_clones(target_count, seconds) do
     wait_for(
-      fn ->
-        {ret, _} = System.cmd("pgrep", ["-fc", @cookie])
-        {count, _} = Integer.parse(ret)
-        count == target_count
-      end,
-      "clones",
+      fn -> count_clones() == target_count end,
+      "clones #{count_clones()}/#{target_count}",
       seconds
     )
+  end
+
+  def count_clones() do
+    {ret, _} = System.cmd("pgrep", ["-fc", @cookie])
+    {count, _} = Integer.parse(ret)
+    count
   end
 
   def kill_clones() do

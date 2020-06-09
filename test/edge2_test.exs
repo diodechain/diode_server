@@ -10,6 +10,7 @@ defmodule Edge2Test do
   import Ticket
   import Channel
   import Edge2Client
+  import While
 
   @ticket_grace 4096
   @port Rlpx.num2bin(3000)
@@ -109,6 +110,8 @@ defmodule Edge2Test do
     TicketStore.clear()
     ensure_clients()
 
+    IO.puts("Chain.peak(): #{Chain.peak()}")
+
     tck =
       ticket(
         server_id: Wallet.address!(Diode.miner()),
@@ -121,19 +124,19 @@ defmodule Edge2Test do
       |> Ticket.device_sign(clientkey(1))
 
     # The first ticket submission should work
-    assert rpc(:client_1, [
-             "ticket",
-             Ticket.block_number(tck) |> to_bin(),
-             Ticket.fleet_contract(tck),
-             Ticket.total_connections(tck) |> to_bin(),
-             Ticket.total_bytes(tck) |> to_bin(),
-             Ticket.local_address(tck),
-             Ticket.device_signature(tck)
-           ]) ==
-             [
-               "thanks!",
-               ""
-             ]
+    ret =
+      rpc(:client_1, [
+        "ticket",
+        Ticket.block_number(tck) |> to_bin(),
+        Ticket.fleet_contract(tck),
+        Ticket.total_connections(tck) |> to_bin(),
+        Ticket.total_bytes(tck) |> to_bin(),
+        Ticket.local_address(tck),
+        Ticket.device_signature(tck)
+      ])
+
+    IO.puts("Chain.peak(): #{Chain.peak()}")
+    assert ret == ["thanks!", ""]
 
     # Submitting a second ticket with the same count should fail
     assert rpc(:client_1, [
@@ -157,16 +160,6 @@ defmodule Edge2Test do
     # Waiting for Kademlia Debouncer to write the object to the file
     Process.sleep(1000)
 
-    #   Record.defrecord(:ticket,
-    #   server_id: nil,
-    #   block_number: nil,
-    #   fleet_contract: nil,
-    #   total_connections: nil,
-    #   total_bytes: nil,
-    #   local_address: nil,
-    #   device_signature: nil,
-    #   server_signature: nil
-    # )
     [ticket] = rpc(:client_1, ["getobject", Wallet.address!(clientid(1))])
 
     loc2 = Object.decode_rlp_list!(ticket)
@@ -209,6 +202,50 @@ defmodule Edge2Test do
     csend(:client_1, "garbage", String.pad_leading("", 1024))
     {:ok, [_req, ["goodbye", "ticket expected", "you might get blacklisted"]]} = crecv(:client_1)
     {:error, :timeout} = crecv(:client_1)
+  end
+
+  test "ticket_submission_reward" do
+    :persistent_term.put(:no_tickets, true)
+    {:ok, _} = call(:client_1, :quit)
+    {:ok, _} = call(:client_2, :quit)
+    TicketStore.clear()
+    ensure_clients()
+
+    tck =
+      ticket(
+        server_id: Wallet.address!(Diode.miner()),
+        total_connections: 1,
+        total_bytes: 0,
+        local_address: "spam",
+        block_number: Chain.peak(),
+        fleet_contract: Diode.fleet_address()
+      )
+      |> Ticket.device_sign(clientkey(1))
+
+    # The first ticket submission should work
+    assert rpc(:client_1, [
+             "ticket",
+             Ticket.block_number(tck) |> to_bin(),
+             Ticket.fleet_contract(tck),
+             Ticket.total_connections(tck) |> to_bin(),
+             Ticket.total_bytes(tck) |> to_bin(),
+             Ticket.local_address(tck),
+             Ticket.device_signature(tck)
+           ]) ==
+             [
+               "thanks!",
+               ""
+             ]
+
+    epoch = Chain.epoch()
+    assert [tck2] = TicketStore.tickets(Chain.epoch())
+
+    while epoch == Chain.epoch() do
+      Chain.Worker.work()
+    end
+
+    tx = Ticket.raw(tck) |> Contract.Registry.submit_ticket_raw_tx()
+    assert {"", _gas_cost} = Shell.call_tx(tx, "latest")
   end
 
   test "port" do
@@ -495,16 +532,16 @@ defmodule Edge2Test do
     assert {:ok, [_req, ["portclose", ref1]]} = crecv(:client_2)
   end
 
-  test "doubleconn" do
-    old_pid = Process.whereis(:client_1)
-    assert true == Process.alive?(old_pid)
-    new_client = client(1)
+  # test "doubleconn" do
+  #   old_pid = Process.whereis(:client_1)
+  #   assert true == Process.alive?(old_pid)
+  #   new_client = client(1)
 
-    assert call(new_client, :ping) == {:ok, :pong}
+  #   assert call(new_client, :ping) == {:ok, :pong}
 
-    Process.sleep(1000)
-    assert false == Process.alive?(old_pid)
-  end
+  #   Process.sleep(1000)
+  #   assert false == Process.alive?(old_pid)
+  # end
 
   test "getblockquick" do
     for _ <- 1..50, do: Chain.Worker.work()

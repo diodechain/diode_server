@@ -40,6 +40,15 @@ defmodule Chain do
     100
   end
 
+  def blockhash_limit(blockheight) do
+    if blockheight < 360_000 do
+      256
+    else
+      # Extended for registry contract
+      131_072
+    end
+  end
+
   def pre_genesis_hash() do
     @pregenesis
   end

@@ -18,27 +18,35 @@ defmodule TicketStore do
   # Should be called on each new block
   def newblock(peak) do
     epoch = Block.epoch(peak)
-    last = Block.parent(peak)
-
-    # Cleaning table
-    if epoch != Block.epoch(last) do
-      TicketSql.delete_old(epoch - 1)
-    end
 
     # Submitting traffic tickets not too late
     height = Block.number(peak)
 
-    if rem(height, Chain.epoch_length()) > Chain.epoch_length() / 2 do
-      tickets = tickets(epoch - 1)
+    if not Diode.dev_mode?() and rem(height, Chain.epoch_length()) > Chain.epoch_length() / 2 do
+      submit_tickets(epoch - 1)
+    end
+  end
 
-      if length(tickets) > 0 do
+  def submit_tickets(epoch) do
+    tickets = tickets(epoch)
+
+    if length(tickets) > 0 do
+      tx =
         tickets
         |> Enum.map(fn tck -> Ticket.raw(tck) end)
         |> List.flatten()
-        |> Contract.Registry.submit_ticket_taw_tx()
-        |> Chain.Pool.add_transaction(true)
+        |> Contract.Registry.submit_ticket_raw_tx()
 
-        Enum.map(tickets, fn tck -> TicketSql.delete(tck) end)
+      case Shell.call_tx(tx, "latest") do
+        {"", _gas_cost} ->
+          Chain.Pool.add_transaction(tx, true)
+          Enum.map(tickets, fn tck -> TicketSql.delete(tck) end)
+
+        {{:evmc_revert, reason}, _} ->
+          :io.format("TicketStore:submit_tickets(~p) transaction error: ~p~n", [epoch, reason])
+
+        other ->
+          :io.format("TicketStore:submit_tickets(~p) unknown error: ~p~n", [epoch, other])
       end
     end
   end

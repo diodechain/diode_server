@@ -29,9 +29,13 @@ defmodule Chain.Worker do
   end
 
   def work() do
-    ret = GenServer.call(__MODULE__, :work)
-    Chain.sync()
-    ret
+    if Diode.dev_mode?() do
+      ret = GenServer.call(__MODULE__, :work)
+      GenServer.call(__MODULE__, :sync)
+      ret
+    else
+      GenServer.call(__MODULE__, :work)
+    end
   end
 
   defp transactions(%Chain.Worker{proposal: proposal}), do: proposal
@@ -85,6 +89,11 @@ defmodule Chain.Worker do
   def handle_call(:candidate, _from, state) do
     state = generate_candidate(state)
     {:reply, state.candidate, state}
+  end
+
+  def handle_call(:sync, _from, state) do
+    Chain.sync()
+    {:reply, :ok, state}
   end
 
   def handle_call(:work, _from, state) do

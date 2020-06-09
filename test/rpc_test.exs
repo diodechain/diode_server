@@ -87,7 +87,7 @@ defmodule RpcTest do
               "result" => %{
                 "blockNumber" => "0x03",
                 "contractAddress" => nil,
-                "cumulativeGasUsed" => "0x01005c",
+                "cumulativeGasUsed" => "0x010067",
                 "from" => ^from,
                 "gasUsed" => "0x5208",
                 "logs" => [],

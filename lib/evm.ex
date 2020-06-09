@@ -607,7 +607,17 @@ defmodule Evm do
 
   # get_block_hash(number)
   defp process_data(<<"gh", number::signed-little-size(64)>>, evm) do
-    hash = Chain.block(number) |> Chain.Block.hash()
+    blockheight = State.number(evm.chain_state)
+    minimum = max(0, blockheight - Chain.blockhash_limit(blockheight))
+    maximum = blockheight
+
+    hash =
+      if number < minimum or number > maximum do
+        <<0::256>>
+      else
+        Chain.block(number) |> Chain.Block.hash()
+      end
+
     true = Port.command(evm.port, <<hash::binary-size(32)>>)
     {:cont, evm}
   end
