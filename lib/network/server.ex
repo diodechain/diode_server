@@ -204,9 +204,8 @@ defmodule Network.Server do
   end
 
   defp do_accept(state) do
-    case :ssl.transport_accept(state.socket, 100) do
+    case :ssl.transport_accept(state.socket, 1000) do
       {:error, :timeout} ->
-        # This timeout is to yield to standard gen_server behaviour
         :ok
 
       {:error, :closed} ->
@@ -214,7 +213,7 @@ defmodule Network.Server do
         :io.format("~p Anomaly - Connection closed before TLS handshake~n", [state.protocol])
 
       {:ok, newSocket} ->
-        case :ssl.handshake(newSocket) do
+        case :ssl.handshake(newSocket, 1000) do
           {:ok, newSocket2} ->
             worker = start_worker!(state, :init)
             :ok = :ssl.controlling_process(newSocket2, worker)
