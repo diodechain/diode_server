@@ -33,6 +33,23 @@ defmodule TicketStore do
     if length(tickets) > 0 do
       tx =
         tickets
+        |> Enum.filter(fn tck ->
+          Ticket.raw(tck)
+          |> Contract.Registry.submit_ticket_raw_tx()
+          |> Shell.call_tx("latest")
+          |> case do
+            {"", _gas_cost} ->
+              true
+
+            {{:evmc_revert, reason}, _} ->
+              :io.format("TicketStore:submit_tickets(~p) ticket error: ~p~n", [epoch, reason])
+              false
+
+            other ->
+              :io.format("TicketStore:submit_tickets(~p) ticket error: ~p~n", [epoch, other])
+              false
+          end
+        end)
         |> Enum.map(fn tck -> Ticket.raw(tck) end)
         |> List.flatten()
         |> Contract.Registry.submit_ticket_raw_tx()
@@ -40,13 +57,12 @@ defmodule TicketStore do
       case Shell.call_tx(tx, "latest") do
         {"", _gas_cost} ->
           Chain.Pool.add_transaction(tx, true)
-          Enum.map(tickets, fn tck -> TicketSql.delete(tck) end)
 
         {{:evmc_revert, reason}, _} ->
           :io.format("TicketStore:submit_tickets(~p) transaction error: ~p~n", [epoch, reason])
 
         other ->
-          :io.format("TicketStore:submit_tickets(~p) unknown error: ~p~n", [epoch, other])
+          :io.format("TicketStore:submit_tickets(~p) transaction error: ~p~n", [epoch, other])
       end
     end
   end
