@@ -17,15 +17,18 @@ defmodule Chain do
   @pregenesis "0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z"
 
   @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
-  def start_link(_opts) do
-    GenServer.start_link(__MODULE__, :ok, name: __MODULE__, hibernate_after: 5_000)
+  def start_link(ets_extra) do
+    GenServer.start_link(__MODULE__, ets_extra, name: __MODULE__, hibernate_after: 5_000)
   end
 
   @spec init(any()) :: {:ok, Chain.t()}
-  def init(_) do
+  def init(ets_extra) do
     ProcessLru.new(:blocks, 10)
     EtsLru.new(Chain.Lru, 1000)
-    __MODULE__ = :ets.new(__MODULE__, [:named_table, :public, {:read_concurrency, true}])
+
+    __MODULE__ =
+      :ets.new(__MODULE__, [:named_table, :public, {:read_concurrency, true}] ++ ets_extra)
+
     state = load_blocks()
 
     Diode.puts("====== Chain    ======")

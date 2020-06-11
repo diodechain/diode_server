@@ -46,13 +46,15 @@ defmodule Diode do
 
     puts("")
 
+    ets_extra = if memory_mode() == :minimal, do: [:compressed], else: []
+
     base_children = [
       worker(Stats, []),
       supervisor(Model.Sql),
       supervisor(Channels),
       worker(PubSub, [args]),
-      worker(Chain.BlockCache, [args]),
-      worker(Chain, [args]),
+      worker(Chain.BlockCache, [ets_extra]),
+      worker(Chain, [ets_extra]),
       worker(Chain.Pool, [args]),
       worker(Chain.Worker, [worker_mode()])
     ]
@@ -294,6 +296,21 @@ defmodule Diode do
       "poll" -> :poll
       "disabled" -> :disabled
       _number -> get_env_int("WORKER_MODE", 75)
+    end
+  end
+
+  @spec memory_mode() :: :normal | :minimal
+  def memory_mode() do
+    case get_env("MEMORY_MODE", "normal") do
+      "normal" ->
+        :normal
+
+      "minimal" ->
+        :minimal
+
+      mode ->
+        puts("Received unkown MEMORY_MODE #{mode}")
+        :normal
     end
   end
 

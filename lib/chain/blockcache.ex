@@ -13,8 +13,8 @@ defmodule Chain.BlockCache do
             epoch: nil,
             last_final: nil
 
-  def start_link(arg) do
-    GenServer.start_link(__MODULE__, arg, name: __MODULE__)
+  def start_link(ets_extra) do
+    GenServer.start_link(__MODULE__, ets_extra, name: __MODULE__)
   end
 
   defp query!(sql, params \\ []) do
@@ -29,7 +29,7 @@ defmodule Chain.BlockCache do
     Sql.with_transaction(__MODULE__, fun)
   end
 
-  def init(_) do
+  def init(ets_extra) do
     with_transaction(fn db ->
       Sql.query!(db, """
           CREATE TABLE IF NOT EXISTS blockcache (
@@ -39,7 +39,7 @@ defmodule Chain.BlockCache do
       """)
     end)
 
-    __MODULE__ = :ets.new(__MODULE__, [:named_table, :compressed, :public])
+    __MODULE__ = :ets.new(__MODULE__, [:named_table, :compressed, :public] ++ ets_extra)
 
     Enum.each(query!("SELECT hash, data FROM blockcache"), fn [hash: hash, data: data] ->
       :ets.insert(__MODULE__, {hash, BertInt.decode!(data)})
