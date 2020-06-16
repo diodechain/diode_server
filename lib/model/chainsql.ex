@@ -262,11 +262,19 @@ defmodule Model.ChainSql do
     end)
   end
 
-  def all_blocks() do
-    Sql.query!(__MODULE__, "SELECT data FROM blocks WHERE number NOT NULL ORDER BY number ASC",
+  def top_blocks(count) when is_integer(count) do
+    Sql.query!(
+      __MODULE__,
+      "SELECT data FROM blocks WHERE number NOT NULL ORDER BY number DESC LIMIT #{count}",
       call_timeout: :infinity
     )
     |> Enum.map(fn [data: data] -> BertInt.decode!(data) end)
+  end
+
+  def all_block_hashes() do
+    Sql.query!(__MODULE__, "SELECT hash, number FROM blocks WHERE number NOT NULL",
+      call_timeout: :infinity
+    )
   end
 
   def alt_blocks() do

@@ -18,6 +18,7 @@ defmodule Diode do
     end
 
     puts("====== ENV #{Mix.env()} ======")
+    puts("Build       : #{version()}")
     puts("Edge    Port: #{edge2_port()}")
     puts("Peer    Port: #{peer_port()}")
     puts("RPC     Port: #{rpc_port()}")

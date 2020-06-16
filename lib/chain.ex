@@ -202,7 +202,7 @@ defmodule Chain do
         Stats.tc(:sql_block_by_hash, fn ->
           EtsLru.fetch(Chain.Lru, hash, fn ->
             block = ChainSql.block_by_hash(hash)
-            :io.format("block = ~p ~p~n", [Block.number(block), Base16.encode(hash)])
+            :io.format("loading block = ~p ~p~n", [Block.number(block), Base16.encode(hash)])
             block
           end)
         end)
@@ -393,7 +393,18 @@ defmodule Chain do
     |> import_blocks()
   end
 
-  def import_blocks(blocks) do
+  def import_blocks(blocks) when is_list(blocks) do
+    Enum.drop_while(blocks, fn block ->
+      block_by_hash?(Block.hash(block))
+    end)
+    |> do_import_blocks()
+  end
+
+  defp do_import_blocks([]) do
+    :ok
+  end
+
+  defp do_import_blocks(blocks) do
     first = hd(blocks)
     last = List.last(blocks)
     len = length(blocks)
@@ -402,46 +413,55 @@ defmodule Chain do
     case Block.parent(first) do
       %Chain.Block{} = block ->
         # replay block backup list
-        Enum.reduce_while(blocks, block, fn nextblock, prevblock ->
-          if prevblock != nil do
-            ProcessLru.put(:blocks, Block.hash(prevblock), prevblock)
-          end
+        lastblock =
+          Enum.reduce_while(blocks, block, fn nextblock, prevblock ->
+            if prevblock != nil do
+              ProcessLru.put(:blocks, Block.hash(prevblock), prevblock)
+            end
 
-          block_hash = Block.hash(nextblock)
+            block_hash = Block.hash(nextblock)
 
-          case block_by_hash(block_hash) do
-            %Chain.Block{} = existing ->
-              {:cont, existing}
+            case block_by_hash(block_hash) do
+              %Chain.Block{} = existing ->
+                {:cont, existing}
 
-            nil ->
-              ret =
-                Stats.tc(:validate, fn ->
-                  Block.validate(nextblock, prevblock)
-                end)
-
-              case ret do
-                %Chain.Block{} = block ->
-                  if len > 3, do: throttle_sync(true)
-
-                  Stats.tc(:addblock, fn ->
-                    Chain.add_block(block, nextblock == last)
+              nil ->
+                ret =
+                  Stats.tc(:validate, fn ->
+                    Block.validate(nextblock, prevblock)
                   end)
 
-                  {:cont, block}
+                case ret do
+                  %Chain.Block{} = block ->
+                    if len > 3, do: throttle_sync(true)
 
-                nonblock ->
-                  :io.format("Chain.import_blocks(2): Failed with ~p~n", [nonblock])
-                  {:halt, nil}
-              end
-          end
-        end)
+                    Stats.tc(:addblock, fn ->
+                      Chain.add_block(block, nextblock == last)
+                    end)
+
+                    {:cont, block}
+
+                  nonblock ->
+                    :io.format("Chain.import_blocks(2): Failed with ~p on: ~p~n", [
+                      nonblock,
+                      Block.printable(nextblock)
+                    ])
+
+                    {:halt, nextblock}
+                end
+            end
+          end)
 
         finish_sync()
-        true
+        lastblock
 
       nonblock ->
-        :io.format("Chain.import_blocks: Failed with ~p~n", [nonblock])
-        false
+        :io.format("Chain.import_blocks(1): Failed with parent==~p on: ~p~n", [
+          nonblock,
+          Block.printable(first)
+        ])
+
+        first
     end
   end
 
@@ -533,11 +553,15 @@ defmodule Chain do
   @ets_size 1000
   defp ets_prefetch() do
     :ets.delete_all_objects(__MODULE__)
-    for block <- ChainSql.all_blocks(), do: ets_add(block)
+
+    for [hash: hash, number: number] <- ChainSql.all_block_hashes(),
+        do: ets_add_placeholder(hash, number)
+
+    for block <- ChainSql.top_blocks(@ets_size), do: ets_add(block)
     for block <- ChainSql.alt_blocks(), do: ets_add_alt(block)
   end
 
-  # Just fetching blocks of a newly adopted fork
+  # Just fetching blocks of a newly adopted chain branch
   defp ets_refetch(nil) do
     :ok
   end
@@ -562,6 +586,11 @@ defmodule Chain do
   defp ets_add_alt(block) do
     # block = Block.strip_state(block)
     :ets.insert(__MODULE__, {Block.hash(block), true})
+  end
+
+  defp ets_add_placeholder(hash, number) do
+    :ets.insert(__MODULE__, {hash, true})
+    :ets.insert(__MODULE__, {number, hash})
   end
 
   defp ets_add(block) do

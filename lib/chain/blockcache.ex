@@ -41,9 +41,9 @@ defmodule Chain.BlockCache do
 
     __MODULE__ = :ets.new(__MODULE__, [:named_table, :compressed, :public] ++ ets_extra)
 
-    Enum.each(query!("SELECT hash, data FROM blockcache"), fn [hash: hash, data: data] ->
-      :ets.insert(__MODULE__, {hash, BertInt.decode!(data)})
-    end)
+    # Enum.each(query!("SELECT hash, data FROM blockcache"), fn [hash: hash, data: data] ->
+    #   :ets.insert(__MODULE__, {hash, BertInt.decode!(data)})
+    # end)
 
     {:ok, __MODULE__}
   end
@@ -81,7 +81,7 @@ defmodule Chain.BlockCache do
   #   %Chain.BlockCache{}
   # end
 
-  def cache?(block) do
+  defp cache?(block) do
     case Block.hash(block) do
       nil ->
         nil
@@ -94,16 +94,31 @@ defmodule Chain.BlockCache do
     end
   end
 
+  defp fetch!(nil) do
+    nil
+  end
+
+  defp fetch!(hash) do
+    Sql.fetch!(__MODULE__, "SELECT data FROM blockcache WHERE hash = ?1", hash)
+  end
+
   def cache(block) do
     hash = Block.hash(block)
 
     case cache?(block) do
       nil ->
-        if :erlang.whereis(__MODULE__) == self() do
-          # :io.format("miss: ~p~n", [Base16.encode(hash)])
-          put_cache(hash, create_cache(block))
-        else
-          GenServer.call(__MODULE__, {:do_cache, block}, 60_000)
+        case fetch!(hash) do
+          nil ->
+            if :erlang.whereis(__MODULE__) == self() do
+              # :io.format("miss: ~p~n", [Base16.encode(hash)])
+              put_cache(hash, create_cache(block))
+            else
+              GenServer.call(__MODULE__, {:do_cache, block}, 60_000)
+            end
+
+          data ->
+            :ets.insert(__MODULE__, {hash, data})
+            data
         end
 
       cache ->
