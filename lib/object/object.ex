@@ -36,8 +36,8 @@ defmodule Object do
      Rlpx.bin2num(total_bytes), local_address, device_signature, server_signature}
   end
 
-  def decode_rlp_list!(["server", host, edge_port, server_port, signature]) do
-    {:server, host, Rlpx.bin2num(edge_port), Rlpx.bin2num(server_port), signature}
+  def decode_rlp_list!(["server", host, edge_port, peer_port, signature]) do
+    {:server, host, Rlpx.bin2num(edge_port), Rlpx.bin2num(peer_port), signature}
   end
 
   def decode_rlp_list!([
@@ -81,29 +81,17 @@ defmodule Object do
 
   defp extname(name) do
     case name do
-      :ticket ->
-        "ticket"
-
-      :server ->
-        "server"
-
-      :channel ->
-        "channel"
-        # _ -> nil
+      :ticket -> "ticket"
+      :server -> "server"
+      :channel -> "channel"
     end
   end
 
   defp recordname(name) do
     case name do
-      "ticket" ->
-        :ticket
-
-      "server" ->
-        :server
-
-      "channel" ->
-        :channel
-        # _ -> nil
+      "ticket" -> :ticket
+      "server" -> :server
+      "channel" -> :channel
     end
   end
 end

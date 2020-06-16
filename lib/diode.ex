@@ -18,9 +18,16 @@ defmodule Diode do
     end
 
     puts("====== ENV #{Mix.env()} ======")
-    puts("Edge Port: #{edge2_port()}")
-    puts("Peer Port: #{peer_port()}")
-    puts("RPC  Port: #{rpc_port()}")
+    puts("Edge    Port: #{edge2_port()}")
+    puts("Peer    Port: #{peer_port()}")
+    puts("RPC     Port: #{rpc_port()}")
+
+    if ssl?() do
+      puts("RPC SSL Port: #{rpcs_port()}")
+    else
+      puts("RPC SSL Port: DISABLED")
+    end
+
     puts("Data Dir : #{data_dir()}")
     puts("")
 
@@ -131,23 +138,22 @@ defmodule Diode do
     ])
   end
 
-  defp ssl_rpc_api() do
+  defp ssl?() do
     case File.read("priv/privkey.pem") do
-      {:ok, _} ->
-        puts("++++++  SSL ON  ++++++")
-        puts("RPC  SSL Port: #{rpcs_port()}")
-        puts("")
+      {:ok, _} -> true
+      _ -> false
+    end
+  end
 
-        rpc_api(:https,
-          keyfile: "priv/privkey.pem",
-          certfile: "priv/cert.pem",
-          cacertfile: "priv/fullchain.pem",
-          port: rpcs_port(),
-          otp_app: Diode
-        )
-
-      _ ->
-        []
+  defp ssl_rpc_api() do
+    if ssl?() do
+      rpc_api(:https,
+        keyfile: "priv/privkey.pem",
+        certfile: "priv/cert.pem",
+        cacertfile: "priv/fullchain.pem",
+        port: rpcs_port(),
+        otp_app: Diode
+      )
     end
   end
 
@@ -158,6 +164,11 @@ defmodule Diode do
 
   def chain_id() do
     41043
+  end
+
+  @version Mix.Project.config()[:full_version]
+  def version() do
+    "ExDiode #{@version}"
   end
 
   @spec dev_mode? :: boolean
@@ -317,7 +328,7 @@ defmodule Diode do
   def self(), do: self(host())
 
   def self(hostname) do
-    Object.Server.new(hostname, peer_port(), edge2_port())
+    Object.Server.new(hostname, edge2_port(), peer_port())
     |> Object.Server.sign(Wallet.privkey!(Diode.miner()))
   end
 

@@ -352,7 +352,7 @@ defmodule Kademlia do
 
   defp ensure_node_connection(%KBuckets.Item{node_id: node_id, object: server}) do
     host = Server.host(server)
-    port = Server.server_port(server)
+    port = Server.peer_port(server)
     Network.Server.ensure_node_connection(Network.PeerHandler, node_id, host, port)
   end
 

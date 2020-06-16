@@ -5,57 +5,60 @@ defmodule Object.Server do
   require Record
   @behaviour Object
 
-  Record.defrecord(:server, host: nil, edge_port: nil, server_port: nil, signature: nil)
+  Record.defrecord(:server, host: nil, edge_port: nil, peer_port: nil, signature: nil)
 
   @type server ::
           record(:server,
             host: binary(),
             edge_port: integer(),
-            server_port: integer(),
+            peer_port: integer(),
+            # Forward compatible place for new data here
             signature: Secp256k1.signature()
           )
 
-  def new(host, server_port, edge_port) do
-    server(host: host, server_port: server_port, edge_port: edge_port)
+  def new(host, edge_port, peer_port) do
+    server(host: host, peer_port: peer_port, edge_port: edge_port)
   end
 
   @spec key(server()) :: Object.key()
-  def key(server(signature: signature) = rec) do
-    Secp256k1.recover!(signature, message(rec))
+  def key(serv) do
+    Secp256k1.recover!(signature(serv), message(serv))
     |> Wallet.from_pubkey()
     |> Wallet.address!()
   end
 
-  def sign(server() = serv, private) do
-    server(serv, signature: Secp256k1.sign(private, message(serv)))
+  def sign(serv, private) do
+    len = tuple_size(serv)
+    put_elem(serv, len - 1, Secp256k1.sign(private, message(serv)))
   end
 
-  def host(server(host: host)) do
-    host
+  def host(serv) do
+    elem(serv, 1)
   end
 
-  def edge_port(server(edge_port: port)) do
-    port
+  def edge_port(serv) do
+    elem(serv, 2)
   end
 
-  def server_port(server(server_port: port)) do
-    port
+  def peer_port(serv) do
+    elem(serv, 3)
   end
 
-  def signature(server(signature: signature)) do
-    signature
+  def signature(serv) do
+    len = tuple_size(serv)
+    elem(serv, len - 1)
   end
 
-  def uri(server) do
-    host = host(server)
-    port = server_port(server)
-    key = Base16.encode(key(server))
+  def uri(serv) do
+    host = host(serv)
+    port = peer_port(serv)
+    key = Base16.encode(key(serv))
     "diode://#{key}@#{host}:#{port}"
   end
 
-  defp message(server() = tuple) do
-    Tuple.to_list(tuple)
-    |> Enum.slice(1, tuple_size(tuple) - 2)
+  defp message(serv) do
+    Tuple.to_list(serv)
+    |> Enum.slice(1, tuple_size(serv) - 2)
     |> BertExt.encode!()
   end
 end

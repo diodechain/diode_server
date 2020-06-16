@@ -155,7 +155,7 @@ defmodule Network.PeerHandler do
         id = Wallet.address!(state.node_id)
         ^id = Object.key(server)
 
-        port = Server.server_port(server)
+        port = Server.peer_port(server)
 
         log(state, "hello from: #{Wallet.printable(state.node_id)}")
         state = Map.put(state, :peer_port, port)

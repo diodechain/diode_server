@@ -64,7 +64,7 @@ defmodule KBuckets do
   def to_uri(item) do
     server = object(item)
     host = Server.host(server)
-    port = Server.server_port(server)
+    port = Server.peer_port(server)
     "diode://#{item.node_id}@#{host}:#{port}"
   end
 
