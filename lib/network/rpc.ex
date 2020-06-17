@@ -518,7 +518,7 @@ defmodule Network.Rpc do
 
         Kademlia.network()
         |> KBuckets.to_list()
-        |> Enum.filter(fn item -> item.object != :self end)
+        |> Enum.filter(fn item -> not KBuckets.is_self(item) end)
         |> Enum.map(fn item ->
           address = Wallet.address!(item.node_id)
 

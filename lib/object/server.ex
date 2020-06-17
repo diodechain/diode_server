@@ -5,19 +5,28 @@ defmodule Object.Server do
   require Record
   @behaviour Object
 
-  Record.defrecord(:server, host: nil, edge_port: nil, peer_port: nil, signature: nil)
+  Record.defrecord(:server,
+    host: nil,
+    edge_port: nil,
+    peer_port: nil,
+    version: nil,
+    extra: nil,
+    signature: nil
+  )
 
   @type server ::
           record(:server,
             host: binary(),
             edge_port: integer(),
             peer_port: integer(),
+            version: binary(),
+            extra: [{binary(), binary()}],
             # Forward compatible place for new data here
             signature: Secp256k1.signature()
           )
 
-  def new(host, edge_port, peer_port) do
-    server(host: host, peer_port: peer_port, edge_port: edge_port)
+  def new(host, edge_port, peer_port, version, extra \\ []) do
+    server(host: host, peer_port: peer_port, edge_port: edge_port, version: version, extra: extra)
   end
 
   @spec key(server()) :: Object.key()

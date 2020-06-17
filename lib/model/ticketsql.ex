@@ -90,4 +90,9 @@ defmodule Model.TicketSql do
   def delete_all() do
     query!("DELETE FROM tickets")
   end
+
+  def count(epoch) do
+    [[c: c]] = query!("SELECT COUNT(*) as c FROM tickets WHERE epoch = ?1", bind: [epoch])
+    c
+  end
 end

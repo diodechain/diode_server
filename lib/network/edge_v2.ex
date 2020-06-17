@@ -3,8 +3,9 @@
 # Licensed under the Diode License, Version 1.0
 defmodule Network.EdgeV2 do
   use Network.Handler
-  alias Object.Ticket, as: Ticket
-  alias Object.Channel, as: Channel
+  alias Object.Ticket
+  alias Object.Channel
+  alias Object.Server
   import Ticket, only: :macros
   import Channel, only: :macros
 
@@ -582,9 +583,24 @@ defmodule Network.EdgeV2 do
           {:ok, bytes} ->
             key = Object.key(dl)
 
-            Debouncer.immediate(key, fn ->
-              Kademlia.store(key, Object.encode!(dl))
-            end)
+            # Storing the updated ticket of this device, debounce is 15 sec
+            Debouncer.immediate(
+              key,
+              fn ->
+                Kademlia.store(key, Object.encode!(dl))
+              end,
+              15_000
+            )
+
+            # Storing the updated ticket of this device, debounce is 10 sec
+            Debouncer.immediate(
+              :publish_me,
+              fn ->
+                me = Diode.self()
+                Kademlia.store(Server.key(me), Object.encode!(me))
+              end,
+              10_000
+            )
 
             {response("thanks!", bytes),
              %{state | unpaid_bytes: state.unpaid_bytes - bytes, last_ticket: Time.utc_now()}}

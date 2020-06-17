@@ -329,7 +329,10 @@ defmodule Diode do
   def self(), do: self(host())
 
   def self(hostname) do
-    Object.Server.new(hostname, edge2_port(), peer_port())
+    Object.Server.new(hostname, edge2_port(), peer_port(), version(), [
+      ["tickets", TicketStore.count(Chain.epoch())],
+      ["uptime", Diode.uptime()]
+    ])
     |> Object.Server.sign(Wallet.privkey!(Diode.miner()))
   end
 
@@ -360,5 +363,10 @@ defmodule Diode do
       int when is_integer(int) ->
         int
     end
+  end
+
+  def uptime() do
+    {uptime, _} = :erlang.statistics(:wall_clock)
+    uptime
   end
 end

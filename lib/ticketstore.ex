@@ -108,4 +108,8 @@ defmodule TicketStore do
   def find(device = <<_::160>>, fleet = <<__::160>>, epoch) when is_integer(epoch) do
     TicketSql.find(device, fleet, epoch)
   end
+
+  def count(epoch) do
+    TicketSql.count(epoch)
+  end
 end

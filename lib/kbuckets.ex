@@ -359,8 +359,8 @@ defmodule KBuckets do
     true
   end
 
-  def is_self(%Item{}) do
-    false
+  def is_self(%Item{node_id: node_id}) do
+    Wallet.equal?(node_id, Diode.miner())
   end
 
   def is_self(bucket) do
