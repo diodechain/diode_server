@@ -112,4 +112,11 @@ defmodule TicketStore do
   def count(epoch) do
     TicketSql.count(epoch)
   end
+
+  @doc "Reports ticket value in 1024 blocks"
+  def value(epoch) do
+    Enum.reduce(tickets(epoch), 0, fn tck, acc ->
+      div(Ticket.total_bytes(tck) + Ticket.total_connections(tck) * 1024, 1024) + acc
+    end)
+  end
 end

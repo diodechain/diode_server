@@ -330,7 +330,7 @@ defmodule Diode do
 
   def self(hostname) do
     Object.Server.new(hostname, edge2_port(), peer_port(), version(), [
-      ["tickets", TicketStore.count(Chain.epoch())],
+      ["tickets", TicketStore.value(Chain.epoch())],
       ["uptime", Diode.uptime()]
     ])
     |> Object.Server.sign(Wallet.privkey!(Diode.miner()))
