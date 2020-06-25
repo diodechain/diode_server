@@ -668,11 +668,11 @@ defmodule Network.EdgeV2 do
       true ->
         with <<bin::binary-size(20)>> <- device_id,
              w <- Wallet.from_address(bin),
-             [pid] <- PubSub.subscribers({:edge, Wallet.address!(w)}) do
+             [pid | _] <- PubSub.subscribers({:edge, Wallet.address!(w)}) do
           do_portopen(address, state.pid, portname, flags, pid)
         else
           [] -> error("not found")
-          _other -> error("invalid address")
+          other -> error("invalid address #{inspect(other)}")
         end
     end
   end
