@@ -20,7 +20,8 @@ defmodule Object.Server do
             edge_port: integer(),
             peer_port: integer(),
             version: binary(),
-            extra: [{binary(), binary()}],
+            extra: [],
+            # extra: [[binary(), non_neg_integer()]],
             # Forward compatible place for new data here
             signature: Secp256k1.signature()
           )
