@@ -567,6 +567,14 @@ defmodule Network.EdgeV2 do
     device = Ticket.device_address(dl)
 
     cond do
+      Ticket.block_number(dl) > Chain.peak() ->
+        log(
+          state,
+          "Ticket with future block number #{Ticket.block_number(dl)} vs. #{Chain.peak()}!"
+        )
+
+        error("block number too high")
+
       not Wallet.equal?(device, device_id(state)) ->
         log(state, "Received invalid ticket signature!")
         error("signature mismatch")

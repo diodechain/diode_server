@@ -96,6 +96,8 @@ defmodule ABI do
     {List.duplicate("bytes32", length(values)), values, byte_size(value)}
   end
 
+  def encode(format, nil), do: encode(format, 0)
+
   # uint<M>: unsigned integer type of M bits, 0 < M <= 256, M % 8 == 0. e.g. uint32, uint8, uint256.
   # int<M>: two’s complement signed integer type of M bits, 0 < M <= 256, M % 8 == 0.
   # address: equivalent to uint160, except for the assumed interpretation and language typing. For computing the function selector, address is used.
