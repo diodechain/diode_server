@@ -66,6 +66,10 @@ defmodule MapMerkleTree do
     {MapMerkleTree, opts, dict}
   end
 
+  defp null?(nil) do
+    true
+  end
+
   defp null?(binary) when is_binary(binary) do
     binary == <<0::unsigned-size(256)>>
   end
