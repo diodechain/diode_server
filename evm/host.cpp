@@ -3,24 +3,6 @@
 // Licensed under the GNU General Public License, Version 3.
 #include "host.hpp"
 
-#ifdef DEBUG
-static char x[] = "0123456789abcdef";
-static char* _hex(const uint8_t *p, size_t i) {
-    static char buff[65] = {};
-    size_t j;
-    for(j = 0; j < i; j++) {
-        buff[2*j] = x[p[j] / 16];
-        buff[2*j+1] = x[p[j] % 16];
-    }
-    buff[2*j] = 0;
-    return buff;
-}
-#define hex(expr) _hex(expr, sizeof(expr))
-#define dlog(format, ...) fprintf(stderr, format, __VA_ARGS__);
-#else
-#define dlog(format, ...)
-#endif
-
 void Host::reset()
 {
     m_complete_accounts.clear();
@@ -83,8 +65,7 @@ evmc::bytes32 Host::get_storage(const evmc::address& addr, const evmc::bytes32& 
     evmc::bytes32 ret;
     if (get_cache(addr, key, ret)) return ret;
 
-    dlog("get_storage(%s,", hex(addr.bytes));
-    dlog("%s)\n", hex(key.bytes));
+    dlog("get_storage(%s, %s)\n", hex(addr.bytes), hex(key.bytes));
 
     nwrite(2 + sizeof(addr.bytes) + sizeof(key.bytes));
     fwrite("gs", 2);
@@ -165,6 +146,7 @@ evmc::bytes32 Host::get_code_hash(const evmc::address& addr) noexcept
     nwrite(2 + sizeof(addr.bytes));
     fwrite("gd", 2);
     fwrite(addr.bytes, sizeof(addr.bytes));
+    fflush(stdout);
 
     nread();
     fread(ret.bytes, sizeof(ret.bytes));

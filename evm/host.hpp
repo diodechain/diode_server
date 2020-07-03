@@ -6,6 +6,33 @@
 #include <utility>
 #include <byteswap.h>
 
+#ifdef DEBUG
+static std::string _dlog_hex(const uint8_t *p, size_t i) {
+    static char x[] = "0123456789abcdef";
+    static char buff[65] = {};
+    size_t j;
+    for(j = 0; j < i; j++) {
+        buff[2*j] = x[p[j] / 16];
+        buff[2*j+1] = x[p[j] % 16];
+    }
+    buff[2*j] = 0;
+    return std::string(buff);
+}
+#define hex(expr) _dlog_hex(expr, sizeof(expr)).c_str()
+class scope_log {
+    public:
+    char message[128];
+    ~scope_log() {
+        fprintf(stderr, "~%s", message);
+    }
+};
+#define dlog(format, ...) fprintf(stderr, format, ## __VA_ARGS__); \
+    scope_log log; \
+    sprintf(log.message, format, ## __VA_ARGS__);
+#else
+#define dlog(format, ...)
+#endif
+
 #define bread(expr) fread(expr.bytes, sizeof(expr.bytes));
 static void fread(void *ptr, size_t size) {
     if (size == 0) return;
