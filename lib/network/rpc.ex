@@ -53,7 +53,11 @@ defmodule Network.Rpc do
 
     {ret, code} =
       if error == nil do
-        {%{"result" => result}, code}
+        if not is_map(result) or not Map.has_key?(result, "error") do
+          {%{"result" => result}, code}
+        else
+          {result, code}
+        end
       else
         code = if code == 200, do: 400, else: code
         {error, code}
@@ -774,10 +778,31 @@ defmodule Network.Rpc do
         result(rcpt.evmout, 200)
 
       {:ok, _state, rcpt} ->
-        result(rcpt.evmout, 400, %{
-          "message" => "VM Exception while processing transaction: #{rcpt.msg}",
-          "code" => if(rcpt.msg == :evmc_revert, do: -32000, else: -31000),
-          "data" => rcpt.evmout
+        {error, reason} =
+          case rcpt.msg do
+            :evmc_revert ->
+              {:evmc_revert, text} = ABI.decode_revert(rcpt.evmout)
+              {"revert", text}
+
+            _other ->
+              {rcpt.msg, rcpt.msg}
+          end
+
+        result(%{
+          "error" => %{
+            "message" => "VM Exception while processing transaction: #{error} #{reason}",
+            "code" => if(rcpt.msg == :evmc_revert, do: -32000, else: -31000),
+            "data" => %{
+              Transaction.hash(tx) => %{
+                "error" => "#{error}",
+                "return" => rcpt.evmout,
+                # "program_counter" => 123,
+                "reason" => "#{reason}"
+              }
+              # "name" => "o",
+              # "stack" => "o: ..."
+            }
+          }
         })
 
       {:error, :nonce_too_high} ->

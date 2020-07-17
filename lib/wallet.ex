@@ -110,6 +110,9 @@ defmodule Wallet do
   def privkey(wallet(privkey: nil)), do: {:error, nil}
   def privkey(wallet(privkey: privkey)), do: {:ok, privkey}
 
+  def privkey?(wallet(privkey: nil)), do: false
+  def privkey?(wallet(privkey: _privkey)), do: true
+
   def equal?(wallet() = a, wallet() = b) do
     Wallet.address!(a) == Wallet.address!(b)
   end

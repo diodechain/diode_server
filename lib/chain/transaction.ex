@@ -150,6 +150,10 @@ defmodule Chain.Transaction do
     %{tx | signature: Secp256k1.sign(priv, to_message(tx), :kec)}
   end
 
+  def hash(tx = %Chain.Transaction{signature: {:fake, _pubkey}}) do
+    to_message(tx) |> Diode.hash()
+  end
+
   @spec hash(Chain.Transaction.t()) :: binary()
   def hash(tx) do
     to_rlp(tx) |> Rlp.encode!() |> Diode.hash()
