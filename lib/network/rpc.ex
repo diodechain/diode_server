@@ -791,7 +791,7 @@ defmodule Network.Rpc do
         result(%{
           "error" => %{
             "message" => "VM Exception while processing transaction: #{error} #{reason}",
-            "code" => if(rcpt.msg == :evmc_revert, do: -32000, else: -31000),
+            "code" => -32000,
             "data" => %{
               Transaction.hash(tx) => %{
                 "error" => "#{error}",
