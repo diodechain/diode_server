@@ -60,6 +60,16 @@ defmodule Chain.Block do
     end
   end
 
+  @doc "For snapshot exporting ensure the block has a full state object"
+  @spec with_state(Chain.Block.t()) :: Chain.Block.t()
+  def with_state(%Block{} = block) do
+    if has_state?(block) do
+      block
+    else
+      %Block{block | header: %{block.header | state_hash: state(block)}}
+    end
+  end
+
   @spec valid?(Chain.Block.t()) :: boolean()
   def valid?(block) do
     case validate(block, parent(block)) do

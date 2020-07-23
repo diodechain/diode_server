@@ -236,4 +236,5 @@ defmodule Chain.BlockCache do
   defdelegate txhash(block), to: Block
   defdelegate validate(block, parent), to: Block
   defdelegate valid?(block), to: Block
+  defdelegate with_state(block), to: Block
 end

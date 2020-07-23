@@ -67,11 +67,10 @@ defmodule Chain do
   @doc "Function for unit tests, replaces the current state"
   def set_state(state) do
     call(fn _state, _from ->
-      seed(state)
-      {:reply, :ok, %{state | by_hash: nil}}
+      {:reply, :ok, seed(state)}
     end)
 
-    Chain.Worker.update()
+    Chain.Worker.update_sync()
     :ok
   end
 
@@ -85,7 +84,9 @@ defmodule Chain do
     state = call(fn state, _from -> {:reply, state, state} end)
 
     by_hash =
-      Enum.map(blocks(Block.hash(state.peak)), fn block -> {Block.hash(block), block} end)
+      Enum.map(blocks(Block.hash(state.peak)), fn block ->
+        {Block.hash(block), Block.with_state(block)}
+      end)
       |> Map.new()
 
     %{state | by_hash: by_hash}
@@ -269,7 +270,7 @@ defmodule Chain do
     end)
 
     ets_prefetch()
-    state
+    %Chain{peak: ChainSql.peak_block(), by_hash: nil}
   end
 
   defp genesis_state() do

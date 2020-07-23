@@ -60,6 +60,11 @@ defmodule Chain.Worker do
     end)
   end
 
+  @spec update_sync() :: :ok
+  def update_sync() do
+    GenServer.call(Chain.Worker, :update)
+  end
+
   @spec set_mode(any()) :: :ok
   def set_mode(mode), do: GenServer.cast(__MODULE__, {:set_mode, mode})
   def mode(), do: GenServer.call(__MODULE__, :mode)
@@ -70,6 +75,10 @@ defmodule Chain.Worker do
 
   def handle_cast(:update, state) do
     {:noreply, do_update(state)}
+  end
+
+  def handle_call(:update, _from, state) do
+    {:reply, :ok, do_update(state)}
   end
 
   defp do_update(state) do
