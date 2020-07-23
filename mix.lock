@@ -24,6 +24,6 @@
   "profiler": {:hex, :profiler, "0.1.0", "fcdd6227db61cdf2836edc6abe6224144e1f34a27696cf4c31460687bfb1b06f", [:mix], [], "hexpm", "c22487a352dbf9d3cc51cd871e601bb01f5c833671b3fff87fc1b6fb1d61f412"},
   "ranch": {:hex, :ranch, "1.3.2", "e4965a144dc9fbe70e5c077c65e73c57165416a901bd02ea899cfd95aa890986", [:rebar3], [], "hexpm", "6e56493a862433fccc3aca3025c946d6720d8eedf6e3e6fb911952a7071c357f"},
   "sha3": {:hex, :sha3, "2.0.0", "fbe5db75a8389fdc810b682446c053b91e591d38d5422808f3a702ed2b270515", [:rebar3], [{:hex2bin, "1.0.0", [hex: :hex2bin, repo: "hexpm", optional: false]}], "hexpm"},
-  "sqlitex": {:git, "https://github.com/diodechain/sqlitex.git", "c861b2f95f9764dffb42a694984000eac1d02400", []},
+  "sqlitex": {:git, "https://github.com/diodechain/sqlitex.git", "11d05035a8e20cdc2b69c328894758295a0dde60", []},
   "while": {:hex, :while, "0.2.2", "027baa0b81f26601d98737e02aeb806cff90a2cf1505f7abbe7a85772acd0abb", [:mix], [], "hexpm", "d4feac3e2a73a3bf3d28409cc81ab7cbfee9371a918c33a41df246ddedfc1472"},
 }
