@@ -4,12 +4,13 @@
 defmodule Chain.Transaction do
   alias Chain.TransactionReceipt
 
+  @enforce_keys [:chain_id]
   defstruct nonce: 1,
             gasPrice: 0,
             gasLimit: 0,
             to: nil,
             value: 0,
-            chain_id: Diode.chain_id(),
+            chain_id: nil,
             signature: nil,
             init: nil,
             data: nil
@@ -161,6 +162,12 @@ defmodule Chain.Transaction do
 
   @spec to_message(Chain.Transaction.t()) :: binary()
   def to_message(tx = %Chain.Transaction{chain_id: nil}) do
+    # pre EIP-155 encoding
+    [tx.nonce, gas_price(tx), gas_limit(tx), tx.to, tx.value, payload(tx)]
+    |> Rlp.encode!()
+  end
+
+  def to_message(tx = %Chain.Transaction{chain_id: 0}) do
     # pre EIP-155 encoding
     [tx.nonce, gas_price(tx), gas_limit(tx), tx.to, tx.value, payload(tx)]
     |> Rlp.encode!()

@@ -29,6 +29,26 @@ defmodule TransactionTest do
     assert tx2.chain_id == Diode.chain_id()
   end
 
+  test "contract address" do
+    key =
+      "0x69ce0ceadb0cb471e1d75c93591ab95062d7381b5f8196dcd0dd576b31ee7c40"
+      |> Base16.decode()
+
+    target =
+      "0x23A126345Fce78f9A5aD2960ca62aB2080f902B0"
+      |> Base16.decode()
+
+    from = Wallet.from_privkey(key)
+
+    tx =
+      Network.Rpc.create_transaction(from, <<"0xff">>, %{
+        "nonce" => 0
+      })
+
+    assert Transaction.contract_creation?(tx) == true
+    assert Transaction.new_contract_address(tx) == target
+  end
+
   test "decoding metamask signed transaction" do
     origin = "0x2e13a61e2be33404976f7e04dd7e99f9ec1f0edf"
 
@@ -37,7 +57,7 @@ defmodule TransactionTest do
       |> Base16.decode()
 
     tx = Transaction.from_rlp(tx)
-    assert Transaction.chain_id(tx) == Diode.chain_id()
+    assert Transaction.chain_id(tx) == 41043
     assert Wallet.address!(Transaction.origin(tx)) == Base16.decode(origin)
   end
 end

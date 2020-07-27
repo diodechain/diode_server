@@ -17,7 +17,7 @@ defmodule Chain.Header do
           previous_block: binary() | nil,
           miner_signature: binary() | nil,
           block_hash: binary() | nil,
-          state_hash: binary() | nil,
+          state_hash: binary() | nil | Chain.State.t(),
           transaction_hash: binary() | nil,
           timestamp: non_neg_integer(),
           number: integer(),

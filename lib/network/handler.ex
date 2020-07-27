@@ -103,7 +103,7 @@ defmodule Network.Handler do
                 {:stop, :normal, state}
 
               {:ok, server_port} ->
-                set_keepalive(socket)
+                set_keepalive(:os.type(), socket)
                 :ssl.setopts(socket, active: true)
 
                 state = Map.put(state, :server_port, server_port)
@@ -138,21 +138,29 @@ defmodule Network.Handler do
       #
       #   TCP_KEEPINTVL: the interval between subsequential keepalive probes, regardless of what the connection has
       #   exchanged in the meantime
-      defp set_keepalive(socket) do
+      defp set_keepalive({:unix, :linux}, socket) do
+        sol_socket = 1
+        so_keepalive = 9
+
+        ipproto_tcp = 6
         tcp_keepcnt = 6
         tcp_keepidle = 4
         tcp_keepintvl = 5
 
-        :ok = :ssl.setopts(socket, [{:keepalive, true}])
-        :ok = set_tcpopt(socket, tcp_keepcnt, 5)
-        :ok = set_tcpopt(socket, tcp_keepidle, 360)
-        :ok = set_tcpopt(socket, tcp_keepintvl, 60)
+        :ok = set_tcpopt(socket, sol_socket, so_keepalive, 1)
+        :ok = set_tcpopt(socket, ipproto_tcp, tcp_keepcnt, 5)
+        :ok = set_tcpopt(socket, ipproto_tcp, tcp_keepidle, 60)
+        :ok = set_tcpopt(socket, ipproto_tcp, tcp_keepintvl, 60)
         :ok
       end
 
-      defp set_tcpopt(socket, opt, value) do
-        ipproto_tcp = 6
-        :ssl.setopts(socket, [{:raw, ipproto_tcp, opt, <<value::unsigned-size(32)>>}])
+      defp set_keepalive(_other, socket) do
+        :ok = :ssl.setopts(socket, [{:keepalive, true}])
+        :ok
+      end
+
+      defp set_tcpopt(socket, level, opt, value) do
+        :ssl.setopts(socket, [{:raw, level, opt, <<value::unsigned-little-size(32)>>}])
       end
 
       def name(%{node_id: node_id, node_address: node_address, node_port: node_port}) do

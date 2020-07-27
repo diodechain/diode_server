@@ -40,6 +40,11 @@ defmodule Object do
     {:server, host, Rlpx.bin2num(edge_port), Rlpx.bin2num(peer_port), signature}
   end
 
+  def decode_rlp_list!(["server", host, edge_port, peer_port, version, extra, signature]) do
+    extra = Enum.map(extra, fn [key, value] -> [key, Rlpx.bin2num(value)] end)
+    {:server, host, Rlpx.bin2num(edge_port), Rlpx.bin2num(peer_port), version, extra, signature}
+  end
+
   def decode_rlp_list!([
         "channel",
         server_id,

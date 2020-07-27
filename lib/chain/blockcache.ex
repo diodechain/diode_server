@@ -193,11 +193,21 @@ defmodule Chain.BlockCache do
   ####################### DELEGATES #######################
   #########################################################
 
+  defdelegate append_transaction(block, tx, trace? \\ false), to: Block
   defdelegate create(parent, transactions, miner, time, trace? \\ false), to: Block
+
+  @spec create_empty(
+          Chain.Block.t(),
+          {:wallet, nil | <<_::256>>, nil | <<_::264>>, <<_::160>>},
+          non_neg_integer
+        ) :: Chain.Block.t()
+  defdelegate create_empty(parent, miner, time), to: Block
   defdelegate coinbase(block), to: Block
   defdelegate encode_transactions(transactions), to: Block
   defdelegate export(block), to: Block
   defdelegate extra_data(block), to: Block
+  defdelegate finalize_header(block), to: Block
+  defdelegate gas_fees(block), to: Block
   defdelegate gas_limit(block), to: Block
   defdelegate gas_price(block), to: Block
   defdelegate gas_used(block), to: Block
@@ -219,7 +229,7 @@ defmodule Chain.BlockCache do
   defdelegate parent_hash(block), to: Block
   defdelegate printable(block), to: Block
   defdelegate receipts(block), to: Block
-  defdelegate receiptsRoot(block), to: Block
+  defdelegate receipts_root(block), to: Block
   defdelegate sign(block, priv), to: Block
   defdelegate simulate(block), to: Block
   defdelegate size(block), to: Block

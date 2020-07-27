@@ -105,6 +105,24 @@ void Host::send_updates() noexcept {
     fflush(stdout);
 }
 
+void Host::read_updates() noexcept {
+    reset();
+
+    auto count = iread<uint32_t>();
+    evmc_address address;
+    bread(address);
+
+    for (uint32_t i = 0; i < count; i++) {
+        evmc_bytes32 key;
+        evmc_bytes32 value;
+
+        bread(key);
+        bread(value);
+        set_cache(address, key, value);
+    }
+    set_complete_account(address);
+}
+
 evmc::uint256be Host::get_balance(const evmc::address& addr) noexcept
 {
     evmc::uint256be ret;
@@ -201,7 +219,7 @@ evmc::result Host::call(const evmc_message& msg) noexcept
 
     nwrite(2 + sizeof(kind) + sizeof(msg.sender.bytes) + sizeof(msg.destination.bytes)
         + sizeof(msg.value.bytes) + sizeof(msg.input_size) + msg.input_size
-        + sizeof(msg.gas));
+        + sizeof(msg.gas) + sizeof(msg.create2_salt));
     fwrite("ca", 2);
     fwrite(&kind, sizeof(kind));
     fwrite(msg.sender.bytes, sizeof(msg.sender.bytes));
@@ -210,7 +228,10 @@ evmc::result Host::call(const evmc_message& msg) noexcept
     fwrite(&msg.input_size, sizeof(msg.input_size));
     fwrite(msg.input_data, msg.input_size);
     fwrite(&msg.gas, sizeof(msg.gas));
-    fflush(stdout);
+    fwrite(&msg.create2_salt, sizeof(msg.create2_salt));
+
+    // Sending current state for callcode and delegatecall
+    send_updates();
 
     evmc_result ret;
     nread();
@@ -222,6 +243,12 @@ evmc::result Host::call(const evmc_message& msg) noexcept
     ret.output_data = output_data;
     bread(ret.create_address);
 
+    if (ret.status_code == EVMC_SUCCESS) {
+        nread();
+        if (getc(stdin) == 'p') {
+            read_updates();
+        }
+    }
 
     ret.release = delete_output;
     return evmc::result(ret);

@@ -14,8 +14,6 @@ defmodule Chain do
           states: Map.t()
         }
 
-  @pregenesis "0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z0Z"
-
   @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
   def start_link(ets_extra) do
     GenServer.start_link(__MODULE__, ets_extra, name: __MODULE__, hibernate_after: 5_000)
@@ -26,9 +24,7 @@ defmodule Chain do
     ProcessLru.new(:blocks, 10)
     EtsLru.new(Chain.Lru, 1000)
 
-    __MODULE__ =
-      :ets.new(__MODULE__, [:named_table, :public, {:read_concurrency, true}] ++ ets_extra)
-
+    _create(ets_extra)
     state = load_blocks()
 
     Diode.puts("====== Chain    ======")
@@ -41,19 +37,6 @@ defmodule Chain do
 
   def window_size() do
     100
-  end
-
-  def blockhash_limit(blockheight) do
-    if blockheight < 360_000 do
-      256
-    else
-      # Extended for registry contract
-      131_072
-    end
-  end
-
-  def pre_genesis_hash() do
-    @pregenesis
   end
 
   def genesis_hash() do
@@ -98,7 +81,7 @@ defmodule Chain do
 
   @doc "Gaslimit for block validation and estimation"
   def gas_limit() do
-    100_000_000_000
+    20_000_000
   end
 
   @doc "GasPrice for block validation and estimation"
@@ -161,6 +144,11 @@ defmodule Chain do
   @spec block(number()) :: Chain.Block.t() | nil
   def block(n) do
     ets_lookup_idx(n, fn -> ChainSql.block(n) end)
+  end
+
+  @spec blockhash(number()) :: binary() | nil
+  def blockhash(n) do
+    ets_lookup_hash(n)
   end
 
   @doc """
@@ -333,7 +321,7 @@ defmodule Chain do
         if peak_hash == parent_hash do
           IO.puts("Chain.add_block: Extending main #{info}")
 
-          Stats.incr(:block)
+          Stats.incr(:block_cnt)
           ChainSql.put_block(block)
           ets_add(block)
         else
@@ -428,7 +416,7 @@ defmodule Chain do
 
               nil ->
                 ret =
-                  Stats.tc(:validate, fn ->
+                  Stats.tc(:vldt, fn ->
                     Block.validate(nextblock, prevblock)
                   end)
 
@@ -553,7 +541,7 @@ defmodule Chain do
   #######################
   @ets_size 1000
   defp ets_prefetch() do
-    :ets.delete_all_objects(__MODULE__)
+    _clear()
 
     for [hash: hash, number: number] <- ChainSql.all_block_hashes(),
         do: ets_add_placeholder(hash, number)
@@ -586,17 +574,17 @@ defmodule Chain do
 
   defp ets_add_alt(block) do
     # block = Block.strip_state(block)
-    :ets.insert(__MODULE__, {Block.hash(block), true})
+    _insert(Block.hash(block), true)
   end
 
   defp ets_add_placeholder(hash, number) do
-    :ets.insert(__MODULE__, {hash, true})
-    :ets.insert(__MODULE__, {number, hash})
+    _insert(hash, true)
+    _insert(number, hash)
   end
 
   defp ets_add(block) do
-    :ets.insert(__MODULE__, {Block.hash(block), block})
-    :ets.insert(__MODULE__, {Block.number(block), Block.hash(block)})
+    _insert(Block.hash(block), block)
+    _insert(Block.number(block), Block.hash(block))
     ets_remove_idx(Block.number(block) - @ets_size)
   end
 
@@ -607,7 +595,7 @@ defmodule Chain do
   defp ets_remove_idx(idx) do
     case do_ets_lookup(idx) do
       [{^idx, block_hash}] ->
-        :ets.insert(__MODULE__, {block_hash, true})
+        _insert(block_hash, true)
 
       _ ->
         nil
@@ -621,6 +609,13 @@ defmodule Chain do
     end
   end
 
+  defp ets_lookup_hash(idx) when is_integer(idx) do
+    case do_ets_lookup(idx) do
+      [] -> nil
+      [{^idx, block_hash}] -> block_hash
+    end
+  end
+
   defp ets_lookup(hash, default) when is_binary(hash) do
     case do_ets_lookup(hash) do
       [] -> nil
@@ -630,18 +625,21 @@ defmodule Chain do
   end
 
   defp do_ets_lookup(idx) do
-    {time, ret} = :timer.tc(fn -> :ets.lookup(__MODULE__, idx) end)
+    {time, ret} = :timer.tc(fn -> _lookup(idx) end)
 
-    if time > 1000 do
-      # :io.format("Slow ets lookup ~p~n", [time])
-
-      if time > 10000 do
-        :io.format("Slow ets lookup ~p~n", [time])
-        # {:current_stacktrace, trace} = :erlang.process_info(self(), :current_stacktrace)
-        # :io.format("~p~n", [trace])
-      end
+    if time > 10000 do
+      :io.format("Slow ets lookup ~p~n", [time])
     end
 
     ret
   end
+
+  defp _create(ets_extra) do
+    __MODULE__ =
+      :ets.new(__MODULE__, [:named_table, :public, {:read_concurrency, true}] ++ ets_extra)
+  end
+
+  defp _lookup(idx), do: :ets.lookup(__MODULE__, idx)
+  defp _insert(key, value), do: :ets.insert(__MODULE__, {key, value})
+  defp _clear(), do: :ets.delete_all_objects(__MODULE__)
 end

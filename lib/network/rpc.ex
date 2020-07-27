@@ -260,7 +260,7 @@ defmodule Network.Rpc do
 
         case Chain.block_by_txhash(txbin) do
           nil ->
-            result(nil)
+            result(nil, 404)
 
           block ->
             tx = Chain.transaction(txbin)
@@ -693,7 +693,7 @@ defmodule Network.Rpc do
       # Blockscout does not handle extra keys
       # "minerSignature" => block.header.miner_signature,
 
-      "receiptsRoot" => Block.receiptsRoot(block),
+      "receiptsRoot" => Block.receipts_root(block),
       "difficulty" => Block.difficulty(block),
       "totalDifficulty" => Block.total_difficulty(block),
       "extraData" => Block.extra_data(block),
@@ -747,7 +747,8 @@ defmodule Network.Rpc do
             gasPrice: gas_price,
             gasLimit: gas,
             init: data,
-            value: value
+            value: value,
+            chain_id: Diode.chain_id()
           }
 
         to ->
@@ -758,7 +759,8 @@ defmodule Network.Rpc do
             gasPrice: gas_price,
             gasLimit: gas,
             data: data,
-            value: value
+            value: value,
+            chain_id: Diode.chain_id()
           }
       end
 
@@ -797,7 +799,7 @@ defmodule Network.Rpc do
       "blockHash" => Block.hash(block),
       "blockNumber" => Block.number(block),
       "from" => Transaction.from(tx),
-      "gas" => Block.transaction_gas(block, tx),
+      "gas" => Transaction.gas_limit(tx),
       "gasPrice" => Transaction.gas_price(tx),
       "hash" => Transaction.hash(tx),
       "input" => Transaction.payload(tx),

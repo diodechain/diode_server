@@ -251,7 +251,7 @@ defmodule Edge2Test do
   test "port" do
     check_counters()
     # Checking wrong port_id usage
-    assert rpc(:client_1, ["portopen", "wrongid", @port]) == ["invalid address"]
+    assert rpc(:client_1, ["portopen", "wrongid", @port]) == ["invalid address \"wrongid\""]
     assert rpc(:client_1, ["portopen", "12345678901234567890", @port]) == ["not found"]
 
     assert rpc(:client_1, ["portopen", Wallet.address!(clientid(1)), @port]) == [

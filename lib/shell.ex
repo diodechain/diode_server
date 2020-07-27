@@ -32,7 +32,7 @@ defmodule Shell do
       |> Keyword.put_new(:gas, Chain.gas_limit() * 100)
       |> Keyword.put_new(:gasPrice, 0)
 
-    tx = transaction(wallet, address, name, types, values, opts)
+    tx = transaction(wallet, address, name, types, values, opts, false)
     blockRef = Keyword.get(opts, :blockRef, "latest")
     call_tx(tx, blockRef)
   end
@@ -57,7 +57,7 @@ defmodule Shell do
     Chain.Pool.add_transaction(tx)
   end
 
-  def transaction(wallet, address, name, types, values, opts \\ [])
+  def transaction(wallet, address, name, types, values, opts \\ [], sign \\ true)
       when is_list(types) and is_list(values) do
     opts =
       opts
@@ -69,7 +69,7 @@ defmodule Shell do
 
     # https://solidity.readthedocs.io/en/v0.4.24/abi-spec.html
     callcode = ABI.encode_call(name, types, values)
-    Network.Rpc.create_transaction(wallet, callcode, opts)
+    Network.Rpc.create_transaction(wallet, callcode, opts, sign)
   end
 
   def get_balance(address) do

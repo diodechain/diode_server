@@ -37,19 +37,7 @@ int main() {
             bread(host.tx_context.chain_id);
         } else if (cmd == 'p') { // 'p' ==> Pre-Seed cache data
             dlog("preseed_cache()\n");
-            auto count = iread<uint32_t>();
-            evmc_address address;
-            bread(address);
-
-            for (uint32_t i = 0; i < count; i++) {
-                evmc_bytes32 key;
-                evmc_bytes32 value;
-
-                bread(key);
-                bread(value);
-                host.set_cache(address, key, value);
-            }
-            host.set_complete_account(address);
+            host.read_updates();
 
         } else if (cmd == 'r') { // 'r' ==> Run context
             dlog("run_context()\n");

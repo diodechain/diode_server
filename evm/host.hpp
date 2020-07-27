@@ -85,6 +85,7 @@ public:
     void set_cache(const evmc::address& addr, const evmc::bytes32& key, const evmc::bytes32& value) noexcept;
     bool get_cache(const evmc::address& addr, const evmc::bytes32& key, evmc::bytes32& out) noexcept;
     void send_updates() noexcept;
+    void read_updates() noexcept;
 
     bool account_exists(const evmc::address& addr) noexcept final;
     evmc::bytes32 get_storage(const evmc::address& addr, const evmc::bytes32& key) noexcept final;

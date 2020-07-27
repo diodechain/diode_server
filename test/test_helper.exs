@@ -18,7 +18,6 @@ defmodule TestHelper do
   def reset() do
     kill_clones()
     Chain.Pool.flush()
-    Supervisor.terminate_child(Diode.Supervisor, Chain.Worker)
     Chain.reset_state()
     TicketStore.clear()
     Kademlia.reset()

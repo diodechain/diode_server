@@ -111,7 +111,8 @@ defmodule EvmTest do
       gasLimit: 1_000_000,
       value: 2,
       nonce: 1,
-      to: Wallet.address!(to_wallet)
+      to: Wallet.address!(to_wallet),
+      chain_id: Diode.chain_id()
     }
 
     ctx = Transaction.sign(ctx, priv)
@@ -162,7 +163,8 @@ defmodule EvmTest do
       data: ABI.encode_call("send", ["address"], [Wallet.address!(to_wallet)]),
       value: 2,
       nonce: 1,
-      to: Wallet.address!(contract)
+      to: Wallet.address!(contract),
+      chain_id: Diode.chain_id()
     }
 
     ctx = Transaction.sign(ctx, priv)
@@ -211,8 +213,13 @@ defmodule EvmTest do
 
     from_peter()
     |> Enum.reduce(state, fn tx, state ->
-      {:ok, state, %TransactionReceipt{msg: :ok, evmout: ""}} =
+      {:ok, state, %TransactionReceipt{msg: :evmc_revert, evmout: out}} =
         Transaction.apply(tx, block, state)
+
+      case ABI.decode_revert(out) do
+        {:evmc_revert, ""} -> :ok
+        {:evmc_revert, "Only the operator can call this method"} -> :ok
+      end
 
       state
     end)

@@ -38,7 +38,6 @@ defmodule Chain.Worker do
     end
   end
 
-  defp transactions(%Chain.Worker{proposal: proposal}), do: proposal
   defp parent_hash(%Chain.Worker{parent_hash: parent_hash}), do: parent_hash
 
   @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
@@ -77,10 +76,6 @@ defmodule Chain.Worker do
     {:noreply, do_update(state)}
   end
 
-  def handle_call(:update, _from, state) do
-    {:reply, :ok, do_update(state)}
-  end
-
   defp do_update(state) do
     state2 = %{
       state
@@ -103,6 +98,10 @@ defmodule Chain.Worker do
   def handle_call(:sync, _from, state) do
     Chain.sync()
     {:reply, :ok, state}
+  end
+
+  def handle_call(:update, _from, state) do
+    {:reply, :ok, do_update(state)}
   end
 
   def handle_call(:work, _from, state) do
@@ -188,48 +187,77 @@ defmodule Chain.Worker do
     generate_candidate(%{state | proposal: Chain.Pool.proposal()})
   end
 
-  defp generate_candidate(state = %{candidate: nil, creds: creds}) do
+  defp generate_candidate(state = %{candidate: nil, creds: creds, proposal: txs}) do
     prev_hash = parent_hash(state)
     parent = %Chain.Block{} = Chain.block_by_hash(prev_hash)
     miner = Wallet.address!(creds)
-    account = Chain.State.ensure_account(Block.state(parent), miner)
 
-    # Primary Registry call
-    tx =
-      %Transaction{
-        nonce: Chain.Account.nonce(account),
-        gasPrice: 0,
-        gasLimit: 1_000_000_000,
-        to: Diode.registry_address(),
-        data: ABI.encode_spec("blockReward")
-      }
-      |> Transaction.sign(Wallet.privkey!(creds))
+    block = Block.create_empty(parent, creds, System.os_time(:second))
+    position = ChainDefinition.block_reward_position(Block.number(block))
 
-    # Updating miner signed transaction nonces
-    # 'map' keeps a mapping to the unchanged tx hashes to reference the tx-pool
-    {txs, _} =
-      Enum.reduce(transactions(state), {[tx], tx.nonce}, fn tx, {list, nonce} ->
-        if Transaction.from(tx) == miner do
-          new_tx = %{tx | nonce: nonce + 1} |> Transaction.sign(Wallet.privkey!(creds))
-          Chain.Pool.replace_transaction(tx, new_tx)
-          {list ++ [new_tx], nonce + 1}
-        else
-          {list ++ [tx], nonce}
+    {:ok, block} =
+      if position == :first do
+        tx =
+          %Transaction{
+            nonce: Chain.State.ensure_account(Block.state(block), miner) |> Chain.Account.nonce(),
+            gasPrice: 0,
+            gasLimit: 1_000_000_000,
+            to: Diode.registry_address(),
+            data: ABI.encode_spec("blockReward"),
+            chain_id: Diode.chain_id()
+          }
+          |> Transaction.sign(Wallet.privkey!(creds))
+
+        Block.append_transaction(block, tx)
+      else
+        {:ok, block}
+      end
+
+    block =
+      Enum.reduce(txs, block, fn tx, block ->
+        case Block.append_transaction(block, tx) do
+          {:error, :wrong_nonce} ->
+            Chain.Pool.remove_transaction(Transaction.hash(tx))
+            block
+
+          {:error, _other} ->
+            block
+
+          {:ok, block} ->
+            block
         end
       end)
 
-    block = Block.create(parent, txs, creds, System.os_time(:second))
-    done = Block.transactions(block)
+    {:ok, block} =
+      if position == :last do
+        used = Block.gas_used(block)
+        fees = Block.gas_fees(block)
 
-    if done != txs do
-      MapSet.difference(MapSet.new(txs), MapSet.new(done))
-      |> MapSet.to_list()
-      |> Enum.map(&Transaction.hash/1)
-      |> Chain.Pool.remove_transactions()
-    end
+        tx =
+          %Transaction{
+            nonce: Chain.State.ensure_account(Block.state(block), miner) |> Chain.Account.nonce(),
+            gasPrice: 0,
+            gasLimit: 1_000_000_000,
+            to: Diode.registry_address(),
+            data: ABI.encode_call("blockReward", ["uint256", "uint256"], [used, fees]),
+            chain_id: Diode.chain_id()
+          }
+          |> Transaction.sign(Wallet.privkey!(creds))
 
+        Block.append_transaction(block, tx)
+      else
+        {:ok, block}
+      end
+
+    block = Block.finalize_header(block)
     target = Block.hash_target(block)
-    generate_candidate(%{state | candidate: block, target: target, proposal: tl(txs)})
+
+    generate_candidate(%{
+      state
+      | candidate: block,
+        target: target,
+        proposal: Chain.Pool.proposal()
+    })
   end
 
   defp generate_candidate(state) do

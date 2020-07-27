@@ -4,17 +4,17 @@
 SHELL := /bin/bash
 TESTS := $(wildcard test/*_test.exs)
 
-evm/evm: $(wildcard evm/**)
-	$(MAKE) -j -C evm
+evm/evm: $(wildcard evm/*.cpp evm/*.hpp evm/*/*.cpp evm/*/*.hpp)
+	make -j -C evm
 
 .PHONY: clean
 clean:
-	$(MAKE) -C evm clean
+	make -C evm clean
 
 .PHONY: test $(TESTS)
 test:
 	-rm -rf data_test/ clones/
-	$(MAKE) --no-print-directory $(TESTS)
+	make --no-print-directory $(TESTS)
 
 .PHONY: $(TESTS)
 $(TESTS):

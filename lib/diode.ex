@@ -9,6 +9,8 @@ defmodule Diode do
   def start(_type, args) do
     :persistent_term.put(:env, Mix.env())
 
+    set_chaindefinition()
+
     if travis_mode?() do
       puts("++++++ TRAVIS DETECTED ++++++")
       puts("~0p~n", [:inet.getifaddrs()])
@@ -95,6 +97,23 @@ defmodule Diode do
     Supervisor.start_child(Diode.Supervisor, Network.Server.child(edge2_port(), Network.EdgeV2))
   end
 
+  defp set_chaindefinition() do
+    def =
+      cond do
+        get_env("CHAINDEF") != nil ->
+          "Elixir.ChainDefinition.#{get_env("CHAINDEF") |> String.capitalize()}"
+          |> String.to_atom()
+
+        Diode.dev_mode?() ->
+          ChainDefinition.Devnet
+
+        true ->
+          ChainDefinition.Mainnet
+      end
+
+    :persistent_term.put(:chain_definition, def)
+  end
+
   defp worker(module, args \\ []) do
     %{id: module, start: {Diode, :start_worker, [module, args]}}
   end
@@ -163,8 +182,9 @@ defmodule Diode do
     :persistent_term.get(:env)
   end
 
+  @spec chain_id :: non_neg_integer()
   def chain_id() do
-    41043
+    ChainDefinition.chain_id(Chain.peak())
   end
 
   @version Mix.Project.config()[:full_version]
@@ -292,14 +312,22 @@ defmodule Diode do
   end
 
   def seeds() do
-    get_env(
-      "SEED",
-      "diode://0x68e0bafdda9ef323f692fc080d612718c941d120@seed-alpha.diode.io:51054 " <>
-        "diode://0x937c492a77ae90de971986d003ffbc5f8bb2232c@seed-beta.diode.io:51054 " <>
-        "diode://0xceca2f8cf1983b4cf0c1ba51fd382c2bc37aba58@seed-gamma.diode.io:51054"
-    )
-    |> String.split(" ", trim: true)
-    |> Enum.reject(fn item -> item == "none" end)
+    case get_env("SEED") do
+      nil ->
+        [
+          "diode://0xceca2f8cf1983b4cf0c1ba51fd382c2bc37aba58@us1.testnet.diode.io:51054",
+          "diode://0x7e4cd38d266902444dc9c8f7c0aa716a32497d0b@us2.testnet.diode.io:443",
+          "diode://0x68e0bafdda9ef323f692fc080d612718c941d120@as1.testnet.diode.io:51054",
+          "diode://0x1350d3b501d6842ed881b59de4b95b27372bfae8@as2.testnet.diode.io:443",
+          "diode://0x937c492a77ae90de971986d003ffbc5f8bb2232c@eu1.testnet.diode.io:51054",
+          "diode://0xae699211c62156b8f29ce17be47d2f069a27f2a6@eu2.testnet.diode.io:443"
+        ]
+
+      other ->
+        other
+        |> String.split(" ", trim: true)
+        |> Enum.reject(fn item -> item == "none" end)
+    end
   end
 
   @spec worker_mode() :: :disabled | :poll | integer()
@@ -336,7 +364,7 @@ defmodule Diode do
     |> Object.Server.sign(Wallet.privkey!(Diode.miner()))
   end
 
-  defp get_env(name, default) do
+  defp get_env(name, default \\ nil) do
     case System.get_env(name) do
       nil when is_function(default) -> default.()
       nil -> default

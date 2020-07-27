@@ -32,9 +32,13 @@ defmodule Stats do
   end
 
   def tc(metric, fun) do
+    parent = Process.get(__MODULE__, "")
+    name = "#{parent}/#{metric}"
+    Process.put(__MODULE__, name)
     {time, ret} = :timer.tc(fun)
-    incr("#{metric}_time", time)
-    incr("#{metric}_cnt")
+    incr("#{name}_time", time)
+    incr("#{name}_cnt")
+    Process.put(__MODULE__, parent)
     ret
   end
 
@@ -59,13 +63,13 @@ defmodule Stats do
   def handle_info(:tick, state) do
     if state.show do
       :io.format(" Stats~n")
-      :io.format("==================================~n")
+      :io.format("====================================================================~n")
 
       for {key, value} <- Enum.sort(state.done_counters) do
-        :io.format("| ~-14s: ~14B |~n", [key, value])
+        :io.format("| ~s: ~14B |~n", [String.pad_trailing("#{key}", 48), value])
       end
 
-      :io.format("==================================~n~n")
+      :io.format("====================================================================~n~n")
     end
 
     {:noreply, %{state | done_counters: state.counters, counters: %{}}}
