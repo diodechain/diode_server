@@ -162,56 +162,15 @@ defmodule Network.Rpc do
         end
 
       # Network.Rpc.handle_jsonrpc(%{"id" => 0, "method" => "eth_getBlockByNumber", "params" => ["0x0", false]})
+      "eth_getBlockByHash" ->
+        [ref, full] = params
+        block = get_block_by_hash(ref)
+        result(get_block_rpc(block, full))
+
       "eth_getBlockByNumber" ->
         [ref, full] = params
         block = get_block(ref)
-
-        miner = Block.miner(block)
-        txs = Block.transactions(block)
-
-        txs =
-          if full == true do
-            Enum.map(txs, fn tx -> transaction_result(tx, block) end)
-          else
-            Enum.map(txs, &Chain.Transaction.hash/1)
-          end
-
-        parentHash =
-          case Block.parent_hash(block) do
-            nil -> <<0::256>>
-            bin -> bin
-          end
-
-        uncles = []
-        uncleSha = Hash.keccak_256(Rlp.encode!(uncles))
-
-        ret = %{
-          "number" => Block.number(block),
-          "hash" => Block.hash(block),
-          "parentHash" => parentHash,
-          "nonce" => Block.nonce(block),
-          "sha3Uncles" => uncleSha,
-          "logsBloom" => Block.logs_bloom(block),
-          "transactionsRoot" => Block.txhash(block),
-          "stateRoot" => Block.state_hash(block),
-          "miner" => Wallet.address!(miner),
-
-          # Blockscout does not handle extra keys
-          # "minerSignature" => block.header.miner_signature,
-
-          "receiptsRoot" => Block.receiptsRoot(block),
-          "difficulty" => Block.difficulty(block),
-          "totalDifficulty" => Block.total_difficulty(block),
-          "extraData" => Block.extra_data(block),
-          "size" => Block.size(block),
-          "gasLimit" => Block.gas_limit(block),
-          "gasUsed" => Block.gas_used(block),
-          "timestamp" => Block.timestamp(block),
-          "transactions" => txs,
-          "uncles" => uncles
-        }
-
-        result(ret)
+        result(get_block_rpc(block, full))
 
       "eth_mining" ->
         mining =
@@ -665,6 +624,75 @@ defmodule Network.Rpc do
           end
         end
     end
+  end
+
+  def get_block_by_hash(ref) do
+    case ref do
+      "latest" ->
+        Chain.peak_block()
+
+      "pending" ->
+        Chain.Worker.candidate()
+
+      "earliest" ->
+        Chain.block(0)
+
+      <<"0x", _rest::binary()>> ->
+        hash = Base16.decode(ref)
+
+        if Chain.block_by_hash?(hash) do
+          Chain.block_by_hash(hash)
+        else
+          throw(:notfound)
+        end
+    end
+  end
+
+  def get_block_rpc(block, full) do
+    miner = Block.miner(block)
+    txs = Block.transactions(block)
+
+    txs =
+      if full == true do
+        Enum.map(txs, fn tx -> transaction_result(tx, block) end)
+      else
+        Enum.map(txs, &Chain.Transaction.hash/1)
+      end
+
+    parentHash =
+      case Block.parent_hash(block) do
+        nil -> <<0::256>>
+        bin -> bin
+      end
+
+    uncles = []
+    uncleSha = Hash.keccak_256(Rlp.encode!(uncles))
+
+    %{
+      "number" => Block.number(block),
+      "hash" => Block.hash(block),
+      "parentHash" => parentHash,
+      "nonce" => Block.nonce(block),
+      "sha3Uncles" => uncleSha,
+      "logsBloom" => Block.logs_bloom(block),
+      "transactionsRoot" => Block.txhash(block),
+      "stateRoot" => Block.state_hash(block),
+      "miner" => Wallet.address!(miner),
+
+      # Blockscout does not handle extra keys
+      # "minerSignature" => block.header.miner_signature,
+
+      "receiptsRoot" => Block.receiptsRoot(block),
+      "difficulty" => Block.difficulty(block),
+      "totalDifficulty" => Block.total_difficulty(block),
+      "extraData" => Block.extra_data(block),
+      "size" => Block.size(block),
+      "gasLimit" => Block.gas_limit(block),
+      "gasUsed" => Block.gas_used(block),
+      "timestamp" => Block.timestamp(block),
+      "transactions" => txs,
+      "uncles" => uncles
+    }
   end
 
   def decode_opts(opts) do
