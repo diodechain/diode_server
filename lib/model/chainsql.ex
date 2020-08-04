@@ -288,8 +288,10 @@ defmodule Model.ChainSql do
   end
 
   def transaction(txhash) do
-    block_by_txhash(txhash)
-    |> Block.transaction(txhash)
+    case block_by_txhash(txhash) do
+      %Chain.Block{} = block -> Block.transaction(block, txhash)
+      nil -> nil
+    end
   end
 
   defp prepare_state(block) do

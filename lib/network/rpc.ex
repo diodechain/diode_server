@@ -49,6 +49,7 @@ defmodule Network.Rpc do
           {nil, 400, %{"message" => "Bad Request"}}
       catch
         :notfound -> {nil, 404, %{"message" => "Not found"}}
+        :badrequest -> {nil, 400, %{"message" => "Bad request"}}
       end
 
     {ret, code} =
@@ -151,6 +152,10 @@ defmodule Network.Rpc do
         [txh] = params
         txh = Base16.decode(txh)
         tx = Chain.transaction(txh)
+
+        if tx == nil do
+          throw(:notfound)
+        end
 
         case tx do
           %Transaction{} ->
@@ -592,6 +597,9 @@ defmodule Network.Rpc do
 
   def get_block(ref) do
     case ref do
+      nil ->
+        throw(:badrequest)
+
       %Chain.Block{} ->
         ref
 
@@ -628,6 +636,9 @@ defmodule Network.Rpc do
 
   def get_block_by_hash(ref) do
     case ref do
+      nil ->
+        throw(:badrequest)
+
       "latest" ->
         Chain.peak_block()
 
