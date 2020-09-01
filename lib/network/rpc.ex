@@ -52,6 +52,14 @@ defmodule Network.Rpc do
         :badrequest -> {nil, 400, %{"message" => "Bad request"}}
       end
 
+    if Diode.dev_mode?() do
+      :io.format("~s = ~p~n", [method, result])
+
+      # if error != nil or (is_map(result) and Map.has_key?(result, "error")) do
+      #   :io.format("params: ~p~n", [params])
+      # end
+    end
+
     {ret, code} =
       if error == nil do
         if not is_map(result) or not Map.has_key?(result, "error") do
