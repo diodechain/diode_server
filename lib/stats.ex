@@ -32,6 +32,11 @@ defmodule Stats do
   end
 
   def tc(metric, fun) do
+    {_time, ret} = tc!(metric, fun)
+    ret
+  end
+
+  def tc!(metric, fun) do
     parent = Process.get(__MODULE__, "")
     name = "#{parent}/#{metric}"
     Process.put(__MODULE__, name)
@@ -39,7 +44,7 @@ defmodule Stats do
     incr("#{name}_time", time)
     incr("#{name}_cnt")
     Process.put(__MODULE__, parent)
-    ret
+    {time, ret}
   end
 
   def toggle_print() do

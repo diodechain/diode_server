@@ -268,7 +268,7 @@ defmodule Chain.Block do
     block = create_empty(parent, miner, time)
 
     {diff, block} =
-      :timer.tc(fn ->
+      Stats.tc!(:tx, fn ->
         Enum.reduce(transactions, block, fn %Transaction{} = tx, block ->
           case append_transaction(block, tx, trace?) do
             {:error, _err} -> block
@@ -276,9 +276,6 @@ defmodule Chain.Block do
           end
         end)
       end)
-
-    Stats.incr(:tx_time, diff)
-    Stats.incr(:tx_cnt, 1)
 
     if diff > 50_000 and block.header.previous_block != nil do
       IO.puts(

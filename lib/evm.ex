@@ -397,6 +397,8 @@ defmodule Evm do
       [] ->
         Port.open({:spawn_executable, "./evm/evm"}, [:binary, {:packet, 4}])
 
+      # Port.open({:spawn, "valgrind --tool=callgrind ./evm/evm"}, [:binary, {:packet, 4}])
+
       [port | rest] ->
         Process.put(:evm_port, rest)
         port
@@ -438,24 +440,24 @@ defmodule Evm do
     code = code(evm)
     code_len = byte_size(code)
 
-    message =
-      Stats.tc(:prep_message, fn ->
-        [
-          <<"r", evm.task.from::unsigned-size(160), to::unsigned-size(160),
-            value::unsigned-size(256), input_len::signed-little-size(64)>>,
-          input,
-          <<
-            gas(evm)::unsigned-little-size(64),
-            # depth
-            0::unsigned-little-size(32),
-            code_len::signed-little-size(64)
-          >>,
-          code
-        ]
-      end)
+    Stats.tc(:prep_message, fn ->
+      message = [
+        <<"r", evm.task.from::unsigned-size(160), to::unsigned-size(160),
+          value::unsigned-size(256), input_len::signed-little-size(64)>>,
+        input,
+        <<
+          gas(evm)::unsigned-little-size(64),
+          # depth
+          0::unsigned-little-size(32),
+          code_len::signed-little-size(64)
+        >>,
+        code
+      ]
+
+      Port.command(evm.port, message)
+    end)
 
     Stats.tc(:loop, fn ->
-      Port.command(evm.port, message)
       loop({:cont, evm})
     end)
   end

@@ -12,37 +12,32 @@ void Host::reset()
 
 bool Host::complete_account(const evmc::address& addr) noexcept
 {
-    auto ptr = m_complete_accounts.find(addr);
-    if (ptr == m_complete_accounts.end()) {
-        return false;
-    } else {
-        return ptr->second;
-    }
+    bool *p = m_complete_accounts.get(addr);
+    return p && *p; 
 }
 
 void Host::set_complete_account(const evmc::address& addr) noexcept
 {
-    m_complete_accounts[addr] = true;
+    m_complete_accounts.set(addr, true);
 }
 
 void Host::set_cache(const evmc::address& addr, const evmc::bytes32& key, const evmc::bytes32& value) noexcept
 {
-    m_storage_cache[std::make_pair(addr, key)] = value;
+    m_storage_cache.set({addr, key}, value);
 }
 
 bool Host::get_cache(const evmc::address& addr, const evmc::bytes32& key, evmc::bytes32& out) noexcept
 {
-    auto ptr = m_storage_cache.find(std::make_pair(addr, key));
-    if (ptr == m_storage_cache.end()) {
+    auto value = m_storage_cache.get({addr, key});
+    if (!value) {
         if (complete_account(addr)) {
             memset(out.bytes, 0, sizeof(out.bytes));
             return true;
         }
         return false;
-    } else {
-        out = ptr->second;
-        return true;
-    }
+    } 
+    out = *value;
+    return true;
 }
 
 bool Host::account_exists(const evmc::address& addr) noexcept
@@ -86,7 +81,7 @@ evmc_storage_status Host::set_storage(const evmc::address& addr,
 {
     evmc::bytes32 prev_value = get_storage(addr, key);
     set_cache(addr, key, value);
-    m_storage_write_cache[std::make_pair(addr, key)] = value;
+    m_storage_write_cache.set({addr, key}, value);
     return (prev_value == value) ? EVMC_STORAGE_UNCHANGED : EVMC_STORAGE_MODIFIED;
 }
 
@@ -96,11 +91,11 @@ void Host::send_updates() noexcept {
     auto count = m_storage_write_cache.size();
     nwrite(2 + count * (sizeof(evmc::address) + sizeof(evmc::bytes32) + sizeof(evmc::bytes32)));
     fwrite("su", 2);
-    for (auto& [keys, value]: m_storage_write_cache) {
-        auto& [addr, key] = keys;
-        fwrite(addr.bytes, sizeof(addr.bytes));
-        fwrite(key.bytes, sizeof(key.bytes));
-        fwrite(value.bytes, sizeof(value.bytes));
+    for (auto& data : m_storage_write_cache.list()) {
+        if (!data.used) continue;
+        fwrite(data.key.first.bytes, sizeof(data.key.first.bytes));
+        fwrite(data.key.second.bytes, sizeof(data.key.second.bytes));
+        fwrite(data.value.bytes, sizeof(data.value.bytes));
     }
     fflush(stdout);
 }
@@ -112,13 +107,12 @@ void Host::read_updates() noexcept {
     evmc_address address;
     bread(address);
 
-    for (uint32_t i = 0; i < count; i++) {
-        evmc_bytes32 key;
-        evmc_bytes32 value;
+    if (m_buffer.size() < count * 2) m_buffer.resize(count * 2);
+    fread(&m_buffer[0], count * 2 * sizeof(evmc_bytes32));
 
-        bread(key);
-        bread(value);
-        set_cache(address, key, value);
+    // m_storage_cache.reserve(count * 2);
+    for (uint32_t i = 0; i < count; i++) {
+        set_cache(address, m_buffer[i*2], m_buffer[i*2+1]);
     }
     set_complete_account(address);
 }
