@@ -564,8 +564,6 @@ defmodule Network.EdgeV2 do
         device_signature: device_signature
       )
 
-    device = Ticket.device_address(dl)
-
     cond do
       Ticket.block_number(dl) > Chain.peak() ->
         log(
@@ -575,7 +573,7 @@ defmodule Network.EdgeV2 do
 
         error("block number too high")
 
-      not Wallet.equal?(device, device_id(state)) ->
+      not Ticket.device_address?(dl, device_id(state)) ->
         log(state, "Received invalid ticket signature!")
         error("signature mismatch")
 
@@ -587,7 +585,7 @@ defmodule Network.EdgeV2 do
       true ->
         dl = Ticket.server_sign(dl, Wallet.privkey!(Diode.miner()))
 
-        case TicketStore.add(dl) do
+        case TicketStore.add(dl, device_id(state)) do
           {:ok, bytes} ->
             key = Object.key(dl)
 

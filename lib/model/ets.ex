@@ -2,8 +2,8 @@
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
 defmodule Model.Ets do
-  def init(name) do
-    ^name = :ets.new(name, [:named_table, :public])
+  def init(name, extra \\ []) do
+    ^name = :ets.new(name, [:named_table, :public] ++ extra)
   end
 
   def clear(name) do

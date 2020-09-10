@@ -5,7 +5,18 @@ defmodule TicketStore do
   alias Object.Ticket
   alias Chain.BlockCache, as: Block
   alias Model.TicketSql
+  alias Model.Ets
+  use GenServer
   import Ticket
+
+  def start_link(ets_extra) do
+    GenServer.start_link(__MODULE__, ets_extra, name: __MODULE__)
+  end
+
+  def init(ets_extra) do
+    Ets.init(__MODULE__, ets_extra)
+    {:ok, nil}
+  end
 
   def clear() do
     TicketSql.delete_all()
@@ -70,30 +81,32 @@ defmodule TicketStore do
   @doc """
     Handling a ConnectionTicket
   """
-  @spec add(Ticket.t()) ::
+  @spec add(Ticket.t(), Wallet.t()) ::
           {:ok, non_neg_integer()} | {:too_low, Ticket.t()} | {:too_old, integer()}
-  def add(ticket() = tck) do
+  def add(ticket() = tck, wallet) do
     tepoch = Ticket.epoch(tck)
     epoch = Chain.epoch()
+    address = Wallet.address!(wallet)
+    fleet = Ticket.fleet_contract(tck)
 
     if epoch - 1 < tepoch do
-      last = find(Ticket.device_address(tck), Ticket.fleet_contract(tck), tepoch)
+      last = find(address, fleet, tepoch)
 
       case last do
         nil ->
-          TicketSql.put_ticket(tck)
+          put_ticket(tck, address, fleet, tepoch)
           {:ok, Ticket.total_bytes(tck)}
 
         last ->
           if Ticket.total_connections(last) < Ticket.total_connections(tck) or
                Ticket.total_bytes(last) < Ticket.total_bytes(tck) do
-            TicketSql.put_ticket(tck)
+            put_ticket(tck, address, fleet, tepoch)
             {:ok, max(0, Ticket.total_bytes(tck) - Ticket.total_bytes(last))}
           else
-            if Ticket.device_address(tck) != Ticket.device_address(last) do
+            if address != Ticket.device_address(last) do
               :io.format("Ticked Signed on Fork Chain~n")
               :io.format("Last: ~180p~nTick: ~180p~n", [last, tck])
-              TicketSql.put_ticket(tck)
+              put_ticket(tck, address, fleet, tepoch)
               {:ok, Ticket.total_bytes(tck)}
             else
               {:too_low, last}
@@ -105,8 +118,21 @@ defmodule TicketStore do
     end
   end
 
+  defp put_ticket(tck, device = <<_::160>>, fleet = <<__::160>>, epoch) when is_integer(epoch) do
+    key = {device, fleet, epoch}
+
+    Debouncer.delay(key, fn ->
+      TicketSql.put_ticket(tck)
+      Ets.remove(__MODULE__, key)
+    end)
+
+    Ets.put(__MODULE__, key, tck)
+  end
+
   def find(device = <<_::160>>, fleet = <<__::160>>, epoch) when is_integer(epoch) do
-    TicketSql.find(device, fleet, epoch)
+    Ets.lookup(__MODULE__, {device, fleet, epoch}, fn ->
+      TicketSql.find(device, fleet, epoch)
+    end)
   end
 
   def count(epoch) do

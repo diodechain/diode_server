@@ -115,7 +115,10 @@ defmodule Chain do
   end
 
   def epoch() do
-    Block.epoch(peak_block())
+    case :persistent_term.get(:epoch, nil) do
+      nil -> Block.epoch(peak_block())
+      num -> num
+    end
   end
 
   def epoch_length() do
@@ -258,7 +261,9 @@ defmodule Chain do
     end)
 
     ets_prefetch()
-    %Chain{peak: ChainSql.peak_block(), by_hash: nil}
+    peak = ChainSql.peak_block()
+    :persistent_term.put(:epoch, Block.epoch(peak))
+    %Chain{peak: peak, by_hash: nil}
   end
 
   defp genesis_state() do
@@ -333,6 +338,7 @@ defmodule Chain do
         end
 
         state = %{state | peak: block}
+        :persistent_term.put(:epoch, Block.epoch(block))
 
         # Printing some debug output per transaction
         if Diode.dev_mode?() do

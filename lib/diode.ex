@@ -66,7 +66,8 @@ defmodule Diode do
       worker(Chain.BlockCache, [ets_extra]),
       worker(Chain, [ets_extra]),
       worker(Chain.Pool, [args]),
-      worker(Chain.Worker, [worker_mode()])
+      worker(Chain.Worker, [worker_mode()]),
+      worker(TicketStore, [ets_extra])
     ]
 
     children =
