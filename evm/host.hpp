@@ -88,96 +88,95 @@ class Map
     {
         Data() = default;
 
-        bool used;
         Key key{};
         Value value{};
     };
-    std::vector<Data> m_list;
-    size_t m_usage;
+
+    std::vector<uint32_t> m_indexes;
+    std::vector<Data> m_data;
     Hash m_hasher;
+
+    Data& at(size_t n)
+    {
+        return m_data[m_indexes[n] - 1];
+    }
 
 public:
     std::vector<Data> &list()
     {
-        return m_list;
+        return m_data;
     }
 
-    void reserve(size_t size)
+    void resize(size_t target_size)
     {
-        if (capacity() < size) {
+        size_t target_capacity = target_size * 4;
+        if (capacity() < target_capacity) {
             Map<Key, Value, Hash> instance;
-            instance.m_list.resize(size);
-            if (m_usage > 0)
-            {
-                for (auto &data : m_list)
-                {
-                    if (data.used)
-                        instance.set(data.key, data.value);
-                }
-            }
-            m_list.swap(instance.m_list);
+            instance.m_indexes.resize(target_capacity);
+            instance.m_data.reserve(target_size);
+            for (auto &data : m_data)
+                instance.set(data.key, data.value);
+
+            m_indexes.swap(instance.m_indexes);
+            m_data.swap(instance.m_data);
         }
     }
 
     size_t size()
     {
-        return m_usage;
+        return m_data.size();
     }
 
     size_t capacity()
     {
-        return m_list.size();
+        return m_indexes.size();
     }
 
     Value *get(const Key &key)
     {
+        if (size() == 0) return 0;
+
         size_t index = m_hasher(key) % capacity();
-        while (m_list[index].used == true && m_list[index].key != key)
+        while (m_indexes[index] > 0 && at(index).key != key)
         {
             index = (index + 1) % capacity();
         }
-        if (!m_list[index].used)
+        if (!(m_indexes[index] > 0))
         {
             return 0;
         }
-        return &m_list[index].value;
+        return &at(index).value;
     }
 
     void set(const Key &key, const Value &value)
     {
-        *ensure(key) = value;
+        ensure(key) = value;
     }
 
-    Value *ensure(const Key &key)
+    Value &ensure(const Key &key)
     {
         if (size() + 1 > (capacity() / 2)) {
-            auto target = capacity() * 2 > 32 ? capacity() * 2 : 32;
-            reserve(target);
+            auto target = size() + 100;
+            resize(target);
         }
         size_t index = m_hasher(key) % capacity();
-        while (m_list[index].used == true && m_list[index].key != key)
+        while (m_indexes[index] > 0 && at(index).key != key)
         {
             index = (index + 1) % capacity();
         }
-        if (!m_list[index].used)
+        if (m_indexes[index] == 0)
         {
-            m_list[index].used = true;
-            m_list[index].key = key;
-            m_usage++;
+            m_data.push_back(Data());
+            m_data[m_data.size() - 1].key = key;
+            m_indexes[index] = m_data.size();
         }
-        return &m_list[index].value;
+        return at(index).value;
     }
 
     void clear()
     {
-        for (auto &data : m_list)
-        {
-            if (data.used)
-            {
-                data = Data{};
-            }
-        }
-        m_usage = 0;
+        m_data.clear();
+        m_indexes.clear();
     }
 };
 

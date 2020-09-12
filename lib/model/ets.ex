@@ -18,6 +18,11 @@ defmodule Model.Ets do
     :ets.delete(name, idx)
   end
 
+  def all(name) do
+    :ets.tab2list(name)
+    |> Enum.map(fn {_key, value} -> value end)
+  end
+
   def lookup(name, idx, default \\ fn -> nil end) do
     case :ets.lookup(name, idx) do
       [] -> default.()

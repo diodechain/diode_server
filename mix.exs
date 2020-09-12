@@ -4,8 +4,8 @@
 defmodule Diode.Mixfile do
   use Mix.Project
 
-  @vsn "0.2.6"
-  @full_vsn "v0.2.6"
+  @vsn "0.2.8"
+  @full_vsn "v0.2.8"
 
   def project do
     [

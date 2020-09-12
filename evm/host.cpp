@@ -92,7 +92,6 @@ void Host::send_updates() noexcept {
     nwrite(2 + count * (sizeof(evmc::address) + sizeof(evmc::bytes32) + sizeof(evmc::bytes32)));
     fwrite("su", 2);
     for (auto& data : m_storage_write_cache.list()) {
-        if (!data.used) continue;
         fwrite(data.key.first.bytes, sizeof(data.key.first.bytes));
         fwrite(data.key.second.bytes, sizeof(data.key.second.bytes));
         fwrite(data.value.bytes, sizeof(data.value.bytes));
@@ -110,7 +109,7 @@ void Host::read_updates() noexcept {
     if (m_buffer.size() < count * 2) m_buffer.resize(count * 2);
     fread(&m_buffer[0], count * 2 * sizeof(evmc_bytes32));
 
-    // m_storage_cache.reserve(count * 2);
+    m_storage_cache.resize(count);
     for (uint32_t i = 0; i < count; i++) {
         set_cache(address, m_buffer[i*2], m_buffer[i*2+1]);
     }

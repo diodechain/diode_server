@@ -162,6 +162,7 @@ defmodule ChainTest do
             to = Rlpx.bin2addr(tx["to"])
 
             mtx = %Transaction{
+              chain_id: nil,
               nonce: Rlpx.bin2num(tx["nonce"]),
               gasPrice: Rlpx.bin2num(tx["gasPrice"]),
               gasLimit: Rlpx.bin2num(tx["gasLimit"]),

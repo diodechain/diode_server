@@ -23,7 +23,9 @@ defmodule TicketStore do
   end
 
   def tickets(epoch) do
-    TicketSql.tickets(epoch)
+    Ets.all(__MODULE__)
+    |> Enum.filter(fn tck -> Ticket.epoch(tck) == epoch end)
+    |> Enum.concat(TicketSql.tickets(epoch))
   end
 
   # Should be called on each new block
