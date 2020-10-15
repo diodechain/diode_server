@@ -160,7 +160,13 @@ defmodule Network.Rpc do
         result(Diode.syncing?())
 
       "eth_chainId" ->
-        result(Diode.chain_id())
+        id =
+          Diode.chain_id()
+          |> :binary.encode_unsigned()
+          |> Base.encode16(case: :lower)
+          |> String.trim_leading("0")
+
+        result("0x" <> id)
 
       "eth_getTransactionByHash" ->
         [txh] = params

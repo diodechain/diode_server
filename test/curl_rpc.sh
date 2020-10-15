@@ -4,6 +4,7 @@
 # Licensed under the Diode License, Version 1.0
 if [[ $1 == "" ]]; then
   echo "Need host parameter"
+  echo "You can try localhost:8545"
   exit
 fi
 
@@ -11,6 +12,10 @@ host=$1
 
 # Just some rpc examples using curl
 # curl -X POST --data '{"jsonrpc":"2.0","method":"eth_getLogs","params":["0x16"],"id":73}' $host
+
+echo "Chain ID:"
+curl -k -H "Content-Type: application/json" -X POST --data '{"jsonrpc":"2.0","method":"eth_chainId","id":73}' $host
+echo ""
 
 # Counts the number of fleet contracts
 echo "Total Fleets:"
