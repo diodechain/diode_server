@@ -6,15 +6,15 @@ defmodule Base16 do
   def encode(int, bigX \\ true)
 
   def encode(int, true) when is_integer(int) do
-    "0X#{Base.encode16(:binary.encode_unsigned(int), case: :lower)}"
+    "0X#{String.replace_prefix(Base.encode16(:binary.encode_unsigned(int), case: :lower), "0", "")}"
   end
 
   def encode(int, false) when is_integer(int) do
-    "0x#{Base.encode16(:binary.encode_unsigned(int), case: :lower)}"
+    "0x#{String.replace_prefix(Base.encode16(:binary.encode_unsigned(int), case: :lower), "0", "")}"
   end
 
   def encode(hex, _bigX) do
-    "0x#{Base.encode16(hex, case: :lower)}"
+    "0x#{String.replace_prefix(Base.encode16(hex, case: :lower), "0", "")}"
   end
 
   @spec decode(<<_::16, _::_*8>>) :: binary() | non_neg_integer()
