@@ -87,7 +87,7 @@ defmodule RpcTest do
               "result" => %{
                 "blockNumber" => "0x03",
                 "contractAddress" => nil,
-                "cumulativeGasUsed" => "0x010067",
+                "cumulativeGasUsed" => _variable,
                 "from" => ^from,
                 "gasUsed" => "0x5208",
                 "logs" => [],
@@ -96,7 +96,7 @@ defmodule RpcTest do
                 "status" => "0x01",
                 "to" => ^to,
                 "transactionHash" => ^hash,
-                "transactionIndex" => "0x01"
+                "transactionIndex" => "0x00"
               }
             }} = ret
   end
@@ -124,30 +124,19 @@ defmodule RpcTest do
 
   defp prepare_transaction() do
     [from, to] = Diode.wallets() |> Enum.reverse() |> Enum.take(2)
-
-    # before = Chain.peak_state()
-
-    # from_acc = State.ensure_account(before, from)
-    # to_acc = State.ensure_account(before, to)
-    # nonce = from_acc |> Account.nonce()
-
-    Worker.set_mode(:disabled)
-
-    to = Wallet.address!(to)
+    # Worker.set_mode(:disabled)
 
     tx =
       Rpc.create_transaction(from, <<"">>, %{
         "value" => 1000,
-        # "nonce" => nonce + i,
-        "to" => to,
+        "to" => Wallet.address!(to),
         "gasPrice" => 0
       })
 
     {200, %{"result" => txhash}} = rpc("eth_sendRawTransaction", [to_rlp(tx)])
     assert txhash == Base16.encode(Transaction.hash(tx))
 
-    Worker.set_mode(:poll)
-    Worker.work()
+    # Worker.set_mode(:poll)
     tx
   end
 

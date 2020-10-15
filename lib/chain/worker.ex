@@ -30,8 +30,7 @@ defmodule Chain.Worker do
 
   def work() do
     if Diode.dev_mode?() do
-      update_sync()
-      ret = GenServer.call(__MODULE__, :work)
+      ret = GenServer.call(__MODULE__, :update_work)
       GenServer.call(__MODULE__, :sync)
       ret
     else
@@ -107,6 +106,15 @@ defmodule Chain.Worker do
 
   def handle_call(:work, _from, state) do
     {:reply, :ok, do_work(state)}
+  end
+
+  def handle_call(:update_work, _from, state) do
+    state =
+      %{state | working: true}
+      |> do_update()
+      |> do_work()
+
+    {:reply, :ok, state}
   end
 
   def handle_call(:mode, _from, state) do
