@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <utility>
 #include <byteswap.h>
+#include <vector>
 
 #ifdef DEBUG
 static std::string _dlog_hex(const uint8_t *p, size_t i)
