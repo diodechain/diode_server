@@ -28,10 +28,12 @@ defmodule Network.Rpc do
   def handle_jsonrpc(body_params, opts) when is_map(body_params) do
     # :io.format("handle_jsonrpc: ~p~n", [body_params])
 
-    %{
-      "method" => method,
-      "id" => id
-    } = body_params
+    {id, method} =
+      case body_params do
+        %{"method" => method, "id" => id} -> {id, method}
+        %{"id" => id} -> {id, ""}
+        _other -> {0, ""}
+      end
 
     params = Map.get(body_params, "params", [])
 
@@ -94,6 +96,10 @@ defmodule Network.Rpc do
   defp execute([], [method, params]) do
     :io.format("Unhandled: ~p ~p~n", [method, params])
     result(422, "what method?")
+  end
+
+  def execute_rpc("", _params, _opts) do
+    throw(:badrequest)
   end
 
   def execute_rpc(method, params, opts) do
