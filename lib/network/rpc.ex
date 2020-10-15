@@ -28,11 +28,8 @@ defmodule Network.Rpc do
   def handle_jsonrpc(body_params, opts) when is_map(body_params) do
     # :io.format("handle_jsonrpc: ~p~n", [body_params])
 
-    %{
-      "method" => method,
-      "id" => id
-    } = body_params
-
+    method = Map.get(body_params, "method", "")
+    id = Map.get(body_params, "id", 0)
     params = Map.get(body_params, "params", [])
 
     {result, code, error} =
@@ -434,6 +431,9 @@ defmodule Network.Rpc do
             "type" => "reward"
           }
         ])
+
+      "" ->
+        throw(:badrequest)
 
       _ ->
         nil
