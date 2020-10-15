@@ -41,7 +41,7 @@ defmodule Object.Channel do
   end
 
   def valid_device?(ch = channel(fleet_contract: fleet)) do
-    Contract.Fleet.device_whitelisted?(fleet, device_address(ch))
+    Contract.Fleet.device_allowlisted?(fleet, device_address(ch))
   end
 
   def valid_params?(channel(params: [])), do: true

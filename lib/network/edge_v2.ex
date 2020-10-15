@@ -259,7 +259,7 @@ defmodule Network.EdgeV2 do
           not Wallet.equal?(device, device_id(state)) ->
             error("invalid channel signature")
 
-          not Contract.Fleet.device_whitelisted?(fleet, device) ->
+          not Contract.Fleet.device_allowlisted?(fleet, device) ->
             error("device not whitelisted for this fleet")
 
           not Object.Channel.valid_type?(obj) ->
@@ -578,7 +578,7 @@ defmodule Network.EdgeV2 do
         error("signature mismatch")
 
       # TODO: Needs to be re-enabled after dev-contract is all-yes
-      # not Contract.Fleet.device_whitelisted?(fleet, device) ->
+      # not Contract.Fleet.device_allowlisted?(fleet, device) ->
       #   log(state, "Received invalid ticket fleet!")
       #   error("device not whitelisted")
 

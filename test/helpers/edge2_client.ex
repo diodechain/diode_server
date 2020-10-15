@@ -18,7 +18,7 @@ defmodule Edge2Client do
   end
 
   def whitelist_client(num) do
-    Contract.Fleet.set_device_whitelist(clientid(num), true)
+    Contract.Fleet.set_device_allowlist(clientid(num), true)
     |> Chain.Pool.add_transaction()
 
     Chain.Worker.work()

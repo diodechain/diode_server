@@ -4,7 +4,7 @@
 defmodule RegistryTest do
   alias Object.Ticket
   import Ticket
-  alias Contract.Registry
+  alias Contract.{Fleet, Registry}
   use ExUnit.Case, async: false
   import Edge2Client
   import While
@@ -57,6 +57,23 @@ defmodule RegistryTest do
   end
 
   test "unregistered device" do
+    # Ensuring queue is empty
+    Chain.Worker.work()
+
+    # Creating new tx
+    op = ac = Wallet.address!(Diode.miner())
+    fleet_tx = Fleet.deploy_new(op, ac)
+    Chain.Pool.add_transaction(fleet_tx)
+    Chain.Worker.work()
+
+    fleet = Chain.Transaction.new_contract_address(fleet_tx)
+    IO.puts("fleet: #{Base16.encode(fleet)}")
+
+    client = clientid(1)
+    assert Fleet.operator(fleet) == op
+    assert Fleet.accountant(fleet) == ac
+    assert Fleet.device_allowlisted?(fleet, client) == false
+
     tck =
       ticket(
         server_id: Wallet.address!(Diode.miner()),
@@ -64,22 +81,41 @@ defmodule RegistryTest do
         total_bytes: 0,
         local_address: "spam",
         block_number: Chain.peak() - Chain.epoch_length(),
-        fleet_contract: Diode.fleet_address()
+        fleet_contract: fleet
       )
       |> Ticket.device_sign(clientkey(1))
 
     raw = Ticket.raw(tck)
     tx = Registry.submit_ticket_raw_tx(raw)
-    {{:evmc_revert, "Unregistered device"}, _} = Shell.call_tx(tx, "latest")
-  end
 
-  test "registered device" do
-    # Registering the device:
-    tx = Contract.Fleet.set_device_whitelist(clientid(1), true)
+    error = "Unregistered device (#{Base16.encode(Wallet.address!(client))})"
+    {{:evmc_revert, ^error}, _} = Shell.call_tx(tx, "latest")
+
+    # Now registering device
+    tx = Fleet.set_device_allowlist(fleet, client, true)
     Chain.Pool.add_transaction(tx)
     Chain.Worker.work()
 
-    assert Contract.Fleet.device_whitelisted?(clientid(1)) == true
+    assert Fleet.device_allowlisted?(fleet, client) == true
+
+    tck =
+      ticket(
+        server_id: Wallet.address!(Diode.miner()),
+        total_connections: 1,
+        total_bytes: 0,
+        local_address: "spam",
+        block_number: Chain.peak() - Chain.epoch_length(),
+        fleet_contract: fleet
+      )
+      |> Ticket.device_sign(clientkey(1))
+
+    raw = Ticket.raw(tck)
+    tx = Registry.submit_ticket_raw_tx(raw)
+    {"", _gas_cost} = Shell.call_tx(tx, "latest")
+  end
+
+  test "registered device (dev_contract)" do
+    assert Fleet.device_allowlisted?(clientid(1)) == true
 
     tck =
       ticket(

@@ -30,6 +30,7 @@ defmodule Chain.Worker do
 
   def work() do
     if Diode.dev_mode?() do
+      update_sync()
       ret = GenServer.call(__MODULE__, :work)
       GenServer.call(__MODULE__, :sync)
       ret
@@ -215,6 +216,8 @@ defmodule Chain.Worker do
 
     block =
       Enum.reduce(txs, block, fn tx, block ->
+        # tx = patch_tx_nonce(block, tx, creds)
+
         case Block.append_transaction(block, tx) do
           {:error, :wrong_nonce} ->
             Chain.Pool.remove_transaction(Transaction.hash(tx))
@@ -263,6 +266,20 @@ defmodule Chain.Worker do
   defp generate_candidate(state) do
     state
   end
+
+  # Disabled to keep nonce same in tests, if nonce changes contract addresses change :-(
+  # defp patch_tx_nonce(block, tx, creds) do
+  #   if Wallet.equal?(Transaction.origin(tx), creds) do
+  #     nonce =
+  #       Chain.State.ensure_account(Block.state(block), Wallet.address!(creds))
+  #       |> Chain.Account.nonce()
+
+  #     %Transaction{tx | nonce: nonce}
+  #     |> Transaction.sign(Wallet.privkey!(creds))
+  #   else
+  #     tx
+  #   end
+  # end
 
   defp activate_timer(state = %{working: true}) do
     state

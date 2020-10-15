@@ -72,6 +72,19 @@ defmodule Shell do
     Network.Rpc.create_transaction(wallet, callcode, opts, sign)
   end
 
+  def constructor(wallet, code, types, values, opts \\ [], sign \\ true) do
+    opts =
+      opts
+      |> Keyword.put_new(:gas, Chain.gas_limit())
+      |> Keyword.put_new(:gasPrice, 0)
+      |> Enum.map(fn {key, value} -> {Atom.to_string(key), value} end)
+      |> Map.new()
+
+    # https://solidity.readthedocs.io/en/v0.4.24/abi-spec.html
+    callcode = code <> ABI.encode_args(types, values)
+    Network.Rpc.create_transaction(wallet, callcode, opts, sign)
+  end
+
   def get_balance(address) do
     Chain.peak_state()
     |> Chain.State.ensure_account(address)
