@@ -82,6 +82,8 @@ int main() {
             }
         } else if (cmd == 'q' || cmd == EOF) {
             run = false;
+        } else {
+            exit(1);
         }
     }
     return 0;

@@ -364,6 +364,7 @@ defmodule Evm do
           evm2
         end
 
+      # TODO: Check if this should happen for calls
       # Correcting for codedeposit
       case evm2.out do
         nil ->
@@ -375,7 +376,7 @@ defmodule Evm do
           if evm2.gas > deposit do
             {:ok, %Evm{evm2 | gas: evm2.gas - deposit}}
           else
-            {:evmc_out_of_gas, %Evm{evm2 | gas: 0}}
+            {:evmc_out_of_gas, %Evm{evm2 | gas: 0, msg: :evmc_out_of_gas}}
           end
       end
     else
@@ -395,7 +396,7 @@ defmodule Evm do
   defp new_port() do
     case Process.get(:evm_port, []) do
       [] ->
-        Port.open({:spawn_executable, "./evm/evm"}, [:binary, {:packet, 4}])
+        Port.open({:spawn_executable, "./evm/evm"}, [:exit_status, :binary, {:packet, 4}])
 
       # Port.open({:spawn, "valgrind --tool=callgrind ./evm/evm"}, [:binary, {:packet, 4}])
 
@@ -477,6 +478,7 @@ defmodule Evm do
     true = Port.command(port, cache)
   end
 
+  @timeout 5_000
   defp loop({:cont, evm}) do
     receive do
       {_port, {:data, data}} ->
@@ -486,7 +488,7 @@ defmodule Evm do
       {'EXIT', _port, _reason} ->
         throw({:evm_crash, evm, 0})
     after
-      5000 ->
+      @timeout ->
         throw({:evm_timeout, evm, 0})
     end
   end
@@ -653,15 +655,16 @@ defmodule Evm do
         {'EXIT', _port, _reason} ->
           throw({:evm_crash, evm, 0})
       after
-        5000 ->
-          throw({:evm_timeout, evm, 0})
+        @timeout ->
+          throw({:evm_timeout2, evm, 0})
       end
 
     task = %Task{task | chain_state: state}
-    {code, evm2} = Task.call_contract(task, destination, kind, gas, value, input, salt)
+    {_code, evm2} = Task.call_contract(task, destination, kind, gas, value, input, salt)
+    codeid = status_atom(evm2.msg)
 
     task =
-      if code == :ok do
+      if evm2.msg == :evmc_success do
         %Task{
           task
           | chain_state: Evm.state(evm2),
@@ -670,8 +673,6 @@ defmodule Evm do
       else
         task
       end
-
-    codeid = status_atom(evm2.msg)
 
     message = <<
       Evm.gas(evm2)::unsigned-little-size(64),
@@ -683,7 +684,7 @@ defmodule Evm do
 
     true = Port.command(evm.port, message)
 
-    if code == :ok do
+    if evm2.msg == :evmc_success do
       to = :binary.decode_unsigned(Task.address(task))
       cache_account(task.chain_state, evm.port, to)
     end

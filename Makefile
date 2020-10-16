@@ -5,7 +5,7 @@ SHELL := /bin/bash
 TESTS := $(wildcard test/*_test.exs)
 
 evm/evm: $(wildcard evm/*.cpp evm/*.hpp evm/*/*.cpp evm/*/*.hpp)
-	make -j -C evm
+	make -j4 -C evm
 
 .PHONY: clean
 clean:

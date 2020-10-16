@@ -372,19 +372,64 @@ defmodule Chain do
     fun.(state, from)
   end
 
-  def export_blocks(filename, blocks) do
-    blocks =
-      blocks
-      |> Enum.map(&Block.export/1)
-      |> Enum.filter(fn block -> Block.number(block) > 0 end)
-      |> Enum.sort(fn a, b -> Block.number(a) < Block.number(b) end)
+  def export_blocks(filename \\ "block_export.sq3", blocks \\ Chain.blocks()) do
+    Sqlitex.with_db(filename, fn db ->
+      Sqlitex.query!(db, """
+      CREATE TABLE IF NOT EXISTS block_export (
+        number INTEGER PRIMARY KEY,
+        data BLOB
+      ) WITHOUT ROWID;
+      """)
 
-    File.write!(filename, BertInt.encode!(blocks))
+      start =
+        case Sqlitex.query!(db, "SELECT MAX(number) as max FROM block_export") do
+          [[max: nil]] -> 0
+          [[max: max]] -> max
+        end
+
+      IO.puts("start: #{start}")
+
+      Stream.take_while(blocks, fn block -> Block.number(block) > start end)
+      |> Stream.chunk_every(100)
+      |> Task.async_stream(fn blocks ->
+        IO.puts("Writing block #{Block.number(hd(blocks))}")
+
+        Enum.map(blocks, fn block ->
+          data =
+            Block.export(block)
+            |> BertInt.encode!()
+
+          [Block.number(block), data]
+        end)
+      end)
+      |> Stream.each(fn {:ok, blocks} ->
+        :ok = Sqlitex.exec(db, "BEGIN")
+
+        Enum.each(blocks, fn [num, data] ->
+          Sqlitex.query!(
+            db,
+            "INSERT INTO block_export (number, data) VALUES(?1, CAST(?2 AS BLOB))",
+            bind: [num, data]
+          )
+        end)
+
+        :ok = Sqlitex.exec(db, "COMMIT")
+      end)
+      |> Stream.run()
+    end)
+  end
+
+  defp decode_blocks("") do
+    []
+  end
+
+  defp decode_blocks(<<size::unsigned-size(32), block::binary-size(size), rest::binary>>) do
+    [BertInt.decode!(block)] ++ decode_blocks(rest)
   end
 
   def import_blocks(filename) when is_binary(filename) do
     File.read!(filename)
-    |> BertInt.decode!()
+    |> decode_blocks()
     |> import_blocks()
   end
 

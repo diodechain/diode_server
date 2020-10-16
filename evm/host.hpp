@@ -2,6 +2,8 @@
 // Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 // Licensed under the GNU General Public License, Version 3.
 #include <evmc/evmc.hpp>
+#include <sys/types.h>
+#include <unistd.h>
 #include <unordered_map>
 #include <utility>
 #include <byteswap.h>
@@ -28,10 +30,11 @@ public:
     char message[128];
     ~scope_log()
     {
-        fprintf(stderr, "~%s", message);
+        fprintf(stderr, "%ld::~%s", (long)getpid(), message);
     }
 };
 #define dlog(format, ...)                   \
+    fprintf(stderr, "%ld::", (long)getpid()); \
     fprintf(stderr, format, ##__VA_ARGS__); \
     scope_log log;                          \
     sprintf(log.message, format, ##__VA_ARGS__);
@@ -74,9 +77,16 @@ namespace std
         /// Hash operator using FNV1a-based folding.
         constexpr size_t operator()(const pair<evmc::address, evmc::bytes32> &s) const noexcept
         {
-            using namespace evmc;
-            using namespace fnv;
-            return hash<evmc::address>()(s.first) ^ hash<evmc::bytes32>()(s.second);
+            // using namespace evmc;
+            // using namespace fnv;
+            // return hash<evmc::address>()(s.first) ^ hash<evmc::bytes32>()(s.second);
+            uint32_t *ptr = (uint32_t *)(&s);
+            size_t hash = 5381;
+            for (size_t i = 0; i < sizeof(s)/sizeof(ptr[0]); i++) {
+                hash ^= ptr[i];
+                hash *= 33;
+            }
+            return hash;
         }
     };
 
@@ -110,7 +120,7 @@ public:
 
     void resize(size_t target_size)
     {
-        size_t target_capacity = target_size * 4;
+        size_t target_capacity = target_size * 6;
         if (capacity() < target_capacity) {
             Map<Key, Value, Hash> instance;
             instance.m_indexes.resize(target_capacity);
@@ -133,18 +143,26 @@ public:
         return m_indexes.size();
     }
 
-    Value *get(const Key &key)
+    Value *get(const Key &key, bool ensure = false)
     {
-        if (size() == 0) return 0;
+        if (size() + 1 > (capacity() / 4)) {
+            auto target = size() + 100;
+            resize(target);
+        }
+
+        if (size() == 0 && ensure == false) return 0;
 
         size_t index = m_hasher(key) % capacity();
         while (m_indexes[index] > 0 && at(index).key != key)
         {
-            index = (index + 1) % capacity();
+            index = (index + 1051) % capacity();
         }
         if (!(m_indexes[index] > 0))
         {
-            return 0;
+            if (!ensure) return 0;
+            m_data.push_back(Data());
+            m_data[m_data.size() - 1].key = key;
+            m_indexes[index] = m_data.size();
         }
         return &at(index).value;
     }
@@ -156,22 +174,7 @@ public:
 
     Value &ensure(const Key &key)
     {
-        if (size() + 1 > (capacity() / 2)) {
-            auto target = size() + 100;
-            resize(target);
-        }
-        size_t index = m_hasher(key) % capacity();
-        while (m_indexes[index] > 0 && at(index).key != key)
-        {
-            index = (index + 1) % capacity();
-        }
-        if (m_indexes[index] == 0)
-        {
-            m_data.push_back(Data());
-            m_data[m_data.size() - 1].key = key;
-            m_indexes[index] = m_data.size();
-        }
-        return at(index).value;
+        return *get(key, true);
     }
 
     void clear()

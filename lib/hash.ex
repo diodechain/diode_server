@@ -35,6 +35,10 @@ defmodule Hash do
     binary_part(hash, 12, 20)
   end
 
+  def to_address(int) when is_integer(int) do
+    <<int::160>>
+  end
+
   def keccak_256(string) do
     :keccakf1600.hash(:sha3_256, string)
   end

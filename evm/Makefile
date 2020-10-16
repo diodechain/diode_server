@@ -1,7 +1,7 @@
 # EVMC Wrapper
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the GNU General Public License, Version 3.
-CFLAGS=-I. -O3 -g -Wall -Wno-unknown-pragmas
+CFLAGS=-I. -O2 -g -Wall -Wno-unknown-pragmas
 CXXFLAGS=-std=c++17 $(CFLAGS)
 LDFLAGS=-lboost_system
 INTERP=libaleth-interpreter

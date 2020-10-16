@@ -106,6 +106,8 @@ void Host::read_updates() noexcept {
     evmc_address address;
     bread(address);
 
+    dlog("read_updated(%s, %d)\n", hex(address.bytes), count);
+
     if (m_buffer.size() < count * 2) m_buffer.resize(count * 2);
     fread(&m_buffer[0], count * 2 * sizeof(evmc_bytes32));
 

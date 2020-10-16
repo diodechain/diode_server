@@ -20,6 +20,7 @@ defmodule Shell do
     addr = Chain.GenesisFactory.genesis_accounts |> hd |> elem(0)
     Shell.call_from(Wallet.from_address(addr), registryContract, "ContractStake", ["address"], [fleetContract])
   """
+
   def call(address, name, types \\ [], values \\ [], opts \\ [])
       when is_list(types) and is_list(values) do
     call_from(Diode.miner(), address, name, types, values, opts)
@@ -59,20 +60,19 @@ defmodule Shell do
 
   def transaction(wallet, address, name, types, values, opts \\ [], sign \\ true)
       when is_list(types) and is_list(values) do
-    opts =
-      opts
-      |> Keyword.put_new(:gas, Chain.gas_limit())
-      |> Keyword.put_new(:gasPrice, 0)
-      |> Keyword.put(:to, address)
-      |> Enum.map(fn {key, value} -> {Atom.to_string(key), value} end)
-      |> Map.new()
-
     # https://solidity.readthedocs.io/en/v0.4.24/abi-spec.html
+    opts = Keyword.put(opts, :to, address)
     callcode = ABI.encode_call(name, types, values)
-    Network.Rpc.create_transaction(wallet, callcode, opts, sign)
+    raw(wallet, callcode, opts, sign)
   end
 
   def constructor(wallet, code, types, values, opts \\ [], sign \\ true) do
+    # https://solidity.readthedocs.io/en/v0.4.24/abi-spec.html
+    callcode = code <> ABI.encode_args(types, values)
+    raw(wallet, callcode, opts, sign)
+  end
+
+  def raw(wallet, callcode, opts \\ [], sign \\ true) do
     opts =
       opts
       |> Keyword.put_new(:gas, Chain.gas_limit())
@@ -80,8 +80,6 @@ defmodule Shell do
       |> Enum.map(fn {key, value} -> {Atom.to_string(key), value} end)
       |> Map.new()
 
-    # https://solidity.readthedocs.io/en/v0.4.24/abi-spec.html
-    callcode = code <> ABI.encode_args(types, values)
     Network.Rpc.create_transaction(wallet, callcode, opts, sign)
   end
 

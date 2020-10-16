@@ -259,7 +259,11 @@ defmodule Network.Rpc do
       "eth_call" ->
         [%{} = opts, ref] = params
 
-        opts = Map.put_new(opts, "gasPrice", "0x0") |> decode_opts()
+        opts =
+          Map.put_new(opts, "gas", Base16.encode(Chain.gas_limit(), false))
+          |> Map.put_new("gasPrice", "0x0")
+          |> decode_opts()
+
         data = opts["data"]
 
         wallet =
