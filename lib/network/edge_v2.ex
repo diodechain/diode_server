@@ -824,7 +824,7 @@ defmodule Network.EdgeV2 do
     msg =
       if b > Diode.ticket_grace() do
         send(self(), {:stop_unpaid, b})
-        encode([random_ref(), ["goodbye", "ticket expected", "you might get blacklisted"]])
+        encode([random_ref(), ["goodbye", "ticket expected", "you might get blocked"]])
       else
         if data == nil do
           ""

@@ -200,7 +200,7 @@ defmodule Edge2Test do
     [_req, "bad input"] = rpc(:client_1, ["garbage", String.pad_leading("", 1024 * 4)])
 
     csend(:client_1, "garbage", String.pad_leading("", 1024))
-    {:ok, [_req, ["goodbye", "ticket expected", "you might get blacklisted"]]} = crecv(:client_1)
+    {:ok, [_req, ["goodbye", "ticket expected", "you might get blocked"]]} = crecv(:client_1)
     {:error, :timeout} = crecv(:client_1)
   end
 
