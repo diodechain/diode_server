@@ -2,6 +2,7 @@
 # Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
 defmodule Chain.Worker do
+  alias Chain.Worker
   alias Chain.BlockCache, as: Block
   alias Chain.Transaction
   use GenServer
@@ -9,6 +10,7 @@ defmodule Chain.Worker do
   defstruct creds: nil,
             proposal: nil,
             parent_hash: nil,
+            min_fee: 0,
             candidate: nil,
             target: 0,
             mode: 75,
@@ -18,6 +20,7 @@ defmodule Chain.Worker do
           creds: Wallet.t(),
           proposal: [Transaction.t()],
           parent_hash: binary(),
+          min_fee: non_neg_integer(),
           candidate: Chain.Block.t(),
           target: non_neg_integer(),
           mode: non_neg_integer() | :poll | :disabled,
@@ -69,7 +72,7 @@ defmodule Chain.Worker do
   def mode(), do: GenServer.call(__MODULE__, :mode)
 
   def handle_cast({:set_mode, mode}, state) do
-    {:noreply, %{state | mode: mode, proposal: nil}}
+    {:noreply, %{state | mode: mode, parent_hash: nil}}
   end
 
   def handle_cast(:update, state) do
@@ -77,17 +80,38 @@ defmodule Chain.Worker do
   end
 
   defp do_update(state) do
-    state2 = %{
-      state
-      | parent_hash: Block.hash(Chain.peak_block()),
-        proposal: Chain.Pool.proposal()
-    }
+    state2 = update_parent(state)
 
     if state == state2 do
       state
     else
       %{activate_timer(state2) | candidate: nil}
     end
+  end
+
+  defp update_parent(state = %Worker{parent_hash: hash, min_fee: fee}) do
+    parent = Chain.peak_block()
+    new_hash = Block.hash(parent)
+
+    fee =
+      if hash == new_hash do
+        fee
+      else
+        if ChainDefinition.min_transaction_fee(Block.number(parent) + 1) do
+          Contract.Registry.min_transaction_fee(parent)
+        else
+          0
+        end
+      end
+
+    txs = Enum.filter(Chain.Pool.proposal(), fn tx -> Transaction.gas_price(tx) >= fee end)
+
+    %Worker{
+      state
+      | parent_hash: Block.hash(parent),
+        proposal: txs,
+        min_fee: fee
+    }
   end
 
   def handle_call(:candidate, _from, state) do
@@ -172,14 +196,14 @@ defmodule Chain.Worker do
 
           other ->
             :io.format("Self generated block is valid but is not accepted: ~p~n", [other])
-            %{state | candidate: nil, parent_hash: nil, proposal: nil}
+            %{state | candidate: nil, parent_hash: nil}
         end
       else
         :io.format("Self generated block is invalid: ~p~n", [
           Block.validate(block, Block.parent(block))
         ])
 
-        %{state | candidate: nil, parent_hash: nil, proposal: nil}
+        %{state | candidate: nil, parent_hash: nil}
       end
     else
       state
@@ -188,12 +212,7 @@ defmodule Chain.Worker do
   end
 
   defp generate_candidate(state = %{parent_hash: nil}) do
-    parent_hash = Block.hash(Chain.peak_block())
-    generate_candidate(%{state | parent_hash: parent_hash})
-  end
-
-  defp generate_candidate(state = %{proposal: nil}) do
-    generate_candidate(%{state | proposal: Chain.Pool.proposal()})
+    generate_candidate(update_parent(state))
   end
 
   defp generate_candidate(state = %{candidate: nil, creds: creds, proposal: txs}) do
