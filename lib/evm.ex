@@ -208,9 +208,9 @@ defmodule Evm do
       # Calculcation initial gas according to yellow paper 6.2
       gas = Transaction.gas_limit(tx)
 
-      bytes = for <<byte::8 <- Transaction.payload(tx)>>, do: byte
-      zeros = Enum.count(bytes, fn x -> x == 0 end)
-      ones = Enum.count(bytes, fn x -> x > 0 end)
+      bytes = for <<byte::8 <- Transaction.payload(tx)>>, byte == 0, do: byte
+      zeros = length(bytes)
+      ones = byte_size(Transaction.payload(tx)) - zeros
 
       gas = gas - zeros * Evm.gas_cost(:GTXDATAZERO)
       gas = gas - ones * Evm.gas_cost(:GTXDATANONZERO)

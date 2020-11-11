@@ -8,6 +8,12 @@
 *.pem
 *.o
 *.pyc
+*.fprof
+*.cprof
+fprof.trace
+blocks.dat
+perf.data
+/test/curl/out.json
 
 # Generated on crash by the VM
 erl_crash.dump
@@ -26,3 +32,5 @@ ttb_last_config
 data_dev/
 data_prod/
 data_test/
+data_prod_old/
+supervise/

@@ -683,7 +683,7 @@ defmodule Chain.Block do
   @spec size(Block.t()) :: non_neg_integer()
   def size(%Block{} = block) do
     # TODO, needs fixed external format
-    byte_size(BertInt.encode!(block))
+    byte_size(:erlang.term_to_binary(export(block)))
   end
 
   @spec logs_bloom(Block.t()) :: <<_::528>>
