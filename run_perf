@@ -8,5 +8,5 @@ export ERL_EPMD_ADDRESS=127.0.0.1
 export MIX_ENV=prod
 mix deps.get
 export ELIXIR_ERL_OPTIONS='+sbwt none -noinput -noshell -sname diode +Mea min'
-export ELIXIR_ERL_OPTIONS="${ELIXIR_ERL_OPTIONS} +JPperf true +S 1"
+export ELIXIR_ERL_OPTIONS="${ELIXIR_ERL_OPTIONS} +JPperf true +S 1 +sbt db"
 exec elixir -S mix run --no-halt

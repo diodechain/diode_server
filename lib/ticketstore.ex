@@ -120,7 +120,7 @@ defmodule TicketStore do
     end
   end
 
-  defp put_ticket(tck, device = <<_::160>>, fleet = <<__::160>>, epoch) when is_integer(epoch) do
+  defp put_ticket(tck, device = <<_::160>>, fleet = <<_f::160>>, epoch) when is_integer(epoch) do
     key = {device, fleet, epoch}
 
     Debouncer.delay(key, fn ->
@@ -131,7 +131,7 @@ defmodule TicketStore do
     Ets.put(__MODULE__, key, tck)
   end
 
-  def find(device = <<_::160>>, fleet = <<__::160>>, epoch) when is_integer(epoch) do
+  def find(device = <<_::160>>, fleet = <<_f::160>>, epoch) when is_integer(epoch) do
     Ets.lookup(__MODULE__, {device, fleet, epoch}, fn ->
       TicketSql.find(device, fleet, epoch)
     end)

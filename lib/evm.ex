@@ -464,16 +464,25 @@ defmodule Evm do
   end
 
   defp cache_account(state, port, address) do
-    values =
+    tree =
       State.ensure_account(state, address)
       |> Chain.Account.tree()
-      |> MerkleTree.to_list()
-      |> Enum.map(fn {k, v} -> [k, v] end)
 
-    cache = [
-      <<"p", length(values)::unsigned-little-size(32), address::unsigned-size(160)>>,
-      values
-    ]
+    # IO.puts("value size: #{MerkleTree.size(tree)}")
+
+    cache =
+      if MerkleTree.size(tree) < 100 do
+        values =
+          MerkleTree.to_list(tree)
+          |> Enum.map(fn {k, v} -> [k, v] end)
+
+        [
+          <<"p", length(values)::unsigned-little-size(32), address::unsigned-size(160)>>,
+          values
+        ]
+      else
+        <<"p", 0xFFFFFFFF::unsigned-little-size(32), address::unsigned-size(160)>>
+      end
 
     true = Port.command(port, cache)
   end

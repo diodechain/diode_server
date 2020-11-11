@@ -37,15 +37,19 @@ defmodule Stats do
   end
 
   def tc!(metric, fun) do
-    parent = Process.get(__MODULE__, "")
-    name = "#{parent}/#{metric}"
-    Process.put(__MODULE__, name)
-    {time, ret} = :timer.tc(fun)
-    incr("#{name}_time", time)
-    incr("#{name}_cnt")
-    Process.put(__MODULE__, parent)
-    {time, ret}
+    {0, fun.()}
   end
+
+  # def tc!(metric, fun) do
+  #   parent = Process.get(__MODULE__, "")
+  #   name = "#{parent}/#{metric}"
+  #   Process.put(__MODULE__, name)
+  #   {time, ret} = :timer.tc(fun)
+  #   incr("#{name}_time", time)
+  #   incr("#{name}_cnt")
+  #   Process.put(__MODULE__, parent)
+  #   {time, ret}
+  # end
 
   def toggle_print() do
     cast(fn state ->
