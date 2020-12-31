@@ -5,7 +5,7 @@ defmodule Diode.Mixfile do
   use Mix.Project
 
   @vsn "0.2.9"
-  @full_vsn "v0.2.9"
+  @full_vsn "v0.2.9-3-g44c02a4-dirty"
 
   def project do
     [
@@ -36,7 +36,7 @@ defmodule Diode.Mixfile do
       {:debouncer, "~> 0.1"},
       {:elixir_make, "~> 0.4", runtime: false},
       {:ex_doc, "~> 0.21.2", only: :dev, runtime: false},
-      {:keccakf1600, "~> 2.0", hex: :keccakf1600_orig},
+      {:keccakf1600, "~> 2.0", github: "hayesgm/erlang-keccakf1600"},
       {:libsecp256k1, "~> 0.1.10"},
       {:plug_cowboy, "~> 1.0.0"},
       {:plug, "~> 1.0"},
