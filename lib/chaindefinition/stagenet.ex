@@ -2,8 +2,11 @@
 # Copyright 2020 IoT Blockchain Technology Corporation LLC (IBTC)
 # Licensed under the Diode License, Version 1.0
 defmodule ChainDefinition.Stagenet do
-  alias ChainDefinition.Voyager
+  alias ChainDefinition.{Voyager, Pioneer}
   @voyager 10
+  @voyager_t1 @voyager - 1
+  @pioneer 20
+  @pioneer_t1 @pioneer - 1
 
   @spec network(any) :: ChainDefinition.t()
   def network(blockheight) when blockheight < @voyager do
@@ -27,11 +30,17 @@ defmodule ChainDefinition.Stagenet do
   end
 
   def hardforks(block) do
-    if Chain.Block.number(block) == @voyager - 1 do
-      state = Voyager.apply(Chain.Block.state(block))
-      Chain.Block.with_state(block, state)
-    else
-      block
+    case Chain.Block.number(block) do
+      @voyager_t1 ->
+        state = Voyager.apply(Chain.Block.state(block))
+        Chain.Block.with_state(block, state)
+
+      @pioneer_t1 ->
+        state = Pioneer.apply(Chain.Block.state(block))
+        Chain.Block.with_state(block, state)
+
+      _ ->
+        block
     end
   end
 
