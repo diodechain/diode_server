@@ -135,6 +135,12 @@ defmodule Diode do
     ret
   end
 
+  def start_subwork(label, fun) do
+    {t, ret} = :timer.tc(fun)
+    puts("  done #{label} after #{Float.round(t / 1_000_000, 3)}s")
+    ret
+  end
+
   def puts(string, format \\ []) do
     if not test_mode?(), do: :io.format("#{string}~n", format)
   end

@@ -13,16 +13,16 @@ defmodule Chain.BlockCache do
             epoch: nil,
             last_final: nil
 
+  defmodule Server do
+    defstruct store_buffer: %{}
+  end
+
   def start_link(ets_extra) do
     GenServer.start_link(__MODULE__, ets_extra, name: __MODULE__)
   end
 
   defp query!(sql, params \\ []) do
     Sql.query!(__MODULE__, sql, params)
-  end
-
-  defp query_async!(sql, params) do
-    Sql.query_async!(__MODULE__, sql, params)
   end
 
   defp with_transaction(fun) do
@@ -39,17 +39,45 @@ defmodule Chain.BlockCache do
       """)
     end)
 
+    :timer.send_interval(1000, :flush)
+
     __MODULE__ = :ets.new(__MODULE__, [:named_table, :compressed, :public] ++ ets_extra)
-
-    # Enum.each(query!("SELECT hash, data FROM blockcache"), fn [hash: hash, data: data] ->
-    #   :ets.insert(__MODULE__, {hash, BertInt.decode!(data)})
-    # end)
-
-    {:ok, __MODULE__}
+    {:ok, %Server{}}
   end
 
   def handle_call({:do_cache, block}, _from, state) do
     {:reply, cache(block), state}
+  end
+
+  def handle_call({:do_cache!, block}, _from, state) do
+    hash = Block.hash(block)
+    {:reply, put_cache(hash, create_cache(block)), state}
+  end
+
+  def handle_cast({:store, hash, cache}, state = %Server{store_buffer: buffer}) do
+    state = %Server{state | store_buffer: Map.put(buffer, hash, cache)}
+
+    if map_size(buffer) > 100 do
+      handle_info(:flush, state)
+    else
+      {:noreply, state}
+    end
+  end
+
+  def handle_info(:flush, state = %Server{store_buffer: []}) do
+    {:noreply, state}
+  end
+
+  def handle_info(:flush, state = %Server{store_buffer: buffer}) do
+    with_transaction(fn db ->
+      for {hash, cache} <- buffer do
+        Sql.query!(db, "REPLACE INTO blockcache (hash, data) VALUES(?1, ?2)",
+          bind: [hash, BertInt.encode!(cache)]
+        )
+      end
+    end)
+
+    {:noreply, %Server{state | store_buffer: %{}}}
   end
 
   def reset() do
@@ -58,12 +86,37 @@ defmodule Chain.BlockCache do
   end
 
   def warmup() do
-    for n <- 0..Chain.peak() do
+    block = Chain.peak_block()
+    hash = Block.hash(block)
+
+    if fetch!(hash) == nil do
+      n = Block.number(block)
+      warmup(0, div(n, 2), n)
+    end
+  end
+
+  defp warmup(a, b, c) when a >= b - 1 or b + 1 >= c do
+    peak = Chain.peak()
+
+    for n <- a..peak do
       if rem(n, 1000) == 0 do
-        Diode.puts("Cache Warmup #{n}")
+        IO.puts("BlockCache initialization #{n}/#{peak}")
       end
 
-      cache(Chain.block(n))
+      block = Chain.block(n)
+      GenServer.call(__MODULE__, {:do_cache!, block}, 60_000)
+
+      if n > 100 and rem(n, 1000) == 0 do
+        last_final(block)
+      end
+    end
+  end
+
+  defp warmup(low, n, high) do
+    if fetch!(Block.hash(Chain.block(n))) == nil do
+      warmup(low, div(n, 2), n)
+    else
+      warmup(n, n + div(high - n, 2), high)
     end
   end
 
@@ -99,7 +152,7 @@ defmodule Chain.BlockCache do
   end
 
   defp fetch!(hash) do
-    Sql.fetch!(__MODULE__, "SELECT data FROM blockcache WHERE hash = ?1", hash)
+    Sql.fetch!(__MODULE__, "SELECT data FROM blockcache WHERE hash = ?1", [hash])
   end
 
   def cache(block) do
@@ -110,7 +163,6 @@ defmodule Chain.BlockCache do
         case fetch!(hash) do
           nil ->
             if :erlang.whereis(__MODULE__) == self() do
-              # :io.format("miss: ~p~n", [Base16.encode(hash)])
               put_cache(hash, create_cache(block))
             else
               GenServer.call(__MODULE__, {:do_cache, block}, 60_000)
@@ -131,11 +183,8 @@ defmodule Chain.BlockCache do
   end
 
   def put_cache(hash, cache) do
-    query_async!("REPLACE INTO blockcache (hash, data) VALUES(?1, ?2)",
-      bind: [hash, BertInt.encode!(cache)]
-    )
-
     :ets.insert(__MODULE__, {hash, cache})
+    GenServer.cast(__MODULE__, {:store, hash, cache})
 
     cache
   end

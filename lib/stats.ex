@@ -3,13 +3,13 @@
 # Licensed under the Diode License, Version 1.0
 defmodule Stats do
   use GenServer
-
+  @key {__MODULE__, :show}
   def init(_args) do
     :timer.send_interval(1000, :tick)
+    :persistent_term.put(@key, false)
 
     {:ok,
      %{
-       show: false,
        counters: %{},
        done_counters: %{}
      }}
@@ -37,23 +37,24 @@ defmodule Stats do
   end
 
   def tc!(metric, fun) do
-    {0, fun.()}
+    if :persistent_term.get(@key) do
+      parent = Process.get(__MODULE__, "")
+      name = "#{parent}/#{metric}"
+      Process.put(__MODULE__, name)
+      {time, ret} = :timer.tc(fun)
+      incr("#{name}_time", time)
+      incr("#{name}_cnt")
+      Process.put(__MODULE__, parent)
+      {time, ret}
+    else
+      {0, fun.()}
+    end
   end
-
-  # def tc!(metric, fun) do
-  #   parent = Process.get(__MODULE__, "")
-  #   name = "#{parent}/#{metric}"
-  #   Process.put(__MODULE__, name)
-  #   {time, ret} = :timer.tc(fun)
-  #   incr("#{name}_time", time)
-  #   incr("#{name}_cnt")
-  #   Process.put(__MODULE__, parent)
-  #   {time, ret}
-  # end
 
   def toggle_print() do
     cast(fn state ->
-      %{state | show: !state.show}
+      :persistent_term.put(@key, !:persistent_term.get(@key))
+      state
     end)
   end
 
@@ -70,7 +71,7 @@ defmodule Stats do
   end
 
   def handle_info(:tick, state) do
-    if state.show do
+    if :persistent_term.get(@key) do
       :io.format(" Stats~n")
       :io.format("====================================================================~n")
 

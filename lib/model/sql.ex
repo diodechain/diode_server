@@ -49,7 +49,7 @@ defmodule Model.Sql do
 
     children =
       Enum.map(databases(), fn {atom, file} ->
-        opts = [name: atom, db_timeout: 30_000, stmt_cache_size: 50]
+        opts = [name: atom, db_timeout: :infinity, stmt_cache_size: 50]
         worker(Sqlitex.Server, [Diode.data_dir(file) |> to_charlist(), opts], id: atom)
       end)
 
@@ -63,9 +63,16 @@ defmodule Model.Sql do
     # Stats.incr({:query, String.first(sql)})
     # :io.format("~p~n", [sql])
 
-    Stats.tc(:query_time, fn ->
-      Sqlitex.Server.query(map_mod(mod), sql, params)
-    end)
+    {time, ret} =
+      Stats.tc!(:query_time, fn ->
+        Sqlitex.Server.query(map_mod(mod), sql, params)
+      end)
+
+    if time > 1000 do
+      IO.puts("Slow SQL #{time / 1000} '#{sql}'")
+    end
+
+    ret
   end
 
   def query!(mod, sql, params \\ []) do

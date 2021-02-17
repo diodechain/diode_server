@@ -16,7 +16,20 @@ defmodule Chain do
 
   @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
   def start_link(ets_extra) do
-    GenServer.start_link(__MODULE__, ets_extra, name: __MODULE__, hibernate_after: 5_000)
+    case GenServer.start_link(__MODULE__, ets_extra, name: __MODULE__, hibernate_after: 5_000) do
+      {:ok, pid} ->
+        Chain.BlockCache.warmup()
+        Diode.puts("====== Chain    ======")
+        peak = peak_block()
+        Diode.puts("Peak  Block: #{Block.printable(peak)}")
+        Diode.puts("Final Block: #{Block.printable(Block.last_final(peak))}")
+        Diode.puts("")
+
+        {:ok, pid}
+
+      error ->
+        error
+    end
   end
 
   @spec init(any()) :: {:ok, Chain.t()}
@@ -26,11 +39,6 @@ defmodule Chain do
 
     _create(ets_extra)
     state = load_blocks()
-
-    Diode.puts("====== Chain    ======")
-    Diode.puts("Peak  Block: #{Block.printable(state.peak)}")
-    Diode.puts("Final Block: #{Block.printable(Block.last_final(state.peak))}")
-    Diode.puts("")
 
     {:ok, state}
   end
@@ -75,7 +83,7 @@ defmodule Chain do
     %{state | by_hash: by_hash}
   end
 
-  defp call(fun, timeout \\ 5000) do
+  defp call(fun, timeout \\ 25000) do
     GenServer.call(__MODULE__, {:call, fun}, timeout)
   end
 
@@ -193,9 +201,7 @@ defmodule Chain do
       ets_lookup(hash, fn ->
         Stats.tc(:sql_block_by_hash, fn ->
           EtsLru.fetch(Chain.Lru, hash, fn ->
-            block = ChainSql.block_by_hash(hash)
-            :io.format("loading block = ~p ~p~n", [Block.number(block), Base16.encode(hash)])
-            block
+            ChainSql.block_by_hash(hash)
           end)
         end)
       end)
@@ -594,11 +600,18 @@ defmodule Chain do
   defp ets_prefetch() do
     _clear()
 
-    for [hash: hash, number: number] <- ChainSql.all_block_hashes(),
-        do: ets_add_placeholder(hash, number)
+    Diode.start_subwork("preloading hashes", fn ->
+      for [hash: hash, number: number] <- ChainSql.all_block_hashes(),
+          do: ets_add_placeholder(hash, number)
+    end)
 
-    for block <- ChainSql.top_blocks(@ets_size), do: ets_add(block)
-    for block <- ChainSql.alt_blocks(), do: ets_add_alt(block)
+    Diode.start_subwork("preloading top blocks", fn ->
+      for block <- ChainSql.top_blocks(@ets_size), do: ets_add(block)
+    end)
+
+    Diode.start_subwork("loading alt blocks", fn ->
+      for block <- ChainSql.alt_blocks(), do: ets_add_alt(block)
+    end)
   end
 
   # Just fetching blocks of a newly adopted chain branch

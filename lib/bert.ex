@@ -20,7 +20,7 @@ defmodule BertInt do
       [ErlangError, :data_error] ->
         term
     end
-    |> :erlang.binary_to_term([:safe])
+    |> :erlang.binary_to_term()
   end
 
   @doc """
