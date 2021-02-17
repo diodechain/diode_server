@@ -135,18 +135,30 @@ defmodule Network.EdgeV2 do
     Network.Server.default_ssl_options(extra)
   end
 
+  def monitor(this, pid) do
+    if self() == this do
+      Process.monitor(pid)
+    else
+      GenServer.call(this, {:monitor, pid})
+    end
+  end
+
   def handle_call(fun, from, state) when is_function(fun) do
     fun.(from, state)
   end
 
-  def handle_call({:portopen, this, ref, flags, portname, device_address}, from, state) do
+  def handle_call({:monitor, pid}, _from, state) do
+    {:reply, Process.monitor(pid), state}
+  end
+
+  def handle_call({:portopen, pid, ref, flags, portname, device_address}, from, state) do
     case PortCollection.get(state.ports, ref) do
       nil ->
-        mon = Process.monitor(this)
+        mon = monitor(state.pid, pid)
 
         client = %PortClient{
           mon: mon,
-          pid: this,
+          pid: pid,
           ref: ref,
           write: String.contains?(flags, "r")
         }
@@ -699,7 +711,7 @@ defmodule Network.EdgeV2 do
   end
 
   defp do_portopen(device_address, this, portname, flags, pid) do
-    mon = Process.monitor(pid)
+    mon = monitor(this, pid)
     ref = random_ref()
 
     #  Receives an open request from another local connected edge worker.
