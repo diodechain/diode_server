@@ -57,7 +57,7 @@ defmodule Mix.Tasks.Compile.GitVersion do
       {version, 0} ->
         Regex.run(~r/v([0-9]+\.[0-9]+\.[0-9]+)(-.*)?/, version)
         |> case do
-          [full_vsn, vsn, _rest] ->
+          [full_vsn, vsn | _rest] ->
             :persistent_term.put(:vsn, vsn)
 
             bin = original = File.read!("mix.exs")
