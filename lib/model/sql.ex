@@ -50,10 +50,14 @@ defmodule Model.Sql do
     children =
       Enum.map(databases(), fn {atom, file} ->
         opts = [name: atom, db_timeout: :infinity, stmt_cache_size: 50]
-        worker(Sqlitex.Server, [Diode.data_dir(file) |> to_charlist(), opts], id: atom)
+
+        %{
+          id: atom,
+          start: {Sqlitex.Server, :start_link, [Diode.data_dir(file) |> to_charlist(), opts]}
+        }
       end)
 
-    children = children ++ [worker(Model.CredSql, [])]
+    children = children ++ [Model.CredSql]
     Supervisor.init(children, strategy: :one_for_one)
   end
 

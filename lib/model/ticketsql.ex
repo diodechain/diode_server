@@ -64,7 +64,7 @@ defmodule Model.TicketSql do
     find(Ticket.device_address(tck), Ticket.fleet_contract(tck), Ticket.epoch(tck))
   end
 
-  def find(device = <<_::160>>, fleet = <<__::160>>, epoch) when is_integer(epoch) do
+  def find(device = <<_::160>>, fleet = <<_fl::160>>, epoch) when is_integer(epoch) do
     Sql.fetch!(
       __MODULE__,
       "SELECT ticket FROM tickets WHERE device = ?1 AND fleet = ?2 AND epoch = ?3",
@@ -76,7 +76,7 @@ defmodule Model.TicketSql do
     delete(Ticket.device_address(tck), Ticket.fleet_contract(tck), Ticket.epoch(tck))
   end
 
-  def delete(device = <<_::160>>, fleet = <<__::160>>, epoch) when is_integer(epoch) do
+  def delete(device = <<_::160>>, fleet = <<_fl::160>>, epoch) when is_integer(epoch) do
     query!(
       "DELETE FROM tickets WHERE device = ?1 AND fleet = ?2 AND epoch = ?3",
       bind: [device, fleet, epoch]

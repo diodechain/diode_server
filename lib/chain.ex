@@ -600,6 +600,11 @@ defmodule Chain do
   defp ets_prefetch() do
     _clear()
 
+    Diode.start_subwork("clearing alt blocks", fn ->
+      ChainSql.clear_alt_blocks()
+      # for block <- ChainSql.alt_blocks(), do: ets_add_alt(block)
+    end)
+
     Diode.start_subwork("preloading hashes", fn ->
       for [hash: hash, number: number] <- ChainSql.all_block_hashes(),
           do: ets_add_placeholder(hash, number)
@@ -607,11 +612,6 @@ defmodule Chain do
 
     Diode.start_subwork("preloading top blocks", fn ->
       for block <- ChainSql.top_blocks(@ets_size), do: ets_add(block)
-    end)
-
-    Diode.start_subwork("clearing alt blocks", fn ->
-      ChainSql.clear_alt_blocks()
-      # for block <- ChainSql.alt_blocks(), do: ets_add_alt(block)
     end)
   end
 
