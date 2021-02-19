@@ -609,8 +609,9 @@ defmodule Chain do
       for block <- ChainSql.top_blocks(@ets_size), do: ets_add(block)
     end)
 
-    Diode.start_subwork("loading alt blocks", fn ->
-      for block <- ChainSql.alt_blocks(), do: ets_add_alt(block)
+    Diode.start_subwork("clearing alt blocks", fn ->
+      ChainSql.clear_alt_blocks()
+      # for block <- ChainSql.alt_blocks(), do: ets_add_alt(block)
     end)
   end
 
