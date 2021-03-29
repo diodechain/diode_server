@@ -227,25 +227,26 @@ defmodule Kademlia do
     end
   end
 
-  defp register_node(state, node_id, server) do
-    if KBuckets.member?(state.network, node_id) do
-      state
-    else
-      node = %KBuckets.Item{
-        node_id: node_id,
-        object: server,
-        last_seen: System.os_time(:second)
-      }
+  defp register_node(state = %Kademlia{network: network}, node_id, server) do
+    node = %KBuckets.Item{
+      node_id: node_id,
+      object: server,
+      last_seen: System.os_time(:second)
+    }
 
-      network = KBuckets.insert_item(state.network, node)
-
-      # Because of bucket size limit, the new node might not get stored
+    network =
       if KBuckets.member?(network, node_id) do
-        redistribute(network, node)
+        KBuckets.update_item(network, node)
+      else
+        KBuckets.insert_item(network, node)
       end
 
-      %{state | network: network}
+    # Because of bucket size limit, the new node might not get stored
+    if KBuckets.member?(network, node_id) do
+      redistribute(network, node)
     end
+
+    %{state | network: network}
   end
 
   def rpc(nodes, call) when is_list(nodes) do
