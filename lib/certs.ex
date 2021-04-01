@@ -1,6 +1,6 @@
 # Diode Server
-# Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
-# Licensed under the Diode License, Version 1.0
+# Copyright 2021 Diode
+# Licensed under the Diode License, Version 1.1
 defmodule Certs do
   def extract(socket) do
     {:ok, cert} = :ssl.peercert(socket)

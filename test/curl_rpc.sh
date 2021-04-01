@@ -1,7 +1,7 @@
 #!/bin/bash
 # Diode Server
-# Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
-# Licensed under the Diode License, Version 1.0
+# Copyright 2021 Diode
+# Licensed under the Diode License, Version 1.1
 if [[ $1 == "" ]]; then
   echo "Need host parameter"
   echo "You can try localhost:8545"

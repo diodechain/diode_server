@@ -1,6 +1,6 @@
 # Diode Server
-# Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
-# Licensed under the Diode License, Version 1.0
+# Copyright 2021 Diode
+# Licensed under the Diode License, Version 1.1
 defmodule Network.PeerHandler do
   use Network.Handler
   alias Chain.BlockCache, as: Block
@@ -223,7 +223,7 @@ defmodule Network.PeerHandler do
       case handle_msg([@publish, block], state) do
         {response, state} ->
           # If we receive a batch that contains a random block, we skip the batch, and
-          # when blocks have been reset we hast reached a known block
+          # when blocks have been reset we have reached a known block
           if state.random_blocks == 0 and state.blocks != [] do
             {:cont, {response, state}}
           else

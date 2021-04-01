@@ -1,11 +1,11 @@
 # Diode Server
-# Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
-# Licensed under the Diode License, Version 1.0
+# Copyright 2021 Diode
+# Licensed under the Diode License, Version 1.1
 defmodule Diode.Mixfile do
   use Mix.Project
 
   @vsn "0.3.1"
-  @full_vsn "v0.3.1-3"
+  @full_vsn "v0.3.1-4-gfd0a2ed"
 
   def project do
     [

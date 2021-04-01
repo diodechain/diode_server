@@ -1,12 +1,13 @@
 # Diode Server
-# Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
-# Licensed under the Diode License, Version 1.0
+# Copyright 2021 Diode
+# Licensed under the Diode License, Version 1.1
 defmodule Model.Sql do
   # Automatically defines child_spec/1
   use Supervisor
 
   defp databases() do
     [
+      {Db.Sync, "sync.sq3"},
       {Db.Cache, "cache.sq3"},
       {Db.Default, "blockchain.sq3"},
       {Db.Tickets, "tickets.sq3"},
@@ -15,6 +16,7 @@ defmodule Model.Sql do
   end
 
   defp map_mod(Chain.BlockCache), do: Db.Cache
+  defp map_mod(Model.SyncSql), do: Db.Sync
   defp map_mod(Model.CredSql), do: Db.Creds
   defp map_mod(Model.TicketSql), do: Db.Tickets
   defp map_mod(Model.KademliaSql), do: Db.Tickets

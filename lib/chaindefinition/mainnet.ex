@@ -1,6 +1,6 @@
 # Diode Server
-# Copyright 2020 IoT Blockchain Technology Corporation LLC (IBTC)
-# Licensed under the Diode License, Version 1.0
+# Copyright 2020 Diode (IBTC)
+# Licensed under the Diode License, Version 1.1
 defmodule ChainDefinition.Mainnet do
   alias ChainDefinition.{Voyager, Pioneer}
 

@@ -1,6 +1,6 @@
 # Diode Server
-# Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
-# Licensed under the Diode License, Version 1.0
+# Copyright 2021 Diode
+# Licensed under the Diode License, Version 1.1
 defmodule Lru do
   @moduledoc """
   Provides Least-Recently-Used Queue with a fixed maximum size

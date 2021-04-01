@@ -1,5 +1,5 @@
 // EVMC Wrapper
-// Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
+// Copyright 2021 Diode
 // Licensed under the GNU General Public License, Version 3.
 #include "libaleth-interpreter/interpreter.h"
 #include "libaleth-interpreter/VM.h"

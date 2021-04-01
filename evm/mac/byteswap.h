@@ -1,5 +1,5 @@
 // EVMC Wrapper
-// Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
+// Copyright 2021 Diode
 // Licensed under the GNU General Public License, Version 3.
 #ifndef MAC_BYTESWAP_H_
 #define MAC_BYTESWAP_H_

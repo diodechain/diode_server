@@ -1,6 +1,6 @@
 # Diode Server
-# Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
-# Licensed under the Diode License, Version 1.0
+# Copyright 2021 Diode
+# Licensed under the Diode License, Version 1.1
 defmodule Network.Server do
   @moduledoc """
     General TLS 1.2 socket server that ensures:

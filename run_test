@@ -1,7 +1,7 @@
 #!/bin/sh
 # Diode Server
-# Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
-# Licensed under the Diode License, Version 1.0
+# Copyright 2021 Diode
+# Licensed under the Diode License, Version 1.1
 rm -rf data_test/
 export MIX_ENV=test
 mix deps.get

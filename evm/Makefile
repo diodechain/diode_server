@@ -1,5 +1,5 @@
 # EVMC Wrapper
-# Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
+# Copyright 2021 Diode
 # Licensed under the GNU General Public License, Version 3.
 CFLAGS=-I. -O2 -g -Wall -Wno-unknown-pragmas
 CXXFLAGS=-std=c++17 $(CFLAGS)
