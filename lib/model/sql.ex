@@ -24,7 +24,7 @@ defmodule Model.Sql do
   defp map_mod(_), do: Db.Default
 
   def start_link() do
-    Application.put_env(:sqlitex, :call_timeout, 30_000)
+    Application.put_env(:sqlitex, :call_timeout, 300_000)
     {:ok, pid} = Supervisor.start_link(__MODULE__, [], name: __MODULE__)
     Model.MerkleSql.init()
     Model.ChainSql.init()
@@ -59,26 +59,14 @@ defmodule Model.Sql do
         }
       end)
 
-    children = children ++ [Model.CredSql]
+    children = children ++ [Model.CredSql, Model.SyncSql]
     Supervisor.init(children, strategy: :one_for_one)
   end
 
   def query(mod, sql, params \\ []) do
-    Stats.incr(:query)
-
-    # Stats.incr({:query, String.first(sql)})
-    # :io.format("~p~n", [sql])
-
-    {time, ret} =
-      Stats.tc!(:query_time, fn ->
-        Sqlitex.Server.query(map_mod(mod), sql, params)
-      end)
-
-    if time > 1000 do
-      IO.puts("Slow SQL #{time / 1000} '#{sql}'")
-    end
-
-    ret
+    Stats.tc(:query, fn ->
+      Sqlitex.Server.query(map_mod(mod), sql, params)
+    end)
   end
 
   def query!(mod, sql, params \\ []) do
@@ -97,15 +85,8 @@ defmodule Model.Sql do
     end
   end
 
-  def lookup!(mod, sql, param1 \\ nil, default \\ nil) do
-    binds =
-      case param1 do
-        nil -> []
-        list when is_list(list) -> [bind: list]
-        other -> [bind: [other]]
-      end
-
-    case query!(mod, sql, binds) do
+  def lookup!(mod, sql, param1 \\ [], default \\ nil) do
+    case query!(mod, sql, bind: List.wrap(param1)) do
       [] -> default
       [[{_key, value}]] -> value
     end

@@ -439,81 +439,67 @@ defmodule Chain do
     |> import_blocks()
   end
 
-  def import_blocks(blocks) when is_list(blocks) do
-    Enum.drop_while(blocks, fn block ->
+  def import_blocks(blocks) do
+    Stream.drop_while(blocks, fn block ->
       block_by_hash?(Block.hash(block))
     end)
     |> do_import_blocks()
   end
 
-  defp do_import_blocks([]) do
-    :ok
-  end
-
   defp do_import_blocks(blocks) do
-    first = hd(blocks)
-    last = List.last(blocks)
-    len = length(blocks)
     ProcessLru.new(:blocks, 10)
+    prev = Enum.at(blocks, 0) |> Block.parent()
 
-    case Block.parent(first) do
-      %Chain.Block{} = block ->
-        # replay block backup list
-        lastblock =
-          Enum.reduce_while(blocks, block, fn nextblock, prevblock ->
-            if prevblock != nil do
-              ProcessLru.put(:blocks, Block.hash(prevblock), prevblock)
+    # replay block backup list
+    lastblock =
+      Stream.with_index(blocks)
+      |> Enum.reduce_while(prev, fn {nextblock, idx}, prevblock ->
+        if prevblock != nil do
+          ProcessLru.put(:blocks, Block.hash(prevblock), prevblock)
+        end
+
+        block_hash = Block.hash(nextblock)
+
+        case block_by_hash(block_hash) do
+          %Chain.Block{} = existing ->
+            {:cont, existing}
+
+          nil ->
+            ret =
+              Stats.tc(:vldt, fn ->
+                Block.validate(nextblock, prevblock)
+              end)
+
+            case ret do
+              %Chain.Block{} = block ->
+                if idx > 3, do: throttle_sync(true)
+
+                Stats.tc(:addblock, fn ->
+                  Chain.add_block(block)
+                end)
+
+                {:cont, block}
+
+              nonblock ->
+                :io.format("Chain.import_blocks(2): Failed with ~p on: ~p~n", [
+                  nonblock,
+                  Block.printable(nextblock)
+                ])
+
+                {:halt, nextblock}
             end
+        end
+      end)
 
-            block_hash = Block.hash(nextblock)
-
-            case block_by_hash(block_hash) do
-              %Chain.Block{} = existing ->
-                {:cont, existing}
-
-              nil ->
-                ret =
-                  Stats.tc(:vldt, fn ->
-                    Block.validate(nextblock, prevblock)
-                  end)
-
-                case ret do
-                  %Chain.Block{} = block ->
-                    if len > 3, do: throttle_sync(true)
-
-                    Stats.tc(:addblock, fn ->
-                      Chain.add_block(block, nextblock == last)
-                    end)
-
-                    {:cont, block}
-
-                  nonblock ->
-                    :io.format("Chain.import_blocks(2): Failed with ~p on: ~p~n", [
-                      nonblock,
-                      Block.printable(nextblock)
-                    ])
-
-                    {:halt, nextblock}
-                end
-            end
-          end)
-
-        finish_sync()
-        lastblock
-
-      nonblock ->
-        :io.format("Chain.import_blocks(1): Failed with parent==~p on: ~p~n", [
-          nonblock,
-          Block.printable(first)
-        ])
-
-        first
+    if is_active_sync() do
+      IO.puts("Finished sync on block #{Block.printable(lastblock)}")
+      finish_sync()
     end
+
+    lastblock
   end
 
-  def throttle_sync(register \\ false, msg \\ "Syncing") do
-    # For better resource usage we only let one process sync at full
-    # throttle
+  def is_active_sync(register \\ false) do
     me = self()
 
     case Process.whereis(:active_sync) do
@@ -523,23 +509,31 @@ defmodule Chain do
           PubSub.publish(:rpc, {:rpc, :syncing, true})
         end
 
-        :io.format("#{msg} ...~n")
+        true
 
       ^me ->
-        :io.format("#{msg} ...~n")
+        true
 
       _other ->
-        :io.format("#{msg} slow ...~n")
-        Process.sleep(5000)
+        false
+    end
+  end
+
+  def throttle_sync(register \\ false, msg \\ "Syncing") do
+    # For better resource usage we only let one process sync at full
+    # throttle
+
+    if is_active_sync(register) do
+      :io.format("#{msg} ...~n")
+    else
+      :io.format("#{msg} (background worker) ...~n")
+      Process.sleep(30_000)
     end
   end
 
   defp finish_sync() do
-    if Process.whereis(:active_sync) == self() do
-      Process.unregister(:active_sync)
-      PubSub.publish(:rpc, {:rpc, :syncing, false})
-      :io.format("Finished syncing!~n")
-    end
+    Process.unregister(:active_sync)
+    PubSub.publish(:rpc, {:rpc, :syncing, false})
   end
 
   def print_transactions(block) do

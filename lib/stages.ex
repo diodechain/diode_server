@@ -15,7 +15,7 @@ defmodule Stages do
       if Diode.dev_mode?() do
         %{stage: 0, ticks: 0, min_conns: 0, min_ticks: 0}
       else
-        %{stage: 0, ticks: 0, min_conns: 2, min_ticks: 4}
+        %{stage: 0, ticks: 0, min_conns: 2, min_ticks: 10}
       end
 
     {:ok, state}
@@ -38,7 +38,7 @@ defmodule Stages do
     state =
       if map_size(conns) >= min_conns do
         if ticks >= min_ticks do
-          if Process.whereis(:active_sync) != nil do
+          if Diode.syncing?() do
             %{state | ticks: 0}
           else
             Diode.start_client_network()

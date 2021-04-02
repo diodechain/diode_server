@@ -34,7 +34,7 @@ defmodule Network.PeerHandler do
     send_hello(
       Map.merge(state, %{
         calls: :queue.new(),
-        blocks: [],
+        blocks: nil,
         random_blocks: 0,
         stable: false,
         msg_count: 0,
@@ -215,26 +215,38 @@ defmodule Network.PeerHandler do
   defp handle_msg([@publish, blocks], state) when is_list(blocks) do
     # For better resource usage we only let one process sync at full
     # throttle
-    len = length(state.blocks)
-    Chain.throttle_sync(len > 10, "Downloading #{len}")
+
+    with %{peak: peak, oldest: oldest} <- state.blocks do
+      len = Block.number(peak) - Block.number(oldest)
+
+      Chain.throttle_sync(
+        len > 10,
+        "Downloading block #{Block.number(oldest)}/#{Block.number(peak)} (#{
+          Chain.peak() - Block.number(oldest)
+        }) from #{name(state)}"
+      )
+    end
 
     # Actual syncing
+    prev_oldest = get_in(state, [:blocks, :oldest])
+
     Enum.reduce_while(blocks, {"ok", state}, fn block, {_, state} ->
       case handle_msg([@publish, block], state) do
-        {response, state} ->
-          # If we receive a batch that contains a random block, we skip the batch, and
-          # when blocks have been reset we have reached a known block
-          if state.random_blocks == 0 and state.blocks != [] do
-            {:cont, {response, state}}
-          else
-            {:halt, {[@response, @publish, "ok"], state}}
-          end
-
-        # Any kind of other errors
-        other ->
-          {:halt, other}
+        {response, state} -> {:cont, {response, state}}
+        other -> {:halt, other}
       end
     end)
+    |> case do
+      {response, state} ->
+        if state.blocks == nil or state.blocks.oldest == prev_oldest do
+          {[@response, @publish, "ok"], state}
+        else
+          {response, state}
+        end
+
+      other ->
+        other
+    end
   end
 
   defp handle_msg([@publish, %Chain.Block{} = block], state) do
@@ -247,7 +259,7 @@ defmodule Network.PeerHandler do
       true ->
         log(state, "Chain.add_block: Skipping existing block #{Block.printable(block)}")
         # delete backup list on first successfull block
-        {[@response, @publish, "ok"], %{state | blocks: []}}
+        {[@response, @publish, "ok"], %{state | blocks: nil}}
     end
   end
 
@@ -298,19 +310,26 @@ defmodule Network.PeerHandler do
 
   # Block is based on unknown predecessor
   # keep block in block backup list
-  defp handle_block(nil, block = %Chain.Block{}, state) do
-    ret =
-      case state.blocks do
-        [] ->
-          {0, [block]}
+  defp handle_block(nil, block = %Chain.Block{}, state = %{blocks: blocks}) do
+    # Checking previous sync jobs
+    case blocks do
+      nil ->
+        parent = Model.SyncSql.search_parent(block)
+        {0, %{peak: block, oldest: parent}}
 
-        blocks ->
-          if Block.parent_hash(hd(blocks)) == Chain.Block.hash(block) do
-            {0, [block | blocks]}
+      %{peak: peak, oldest: oldest} ->
+        if Block.number(oldest) <= Block.number(block) and
+             Block.number(block) <= Block.number(peak) do
+          {0, blocks}
+        else
+          parent = Model.SyncSql.search_parent(block)
+
+          if Block.number(oldest) > Block.number(parent) do
+            {0, %{blocks | oldest: parent}}
           else
             # this happens when there is a new top block created on the remote side
-            if Block.parent_hash(block) == Block.hash(List.last(blocks)) do
-              {0, blocks ++ [block]}
+            if Block.parent_hash(block) == Block.hash(peak) do
+              {0, %{blocks | peak: block}}
             else
               # is this a randomly broadcasted block or a chain re-org?
               # assuming reorg after n blocks
@@ -326,25 +345,42 @@ defmodule Network.PeerHandler do
               end
             end
           end
-      end
-
-    case ret do
+        end
+    end
+    |> case do
       {:error, reason} ->
         {:stop, {:sync_error, reason}, state}
 
       {random_blocks, blocks} ->
-        {[@response, @publish, "missing_parent", Block.parent_hash(hd(blocks))],
-         %{state | blocks: blocks, random_blocks: random_blocks}}
+        # if a search_parent() returns a known block we start the syncs
+        if Chain.block_by_hash?(Chain.Block.parent_hash(blocks.oldest)) do
+          handle_block(
+            Chain.block_by_hash(Chain.Block.parent_hash(blocks.oldest)),
+            blocks.oldest,
+            %{state | blocks: blocks, random_blocks: random_blocks}
+          )
+
+          # otherwise keep asking for more blocks
+        else
+          {[@response, @publish, "missing_parent", Block.parent_hash(blocks.oldest)],
+           %{state | blocks: blocks, random_blocks: random_blocks}}
+        end
     end
   end
 
   defp handle_block(_parent, block, state) do
-    if Chain.import_blocks([block | state.blocks]) do
-      # delete backup list on first successfull block
-      {[@response, @publish, "ok"], %{state | blocks: []}}
+    if Chain.is_active_sync(true) do
+      Stream.concat([block], Model.SyncSql.resolve(state.blocks))
+      |> Chain.import_blocks()
+      |> if do
+        # delete backup list on first successfull block
+        {[@response, @publish, "ok"], %{state | blocks: nil, random_blocks: 0}}
+      else
+        err = "sync failed"
+        {:stop, {:validation_error, err}, state}
+      end
     else
-      err = "sync failed"
-      {:stop, {:validation_error, err}, state}
+      {[@response, @publish, "ok"], state}
     end
   end
 

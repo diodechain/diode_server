@@ -59,6 +59,10 @@ defmodule Model.ChainSql do
           )
       """)
     end)
+
+    with %Chain.Block{} = block <- peak_block() do
+      Model.SyncSql.clean_before(Chain.Block.number(block))
+    end
   end
 
   def set_final(block) do

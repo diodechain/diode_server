@@ -491,7 +491,7 @@ defmodule Evm do
   defp loop({:cont, evm}) do
     receive do
       {_port, {:data, data}} ->
-        id = "process_#{String.slice(data, 0..1)}" |> String.to_atom()
+        id = "process_#{binary_part(data, 0, 2)}"
         loop(Stats.tc(id, fn -> process_data(data, evm) end))
 
       {'EXIT', _port, _reason} ->

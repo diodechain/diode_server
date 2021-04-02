@@ -18,7 +18,7 @@ defmodule Network.Handler do
 
       def init({state, [:connect, node_id, address, port]}) do
         Process.link(state.server_pid)
-        log({node_id, address, port}, "Creating connect worker")
+        log({node_id, address}, "Creating connect worker")
         {:ok, state, {:continue, [:connect, node_id, address, port]}}
       end
 
@@ -63,7 +63,7 @@ defmodule Network.Handler do
               on_nodeid(remote_id)
             end
 
-            enter_loop(Map.put(state, :socket, socket))
+            enter_loop(Map.merge(state, %{socket: socket, address: address}))
 
           other ->
             log(
@@ -86,13 +86,14 @@ defmodule Network.Handler do
             {:ok, {address, port}} = :ssl.peername(socket)
             remote_id = Wallet.from_pubkey(Certs.extract(socket))
 
-            state = %{
-              socket: socket,
-              node_id: remote_id,
-              node_address: address,
-              node_port: port,
-              server_port: nil
-            }
+            state =
+              Map.merge(state, %{
+                socket: socket,
+                node_id: remote_id,
+                node_address: address,
+                node_port: port,
+                server_port: nil
+              })
 
             # register ensure this process is stored under the correct remote_id
             # and also ensure setops(active:true) is not sent before server.ex
@@ -163,12 +164,24 @@ defmodule Network.Handler do
         :ssl.setopts(socket, [{:raw, level, opt, <<value::unsigned-little-size(32)>>}])
       end
 
-      def name(%{node_id: node_id, node_address: node_address, node_port: node_port}) do
-        name({node_id, node_address, node_port})
+      def name(%{node_id: node_id, address: node_address, node_port: node_port})
+          when node_address != nil do
+        name({node_id, node_address})
       end
 
-      def name({node_id, node_address, node_port}) do
-        :io_lib.format("~s @ ~0p", [Wallet.nick(node_id), {node_address, node_port}])
+      def name(%{node_id: node_id, node_address: node_address, node_port: node_port}) do
+        name({node_id, node_address})
+      end
+
+      def name({_node_id, node_address}) do
+        address =
+          case node_address do
+            tuple when is_tuple(tuple) -> List.to_string(:inet.ntoa(tuple))
+            other -> other
+          end
+
+        # :io_lib.format("~s @ ~s", [Wallet.nick(node_id), node_address])
+        node_address
       end
 
       def name(nil) do
@@ -177,7 +190,7 @@ defmodule Network.Handler do
 
       def log(state, format, args \\ []) do
         mod = List.last(Module.split(__MODULE__))
-        :io.format("~p ~s: ~s: ~s~n", [self(), mod, name(state), format(format, args)])
+        :io.format("~s: ~s ~s~n", [mod, name(state), format(format, args)])
       end
 
       defp format(format, vars) do
