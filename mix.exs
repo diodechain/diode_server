@@ -5,7 +5,7 @@ defmodule Diode.Mixfile do
   use Mix.Project
 
   @vsn "0.3.1"
-  @full_vsn "v0.3.1-4-gfd0a2ed"
+  @full_vsn "v0.3.1-5-ged1e2b9-dirty"
 
   def project do
     [
@@ -49,7 +49,7 @@ defmodule Diode.Mixfile do
       {:plug_cowboy, "~> 1.0.0"},
       {:plug, "~> 1.0"},
       {:poison, "~> 3.0"},
-      {:profiler, "~> 0.1"},
+      {:profiler, github: "dominicletz/profiler"},
       {:sqlitex, github: "diodechain/sqlitex"},
       {:while, "~> 0.2"}
     ]
