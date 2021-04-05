@@ -6,7 +6,7 @@ defmodule Stats do
   @key {__MODULE__, :show}
   def init(_args) do
     :timer.send_interval(1000, :tick)
-    :persistent_term.put(@key, false)
+    :persistent_term.put(@key, 0)
 
     {:ok,
      %{
@@ -51,9 +51,14 @@ defmodule Stats do
     end
   end
 
-  def toggle_print() do
+  def toggle_print(intervall \\ 1) when is_integer(intervall) do
     cast(fn state ->
-      :persistent_term.put(@key, !:persistent_term.get(@key))
+      if :persistent_term.get(@key) <= 0 do
+        :persistent_term.put(@key, intervall)
+      else
+        :persistent_term.put(@key, 0)
+      end
+
       state
     end)
   end
@@ -71,17 +76,26 @@ defmodule Stats do
   end
 
   def handle_info(:tick, state) do
-    if :persistent_term.get(@key) do
-      :io.format(" Stats~n")
-      :io.format("====================================================================~n")
+    if :persistent_term.get(@key) > 0 do
+      case Process.get(:batch, :persistent_term.get(@key)) do
+        0 ->
+          :io.format(" Stats~n")
+          :io.format("====================================================================~n")
 
-      for {key, value} <- Enum.sort(state.done_counters) do
-        :io.format("| ~s: ~14B |~n", [String.pad_trailing("#{key}", 48), value])
+          for {key, value} <- Enum.sort(state.done_counters) do
+            :io.format("| ~s: ~14B |~n", [String.pad_trailing("#{key}", 48), value])
+          end
+
+          :io.format("====================================================================~n~n")
+          Process.put(:batch, :persistent_term.get(@key))
+          {:noreply, %{state | done_counters: state.counters, counters: %{}}}
+
+        x ->
+          Process.put(:batch, x - 1)
+          {:noreply, state}
       end
-
-      :io.format("====================================================================~n~n")
+    else
+      {:noreply, %{state | done_counters: state.counters, counters: %{}}}
     end
-
-    {:noreply, %{state | done_counters: state.counters, counters: %{}}}
   end
 end

@@ -39,7 +39,8 @@ defmodule Network.PeerHandler do
         stable: false,
         msg_count: 0,
         start_time: System.os_time(:second),
-        server: nil
+        server: nil,
+        job: nil
       })
     )
   end
@@ -53,6 +54,18 @@ defmodule Network.PeerHandler do
     send!(state, call)
     calls = :queue.in({call, nil}, state.calls)
     {:noreply, %{state | calls: calls}}
+  end
+
+  def handle_cast({:sync_done, ret}, state) do
+    case ret do
+      %Chain.Block{} ->
+        # delete backup list on first successfull block
+        {:noreply, %{state | blocks: nil, random_blocks: 0, job: nil}}
+
+      _error ->
+        err = "sync failed"
+        {:stop, {:validation_error, err}, state}
+    end
   end
 
   def handle_call({:rpc, call}, from, state) do
@@ -368,17 +381,20 @@ defmodule Network.PeerHandler do
     end
   end
 
-  defp handle_block(_parent, block, state) do
-    if Chain.is_active_sync(true) do
-      Stream.concat([block], Model.SyncSql.resolve(state.blocks))
-      |> Chain.import_blocks()
-      |> if do
-        # delete backup list on first successfull block
-        {[@response, @publish, "ok"], %{state | blocks: nil, random_blocks: 0}}
-      else
-        err = "sync failed"
-        {:stop, {:validation_error, err}, state}
-      end
+  defp handle_block(_parent, block, state = %{job: job}) do
+    if Chain.is_active_sync(true) and job == nil do
+      me = self()
+
+      job =
+        spawn_link(fn ->
+          ret =
+            Stream.concat([block], Model.SyncSql.resolve(state.blocks))
+            |> Chain.import_blocks()
+
+          GenServer.cast(me, {:sync_done, ret})
+        end)
+
+      {[@response, @publish, "ok"], %{state | job: job}}
     else
       {[@response, @publish, "ok"], state}
     end

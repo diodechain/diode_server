@@ -564,7 +564,8 @@ defmodule Chain.Block do
         other -> binary_part(other, 0, 5) |> Base16.encode(false)
       end
 
-    "##{Block.number(block)}[#{prefix}] @#{author}"
+    len = length(transactions(block))
+    "##{Block.number(block)}[#{prefix}](#{len} TX) @#{author}"
   end
 
   def blockquick_window(block, parent \\ nil)

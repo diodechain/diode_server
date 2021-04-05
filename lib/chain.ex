@@ -452,8 +452,7 @@ defmodule Chain do
 
     # replay block backup list
     lastblock =
-      Stream.with_index(blocks)
-      |> Enum.reduce_while(prev, fn {nextblock, idx}, prevblock ->
+      Enum.reduce_while(blocks, prev, fn nextblock, prevblock ->
         if prevblock != nil do
           ProcessLru.put(:blocks, Block.hash(prevblock), prevblock)
         end
@@ -472,8 +471,6 @@ defmodule Chain do
 
             case ret do
               %Chain.Block{} = block ->
-                if idx > 3, do: throttle_sync(true)
-
                 Stats.tc(:addblock, fn ->
                   Chain.add_block(block)
                 end)
@@ -486,16 +483,12 @@ defmodule Chain do
                   Block.printable(nextblock)
                 ])
 
-                {:halt, nextblock}
+                {:halt, nonblock}
             end
         end
       end)
 
-    if is_active_sync() do
-      IO.puts("Finished sync on block #{Block.printable(lastblock)}")
-      finish_sync()
-    end
-
+    finish_sync()
     lastblock
   end
 
