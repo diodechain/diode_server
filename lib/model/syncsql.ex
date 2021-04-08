@@ -115,6 +115,10 @@ defmodule Model.SyncSql do
     query!("DELETE FROM blocks WHERE number < ?1", [peaknumber])
   end
 
+  def free_space() do
+    query!("VACUUM", [])
+  end
+
   def handle_call(
         {:resolve, %{oldest: _oldest, peak: peak}},
         _from,

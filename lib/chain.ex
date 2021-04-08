@@ -527,6 +527,11 @@ defmodule Chain do
   defp finish_sync() do
     Process.unregister(:active_sync)
     PubSub.publish(:rpc, {:rpc, :syncing, false})
+
+    spawn(fn ->
+      Model.SyncSql.clean_before(Chain.peak())
+      Model.SyncSql.free_space()
+    end)
   end
 
   def print_transactions(block) do
