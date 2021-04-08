@@ -18,7 +18,7 @@ defmodule HeapMerkleTree do
 
   @spec new() :: merkle()
   def new() do
-    tree = update_merkle_hash_count({:leaf, nil, "", %{}})
+    tree = update_merkle_hash_count({:leaf, nil, "", %{}}, %{})
     {__MODULE__, %{}, tree}
   end
 
@@ -30,7 +30,7 @@ defmodule HeapMerkleTree do
 
   @spec root_hashes(merkle()) :: [hash_type()]
   def root_hashes({__MODULE__, _options, tree}) do
-    update_merkle_hash_count(tree)
+    update_merkle_hash_count(tree, %{})
     |> merkle_hashes()
   end
 
@@ -69,7 +69,7 @@ defmodule HeapMerkleTree do
       update_bucket(tree, hash(bkey), fn {:leaf, _hash_count, prefix, bucket} ->
         {:leaf, nil, prefix, Map.delete(bucket, bkey)}
       end)
-      |> update_merkle_hash_count()
+      |> update_merkle_hash_count(%{})
 
     {__MODULE__, options, tree}
   end
@@ -91,21 +91,27 @@ defmodule HeapMerkleTree do
 
   @spec insert_items(merkle(), [item()]) :: merkle()
   def insert_items({__MODULE__, options, tree}, items) do
-    tree =
-      Enum.reduce(items, tree, fn {key, value}, acc ->
+    {tree, hashes} =
+      Enum.reduce(items, {tree, %{}}, fn {key, value}, {acc, hashes} ->
         bkey = to_binary(key)
+        hash = hash(bkey)
 
-        update_bucket(acc, hash(bkey), fn {:leaf, _hash_count, prefix, bucket} ->
-          bucket =
-            case to_binary(value) do
-              <<0::unsigned-size(256)>> -> Map.delete(bucket, bkey)
-              value -> Map.put(bucket, bkey, value)
-            end
+        tree =
+          update_bucket(acc, hash, fn {:leaf, _hash_count, prefix, bucket} ->
+            bucket =
+              case to_binary(value) do
+                <<0::unsigned-size(256)>> -> Map.delete(bucket, bkey)
+                value -> Map.put(bucket, bkey, value)
+              end
 
-          {:leaf, nil, prefix, bucket}
-        end)
+            {:leaf, nil, prefix, bucket}
+          end)
+
+        hashes = Map.put(hashes, bkey, hash)
+        {tree, hashes}
       end)
-      |> update_merkle_hash_count()
+
+    tree = update_merkle_hash_count(tree, hashes)
 
     {__MODULE__, options, tree}
   end
@@ -169,9 +175,12 @@ defmodule HeapMerkleTree do
     Diode.hash(value)
   end
 
-  @spec key(item()) :: binary()
   defp key({key, _value}) do
     hash(key)
+  end
+
+  defp key({key, _value}, hashes) do
+    Map.get(hashes, key) || hash(key)
   end
 
   defp decide(hash, prefix) do
@@ -220,12 +229,11 @@ defmodule HeapMerkleTree do
     rem(lastb, @leaf_size)
   end
 
-  @spec update_merkle_hash_count(tree()) :: tree()
-  defp update_merkle_hash_count({:node, nil, prefix, left, right}) do
-    left = update_merkle_hash_count(left)
+  defp update_merkle_hash_count({:node, nil, prefix, left, right}, hashes) do
+    left = update_merkle_hash_count(left, hashes)
     {hashesl, countl} = merkle_hash_count(left)
 
-    right = update_merkle_hash_count(right)
+    right = update_merkle_hash_count(right, hashes)
     {hashesr, countr} = merkle_hash_count(right)
 
     count = countl + countr
@@ -234,7 +242,7 @@ defmodule HeapMerkleTree do
       items = do_to_list({:node, nil, prefix, left, right})
 
       {:leaf, nil, prefix, Map.new(items)}
-      |> update_merkle_hash_count()
+      |> update_merkle_hash_count(hashes)
     else
       hashes =
         :lists.zipwith(
@@ -249,15 +257,15 @@ defmodule HeapMerkleTree do
     end
   end
 
-  defp update_merkle_hash_count({:leaf, nil, prefix, bucket}) do
+  defp update_merkle_hash_count({:leaf, nil, prefix, bucket}, hashes) do
     count = map_size(bucket)
     # Need to split
     if count > @leaf_size do
-      {left, right} = Enum.split_with(bucket, fn item -> decide(key(item), prefix) end)
+      {left, right} = Enum.split_with(bucket, fn item -> decide(key(item, hashes), prefix) end)
 
       {:node, nil, prefix, {:leaf, nil, <<prefix::bitstring, @left::bitstring>>, Map.new(left)},
        {:leaf, nil, <<prefix::bitstring, @right::bitstring>>, Map.new(right)}}
-      |> update_merkle_hash_count()
+      |> update_merkle_hash_count(hashes)
     else
       hashes =
         bucket_to_leafes(bucket, prefix)
@@ -267,7 +275,7 @@ defmodule HeapMerkleTree do
     end
   end
 
-  defp update_merkle_hash_count(tree) do
+  defp update_merkle_hash_count(tree, _hashes) do
     tree
   end
 
