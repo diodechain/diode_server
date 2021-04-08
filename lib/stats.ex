@@ -83,7 +83,17 @@ defmodule Stats do
           :io.format("====================================================================~n")
 
           for {key, value} <- Enum.sort(state.done_counters) do
-            :io.format("| ~s: ~14B |~n", [String.pad_trailing("#{key}", 48), value])
+            key = "#{key}"
+            len = byte_size(key)
+
+            key =
+              if len > 48 do
+                "..." <> binary_part(key, len - 45, 45)
+              else
+                String.pad_trailing(key, 48)
+              end
+
+            :io.format("| ~s: ~14B |~n", [key, value])
           end
 
           :io.format("====================================================================~n~n")
