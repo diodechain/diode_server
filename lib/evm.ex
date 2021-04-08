@@ -204,12 +204,20 @@ defmodule Evm do
       Transaction.gas_limit(tx)
     end
 
+    use Tinycc
+
+    defc :count_zeros, [str: :binary], ret: :int do
+      """
+      ret = 0;
+      while(str->size--) if (*str->data++ == 0) ret++;
+      """
+    end
+
     def gas(%Task{tx: tx}) do
       # Calculcation initial gas according to yellow paper 6.2
       gas = Transaction.gas_limit(tx)
 
-      bytes = for <<byte::8 <- Transaction.payload(tx)>>, byte == 0, do: byte
-      zeros = length(bytes)
+      {:ok, [zeros]} = count_zeros([Transaction.payload(tx)])
       ones = byte_size(Transaction.payload(tx)) - zeros
 
       gas = gas - zeros * Evm.gas_cost(:GTXDATAZERO)
