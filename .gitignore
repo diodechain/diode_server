@@ -19,6 +19,7 @@ perf.data
 erl_crash.dump
 
 /states
+/binlogs
 /.vscode
 /config/*.secret.exs
 .elixir_ls/
