@@ -267,25 +267,15 @@ defmodule Chain.Block do
   def create(%Block{} = parent, transactions, miner, time, trace? \\ false) do
     block = create_empty(parent, miner, time)
 
-    {diff, block} =
-      Stats.tc!(:tx, fn ->
-        Enum.reduce(transactions, block, fn %Transaction{} = tx, block ->
-          case append_transaction(block, tx, trace?) do
-            {:error, _err} -> block
-            {:ok, block} -> block
-          end
-        end)
+    Stats.tc(:tx, fn ->
+      Enum.reduce(transactions, block, fn %Transaction{} = tx, block ->
+        case append_transaction(block, tx, trace?) do
+          {:error, _err} -> block
+          {:ok, block} -> block
+        end
       end)
-
-    if diff > 50_000 and block.header.previous_block != nil do
-      IO.puts(
-        "Slow block #{length(transactions)}txs: #{diff / 1000}ms parent:(#{
-          Base16.encode(block.header.previous_block)
-        })"
-      )
-    end
-
-    finalize_header(block)
+    end)
+    |> finalize_header()
   end
 
   @doc "Creates a new block and stores the generated state in cache file"
