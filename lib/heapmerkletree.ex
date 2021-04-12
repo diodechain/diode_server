@@ -22,6 +22,16 @@ defmodule HeapMerkleTree do
     {__MODULE__, %{}, tree}
   end
 
+  def compact(tree) do
+    MapMerkleTree.new()
+    |> MerkleTree.insert_items(MerkleTree.to_list(tree))
+  end
+
+  @spec merkle(merkle()) :: merkle()
+  def merkle(merkle) do
+    merkle
+  end
+
   @spec root_hash(merkle()) :: hash_type()
   def root_hash(merkle) do
     root_hashes(merkle)

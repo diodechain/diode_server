@@ -299,7 +299,11 @@ defmodule Model.ChainSql do
   end
 
   defp prepare_state(block) do
-    state = %Chain.State{} = Block.state(block)
+    state =
+      %Chain.State{} =
+      Block.state(block)
+      |> Chain.State.compact()
+
     nr = Block.number(block)
 
     if nr > 0 and rem(nr, 100) == 1 do

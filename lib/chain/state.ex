@@ -5,11 +5,20 @@ defmodule Chain.State do
   alias Chain.Account
 
   # @enforce_keys [:store]
-  defstruct accounts: %{}, hash: nil
+  defstruct accounts: %{}, hash: nil, store: nil
   @type t :: %Chain.State{accounts: %{}, hash: nil}
 
   def new() do
     %Chain.State{}
+  end
+
+  def compact(%Chain.State{accounts: accounts} = state) do
+    accounts =
+      Enum.map(accounts, fn {id, acc} -> {id, Account.compact(acc)} end)
+      |> Map.new()
+
+    %Chain.State{state | accounts: accounts}
+    |> Map.delete(:store)
   end
 
   def normalize(%Chain.State{hash: nil, accounts: accounts} = state) do
@@ -18,18 +27,38 @@ defmodule Chain.State do
       |> Enum.map(fn {id, acc} -> {id, Account.normalize(acc)} end)
       |> Map.new()
 
-    state = %{state | accounts: accounts}
-    %{state | hash: hash(state)}
+    state = %Chain.State{state | accounts: accounts}
+    # store: can be non-existing because of later addition to the schema
+    state = Map.put(state, :store, tree(state))
+    %Chain.State{state | hash: hash(state)}
   end
 
   def normalize(%Chain.State{} = state) do
     state
   end
 
+  # store: can be non-existing because of later addition to the schema
+  def tree(%Chain.State{accounts: accounts, store: store}) when is_tuple(store) do
+    items =
+      Enum.map(accounts, fn {id, acc} -> {id, Account.hash(acc)} end)
+      |> Map.new()
+
+    store =
+      Enum.reduce(MerkleTree.to_list(store), store, fn {id, _hash}, store ->
+        if not Map.has_key?(items, id) do
+          MerkleTree.delete(store, id)
+        else
+          store
+        end
+      end)
+
+    MerkleTree.insert_items(store, items)
+  end
+
   def tree(%Chain.State{accounts: accounts}) do
     items = Enum.map(accounts, fn {id, acc} -> {id, Account.hash(acc)} end)
 
-    MapMerkleTree.new()
+    MerkleTree.new()
     |> MerkleTree.insert_items(items)
   end
 

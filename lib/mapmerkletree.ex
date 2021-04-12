@@ -12,9 +12,12 @@ defmodule MapMerkleTree do
   # ========================================================
   # Wrapper functions for the impls
   # ========================================================
+  def compact(tree) do
+    tree
+  end
+
   def merkle(tree) do
-    HeapMerkleTree.new()
-    |> MerkleTree.insert_items(to_list(tree))
+    MerkleTree.copy(tree, MerkleTree2)
   end
 
   def root_hash(tree) do

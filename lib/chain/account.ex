@@ -41,11 +41,22 @@ defmodule Chain.Account do
     root_hash
   end
 
+  def compact(%Chain.Account{} = acc) do
+    tree = MerkleTree.compact(tree(acc))
+
+    if MerkleTree.size(tree) == 0 do
+      %Chain.Account{acc | storage_root: nil}
+    else
+      %Chain.Account{acc | storage_root: tree}
+    end
+  end
+
   def normalize(%Chain.Account{root_hash: hash} = acc) when is_binary(hash) do
     acc
   end
 
   def normalize(%Chain.Account{root_hash: nil} = acc) do
+    acc = %Chain.Account{acc | storage_root: MerkleTree.merkle(tree(acc))}
     %Chain.Account{acc | root_hash: root_hash(acc)}
   end
 

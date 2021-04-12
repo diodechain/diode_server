@@ -36,7 +36,7 @@ defmodule ChainTest do
          code: Rlpx.bin2addr(state["code"]),
          nonce: Rlpx.bin2num(state["nonce"]),
          storage_root:
-           Enum.reduce(state["storage"], HeapMerkleTree.new(), fn {key, value}, tree ->
+           Enum.reduce(state["storage"], MerkleTree.new(), fn {key, value}, tree ->
              MerkleTree.insert(tree, Rlpx.hex2num(key), Rlpx.bin2num(value))
            end)
        }}

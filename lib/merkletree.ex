@@ -15,7 +15,7 @@ defmodule MerkleTree do
   # Public Functions only in the facade
   # ========================================================
   def new() do
-    HeapMerkleTree.new()
+    MerkleTree2.new()
   end
 
   def copy({mod, _opts, _tree} = merkle) do
@@ -56,6 +56,16 @@ defmodule MerkleTree do
   # ========================================================
   # Wrapper functions for the impls
   # ========================================================
+  @spec compact(merkle()) :: merkle()
+  def compact({mod, _opts, _tree} = merkle) do
+    mod.compact(merkle)
+  end
+
+  @spec merkle(merkle()) :: merkle()
+  def merkle({mod, _opts, _tree} = merkle) do
+    mod.merkle(merkle)
+  end
+
   @spec root_hash(merkle()) :: hash_type()
   def root_hash({mod, _opts, _tree} = merkle) do
     mod.root_hash(merkle)
