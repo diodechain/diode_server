@@ -27,5 +27,5 @@
   "sha3": {:hex, :sha3, "2.0.0", "fbe5db75a8389fdc810b682446c053b91e591d38d5422808f3a702ed2b270515", [:rebar3], [{:hex2bin, "1.0.0", [hex: :hex2bin, repo: "hexpm", optional: false]}], "hexpm"},
   "sqlitex": {:git, "https://github.com/diodechain/sqlitex.git", "73e932cfb13ee8dc5b49def474583846dfefda96", []},
   "tinycc": {:git, "https://github.com/dominicletz/tinycc.git", "afdfb7571ca42c8fea023bfddb047c26be7f4dc8", []},
-  "while": {:hex, :while, "0.2.2", "027baa0b81f26601d98737e02aeb806cff90a2cf1505f7abbe7a85772acd0abb", [:mix], [], "hexpm", "d4feac3e2a73a3bf3d28409cc81ab7cbfee9371a918c33a41df246ddedfc1472"},
+  "while": {:hex, :while, "0.2.3", "71a85cca7c979baad2d2968d390dda41527056b81c22a5b422e8cc4d02697f30", [:mix], [], "hexpm", "49e40bd15c219325e2586d1d7166b561e74b90bc02f2ad35890b0346d37ebadb"},
 }
