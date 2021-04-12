@@ -309,7 +309,7 @@ defmodule Chain.Block do
     end)
   end
 
-  def append_transaction(%Block{transactions: txs, receipts: rcpts} = block, tx, trace?) do
+  def append_transaction(%Block{transactions: txs, receipts: rcpts} = block, tx, trace? \\ false) do
     if not has_state?(block) do
       throw(:requires_embedded_state)
     end

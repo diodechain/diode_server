@@ -166,13 +166,9 @@ defmodule Chain.Worker do
     state = generate_candidate(state)
     %{creds: creds, candidate: candidate, target: target} = state
 
-    candidate = Block.set_timestamp(candidate, System.os_time(:second))
-
     block =
       Enum.reduce_while(1..100, candidate, fn _, candidate ->
-        candidate =
-          Block.increment_nonce(candidate)
-          |> Block.sign(creds)
+        candidate = update_block(candidate, creds)
 
         hash = Block.hash(candidate) |> Hash.integer()
 
@@ -211,16 +207,38 @@ defmodule Chain.Worker do
     |> activate_timer()
   end
 
-  defp generate_candidate(state = %{parent_hash: nil}) do
-    generate_candidate(update_parent(state))
+  defp generate_candidate(
+         state = %Worker{parent_hash: parent_hash, candidate: block, creds: creds, proposal: txs}
+       ) do
+    state =
+      if parent_hash == nil do
+        update_parent(state)
+      else
+        state
+      end
+
+    now = System.os_time(:second)
+
+    if block != nil and abs(now - Block.timestamp(block)) < 10 do
+      state
+    else
+      prev_hash = parent_hash(state)
+      parent = %Chain.Block{} = Chain.block_by_hash(prev_hash)
+      block = build_block(parent, txs, creds, now)
+      target = Block.hash_target(block)
+
+      %Worker{
+        state
+        | candidate: block,
+          target: target,
+          proposal: Chain.Pool.proposal()
+      }
+    end
   end
 
-  defp generate_candidate(state = %{candidate: nil, creds: creds, proposal: txs}) do
-    prev_hash = parent_hash(state)
-    parent = %Chain.Block{} = Chain.block_by_hash(prev_hash)
+  def build_block(parent, txs, creds, timestamp \\ System.os_time(:second)) do
     miner = Wallet.address!(creds)
-
-    block = Block.create_empty(parent, creds, System.os_time(:second))
+    block = Block.create_empty(parent, creds, timestamp)
     position = ChainDefinition.block_reward_position(Block.number(block))
 
     {:ok, block} =
@@ -263,7 +281,7 @@ defmodule Chain.Worker do
         used = Block.gas_used(block)
         fees = Block.gas_fees(block)
 
-        tx =
+        tx2 =
           %Transaction{
             nonce: Chain.State.ensure_account(Block.state(block), miner) |> Chain.Account.nonce(),
             gasPrice: 0,
@@ -274,24 +292,19 @@ defmodule Chain.Worker do
           }
           |> Transaction.sign(Wallet.privkey!(creds))
 
-        Block.append_transaction(block, tx)
+        Block.append_transaction(block, tx2)
       else
         {:ok, block}
       end
 
-    block = Block.finalize_header(block)
-    target = Block.hash_target(block)
-
-    generate_candidate(%{
-      state
-      | candidate: block,
-        target: target,
-        proposal: Chain.Pool.proposal()
-    })
+    Block.finalize_header(block)
+    |> update_block(creds)
   end
 
-  defp generate_candidate(state) do
-    state
+  def update_block(block, creds) do
+    block
+    |> Block.increment_nonce()
+    |> Block.sign(creds)
   end
 
   # Disabled to keep nonce same in tests, if nonce changes contract addresses change :-(
