@@ -207,11 +207,10 @@ defmodule Chain.Worker do
     |> activate_timer()
   end
 
-  defp generate_candidate(
-         state = %Worker{parent_hash: parent_hash, candidate: block, creds: creds, proposal: txs}
-       ) do
+  defp generate_candidate(state = %Worker{}) do
     state =
-      if parent_hash == nil do
+      %Worker{candidate: block, creds: creds, proposal: txs} =
+      if parent_hash(state) == nil do
         update_parent(state)
       else
         state
