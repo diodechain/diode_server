@@ -173,15 +173,15 @@ defmodule Network.Handler do
         name({node_id, node_address})
       end
 
-      def name({_node_id, node_address}) do
-        address =
-          case node_address do
-            tuple when is_tuple(tuple) -> List.to_string(:inet.ntoa(tuple))
-            other -> other
-          end
+      def name({node_id, node_address, _port}) do
+        name({node_id, node_address})
+      end
 
-        # :io_lib.format("~s @ ~s", [Wallet.nick(node_id), node_address])
-        node_address
+      def name({_node_id, node_address}) do
+        case node_address do
+          tuple when is_tuple(tuple) -> List.to_string(:inet.ntoa(tuple))
+          other -> other
+        end
       end
 
       def name(nil) do
