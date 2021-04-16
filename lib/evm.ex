@@ -204,17 +204,17 @@ defmodule Evm do
       Transaction.gas_limit(tx)
     end
 
-    use Tinycc
+    use Niffler
 
-    defc :count_zeros, [str: :binary], ret: :int do
+    defnif :count_zeros, [str: :binary], ret: :int do
       """
       ret = 0;
-      while(str->size--) if (*str->data++ == 0) ret++;
+      while(str.size--) if (*str.data++ == 0) ret++;
       """
     end
 
     def gas(%Task{tx: tx}) do
-      # Calculcation initial gas according to yellow paper 6.2
+      # Calculation of initial gas according to yellow paper 6.2
       gas = Transaction.gas_limit(tx)
 
       {:ok, [zeros]} = count_zeros([Transaction.payload(tx)])

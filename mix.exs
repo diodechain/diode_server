@@ -51,7 +51,7 @@ defmodule Diode.Mixfile do
       {:poison, "~> 3.0"},
       {:profiler, github: "dominicletz/profiler"},
       {:sqlitex, github: "diodechain/sqlitex"},
-      {:tinycc, github: "dominicletz/tinycc"},
+      {:niffler, "~> 0.1"},
       {:while, "~> 0.2"}
     ]
   end
