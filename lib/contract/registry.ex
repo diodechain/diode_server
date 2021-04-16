@@ -13,6 +13,12 @@ defmodule Contract.Registry do
     |> :binary.decode_unsigned()
   end
 
+  @spec fleet_value(0 | 1 | 2 | 3, <<_::160>> | Wallet.t(), any()) :: non_neg_integer
+  def fleet_value(type, address, blockRef) when type >= 0 and type <= 3 do
+    call("ContractValue", ["uint8", "address"], [type, address], blockRef)
+    |> :binary.decode_unsigned()
+  end
+
   @spec min_transaction_fee(any()) :: non_neg_integer
   def min_transaction_fee(blockRef) do
     call("MinTransactionFee", [], [], blockRef)

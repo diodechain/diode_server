@@ -9,12 +9,15 @@ defmodule TicketStore do
   use GenServer
   import Ticket
 
+  @ticket_value_cache :ticket_value_cache
+
   def start_link(ets_extra) do
     GenServer.start_link(__MODULE__, ets_extra, name: __MODULE__)
   end
 
   def init(ets_extra) do
     Ets.init(__MODULE__, ets_extra)
+    EtsLru.new(@ticket_value_cache, 1024)
     {:ok, nil}
   end
 
@@ -41,30 +44,35 @@ defmodule TicketStore do
   end
 
   def submit_tickets(epoch) do
-    tickets = tickets(epoch)
+    tickets =
+      tickets(epoch)
+      |> Enum.filter(fn tck ->
+        Ticket.raw(tck)
+        |> Contract.Registry.submit_ticket_raw_tx()
+        |> Shell.call_tx("latest")
+        |> case do
+          {"", _gas_cost} ->
+            true
+
+          {{:evmc_revert, reason}, _} ->
+            :io.format("TicketStore:submit_tickets(~p) ticket error: ~p~n", [epoch, reason])
+            false
+
+          other ->
+            :io.format("TicketStore:submit_tickets(~p) ticket error: ~p~n", [epoch, other])
+            false
+        end
+      end)
+      |> Enum.filter(fn tck ->
+        estimate_ticket_value(tck, epoch) > 1_000_000
+      end)
 
     if length(tickets) > 0 do
       tx =
-        tickets
-        |> Enum.filter(fn tck ->
+        Enum.flat_map(tickets, fn tck ->
+          store_ticket_value(tck, epoch)
           Ticket.raw(tck)
-          |> Contract.Registry.submit_ticket_raw_tx()
-          |> Shell.call_tx("latest")
-          |> case do
-            {"", _gas_cost} ->
-              true
-
-            {{:evmc_revert, reason}, _} ->
-              :io.format("TicketStore:submit_tickets(~p) ticket error: ~p~n", [epoch, reason])
-              false
-
-            other ->
-              :io.format("TicketStore:submit_tickets(~p) ticket error: ~p~n", [epoch, other])
-              false
-          end
         end)
-        |> Enum.map(fn tck -> Ticket.raw(tck) end)
-        |> List.flatten()
         |> Contract.Registry.submit_ticket_raw_tx()
 
       case Shell.call_tx(tx, "latest") do
@@ -141,10 +149,46 @@ defmodule TicketStore do
     TicketSql.count(epoch)
   end
 
+  def estimate_ticket_value(tck, epoch) do
+    device = Ticket.device_address(tck)
+    fleet = Ticket.fleet_contract(tck)
+
+    fleet_value =
+      EtsLru.fetch(@ticket_value_cache, {:fleet, fleet, epoch}, fn ->
+        Contract.Registry.fleet_value(0, fleet, Chain.epoch_length() * epoch)
+      end)
+
+    ticket_value = value(tck) * fleet_value
+
+    case EtsLru.get(@ticket_value_cache, {:ticket, fleet, device, epoch}) do
+      nil -> ticket_value
+      prev -> ticket_value - prev
+    end
+  end
+
+  def store_ticket_value(tck, epoch) do
+    device = Ticket.device_address(tck)
+    fleet = Ticket.fleet_contract(tck)
+
+    fleet_value =
+      EtsLru.fetch(@ticket_value_cache, {:fleet, fleet, epoch}, fn ->
+        Contract.Registry.fleet_value(0, fleet, Chain.epoch_length() * epoch)
+      end)
+
+    ticket_value = value(tck) * fleet_value
+
+    case EtsLru.get(@ticket_value_cache, {:ticket, fleet, device, epoch}) do
+      prev when prev >= ticket_value -> prev
+      _other -> EtsLru.put(@ticket_value_cache, {:ticket, fleet, device, epoch}, ticket_value)
+    end
+  end
+
   @doc "Reports ticket value in 1024 blocks"
-  def value(epoch) do
-    Enum.reduce(tickets(epoch), 0, fn tck, acc ->
-      div(Ticket.total_bytes(tck) + Ticket.total_connections(tck) * 1024, 1024) + acc
-    end)
+  def value(ticket() = tck) do
+    div(Ticket.total_bytes(tck) + Ticket.total_connections(tck) * 1024, 1024)
+  end
+
+  def value(epoch) when is_integer(epoch) do
+    Enum.reduce(tickets(epoch), 0, fn tck, acc -> value(tck) + acc end)
   end
 end
