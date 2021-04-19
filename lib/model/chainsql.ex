@@ -8,6 +8,8 @@ defmodule Model.ChainSql do
   alias Chain.Block
 
   import Model.Sql
+  # esqlite doesn't support :infinity
+  @infinity 300_000_000
 
   defp fetch!(sql, param1 \\ nil) do
     fetch!(__MODULE__, sql, param1)
@@ -270,25 +272,25 @@ defmodule Model.ChainSql do
     Sql.query!(
       __MODULE__,
       "SELECT data FROM blocks WHERE number NOT NULL ORDER BY number DESC LIMIT #{count}",
-      call_timeout: :infinity
+      call_timeout: @infinity
     )
     |> Enum.map(fn [data: data] -> BertInt.decode!(data) end)
   end
 
   def all_block_hashes() do
     Sql.query!(__MODULE__, "SELECT hash, number FROM blocks WHERE number NOT NULL",
-      call_timeout: :infinity
+      call_timeout: @infinity
     )
   end
 
   def alt_blocks() do
-    Sql.query!(__MODULE__, "SELECT data FROM blocks WHERE number IS NULL", call_timeout: :infinity)
+    Sql.query!(__MODULE__, "SELECT data FROM blocks WHERE number IS NULL", call_timeout: @infinity)
     |> Enum.map(fn [data: data] -> BertInt.decode!(data) end)
   end
 
   def clear_alt_blocks() do
-    Sql.query!(__MODULE__, "DELETE FROM blocks WHERE number IS NULL", call_timeout: :infinity)
-    Sql.query!(__MODULE__, "PRAGMA OPTIMIZE", call_timeout: :infinity)
+    Sql.query!(__MODULE__, "DELETE FROM blocks WHERE number IS NULL", call_timeout: @infinity)
+    Sql.query!(__MODULE__, "PRAGMA OPTIMIZE", call_timeout: @infinity)
   end
 
   def transaction(txhash) do

@@ -4,6 +4,8 @@
 defmodule Model.Sql do
   # Automatically defines child_spec/1
   use Supervisor
+  # esqlite doesn't support :infinity
+  @infinity 300_000_000
 
   defp databases() do
     [
@@ -43,7 +45,7 @@ defmodule Model.Sql do
     query!(conn, "PRAGMA soft_heap_limit = 1000000000")
     query!(conn, "PRAGMA journal_mode = WAL")
     query!(conn, "PRAGMA synchronous = NORMAL")
-    query!(conn, "PRAGMA OPTIMIZE", call_timeout: :infinity)
+    query!(conn, "PRAGMA OPTIMIZE", call_timeout: @infinity)
   end
 
   def init(_args) do
@@ -51,7 +53,7 @@ defmodule Model.Sql do
 
     children =
       Enum.map(databases(), fn {atom, file} ->
-        opts = [name: atom, db_timeout: :infinity, stmt_cache_size: 50]
+        opts = [name: atom, db_timeout: @infinity, stmt_cache_size: 50]
 
         %{
           id: atom,
@@ -93,7 +95,7 @@ defmodule Model.Sql do
   end
 
   def with_transaction(mod, fun) do
-    {:ok, result} = Sqlitex.Server.with_transaction(map_mod(mod), fun, call_timeout: :infinity)
+    {:ok, result} = Sqlitex.Server.with_transaction(map_mod(mod), fun, call_timeout: @infinity)
     result
   end
 end
