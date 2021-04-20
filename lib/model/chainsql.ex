@@ -281,16 +281,21 @@ defmodule Model.ChainSql do
     Stream.resource(
       fn -> 0 end,
       fn n ->
-        case Sql.query!(
-               __MODULE__,
-               "SELECT hash, number FROM blocks WHERE number > ?1 ORDER BY number LIMIT 10000",
-               bind: [n]
-             ) do
-          [] ->
+        fn ->
+          Sql.query!(
+            __MODULE__,
+            "SELECT hash, number FROM blocks WHERE number > ?1 ORDER BY number LIMIT 1000",
+            bind: [n]
+          )
+        end
+        |> :timer.tc()
+        |> case do
+          {_, []} ->
             {:halt, n}
 
-          items ->
-            Process.sleep(10)
+          {time, items} ->
+            # Sleep for half the query time to leave time for other queries
+            Process.sleep(div(time, 2000))
             {items, n + length(items)}
         end
       end,
