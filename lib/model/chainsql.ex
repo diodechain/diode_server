@@ -278,8 +278,23 @@ defmodule Model.ChainSql do
   end
 
   def all_block_hashes() do
-    Sql.query!(__MODULE__, "SELECT hash, number FROM blocks WHERE number NOT NULL",
-      call_timeout: @infinity
+    Stream.resource(
+      fn -> 0 end,
+      fn n ->
+        case Sql.query!(
+               __MODULE__,
+               "SELECT hash, number FROM blocks WHERE number > ?1 ORDER BY number LIMIT 10000",
+               bind: [n]
+             ) do
+          [] ->
+            {:halt, n}
+
+          items ->
+            Process.sleep(10)
+            {items, n + length(items)}
+        end
+      end,
+      fn _n -> :ok end
     )
   end
 

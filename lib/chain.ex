@@ -590,6 +590,7 @@ defmodule Chain do
   #######################
   @ets_size 1000
   defp ets_prefetch() do
+    :persistent_term.put(:placeholder_complete, false)
     _clear()
 
     Diode.start_subwork("clearing alt blocks", fn ->
@@ -597,13 +598,18 @@ defmodule Chain do
       # for block <- ChainSql.alt_blocks(), do: ets_add_alt(block)
     end)
 
-    Diode.start_subwork("preloading hashes", fn ->
-      for [hash: hash, number: number] <- ChainSql.all_block_hashes(),
-          do: ets_add_placeholder(hash, number)
-    end)
+    spawn_link(fn ->
+      Diode.start_subwork("preloading hashes", fn ->
+        for [hash: hash, number: number] <- ChainSql.all_block_hashes() do
+          ets_add_placeholder(hash, number)
+        end
 
-    Diode.start_subwork("preloading top blocks", fn ->
-      for block <- ChainSql.top_blocks(@ets_size), do: ets_add(block)
+        :persistent_term.put(:placeholder_complete, true)
+      end)
+
+      Diode.start_subwork("preloading top blocks", fn ->
+        for block <- ChainSql.top_blocks(@ets_size), do: ets_add(block)
+      end)
     end)
   end
 
@@ -637,6 +643,10 @@ defmodule Chain do
   defp ets_add_placeholder(hash, number) do
     _insert(hash, true)
     _insert(number, hash)
+  end
+
+  defp placeholder_complete() do
+    :persistent_term.get(:placeholder_complete, false)
   end
 
   defp ets_add(block) do
@@ -675,7 +685,7 @@ defmodule Chain do
 
   defp ets_lookup(hash, default) when is_binary(hash) do
     case do_ets_lookup(hash) do
-      [] -> nil
+      [] -> if placeholder_complete(), do: nil, else: default.()
       [{^hash, true}] -> default.()
       [{^hash, block}] -> block
     end
