@@ -295,9 +295,19 @@ defmodule Kademlia do
     node = %KBuckets.Item{} = KBuckets.item(network, node)
 
     # IO.puts("redistribute(#{inspect(node)})")
-    previ = KBuckets.prev_n(network, node, 1) |> hd() |> KBuckets.integer()
+    previ =
+      case KBuckets.prev_n(network, node, 1) do
+        [prev] -> KBuckets.integer(prev)
+        [] -> KBuckets.integer(node)
+      end
+
     nodei = KBuckets.integer(node)
-    nexti = KBuckets.next_n(network, node, 1) |> hd() |> KBuckets.integer()
+
+    nexti =
+      case KBuckets.next_n(network, node, 1) do
+        [next] -> KBuckets.integer(next)
+        [] -> KBuckets.integer(node)
+      end
 
     range_start = rem(div(previ + nodei, 2), @max_key)
     range_end = rem(div(nexti + nodei, 2), @max_key)

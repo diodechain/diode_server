@@ -63,7 +63,7 @@ defmodule Chain.Header do
   def state_hash(%Chain.Header{state_hash: state_hash}), do: state_hash
 
   def recover_miner(header) do
-    case :binary.decode_unsigned(header.miner_signature) do
+    case :binary.decode_unsigned(header.miner_signature || "") do
       0 ->
         Wallet.from_address(<<0::160>>)
 

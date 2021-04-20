@@ -56,11 +56,28 @@ defmodule Network.PeerHandler do
     {:noreply, %{state | calls: calls}}
   end
 
-  def handle_cast({:sync_done, ret}, state) do
+  def handle_cast({:sync_done, ret}, state = %{blocks: blocks}) do
     case ret do
       %Chain.Block{} ->
-        # delete backup list on first successfull block
-        {:noreply, %{state | blocks: nil, random_blocks: 0, job: nil}}
+        if Chain.Block.number(blocks.peak) <= Chain.Block.number(ret) do
+          # delete backup list on first successfull block
+          {:noreply, %{state | blocks: nil, random_blocks: 0, job: nil}}
+        else
+          # received a new block(s) in the meantime re-trigger sync
+          handle_block(
+            Chain.block_by_hash(Chain.Block.parent_hash(blocks.oldest)),
+            blocks.oldest,
+            state
+          )
+          |> case do
+            {reply, state} when not is_atom(reply) ->
+              send!(state, reply)
+              {:noreply, state}
+
+            other ->
+              other
+          end
+        end
 
       _error ->
         err = "sync failed"
@@ -271,8 +288,7 @@ defmodule Network.PeerHandler do
 
       true ->
         log(state, "Chain.add_block: Skipping existing block #{Block.printable(block)}")
-        # delete backup list on first successfull block
-        {[@response, @publish, "ok"], %{state | blocks: nil}}
+        {[@response, @publish, "ok"], state}
     end
   end
 

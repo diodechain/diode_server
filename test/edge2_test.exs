@@ -12,7 +12,7 @@ defmodule Edge2Test do
   import Edge2Client
   import While
 
-  @ticket_grace 4096
+  @ticket_grace 8196
   @port Rlpx.num2bin(3000)
 
   setup do
@@ -197,7 +197,7 @@ defmodule Edge2Test do
     end)
 
     # Testing disconnect
-    [_req, "bad input"] = rpc(:client_1, ["garbage", String.pad_leading("", 1024 * 4)])
+    [_req, "bad input"] = rpc(:client_1, ["garbage", String.pad_leading("", 1024 * 8)])
 
     csend(:client_1, "garbage", String.pad_leading("", 1024))
     {:ok, [_req, ["goodbye", "ticket expected", "you might get blocked"]]} = crecv(:client_1)
@@ -238,7 +238,7 @@ defmodule Edge2Test do
              ]
 
     epoch = Chain.epoch()
-    assert [tck2] = TicketStore.tickets(Chain.epoch())
+    assert [_tck2] = TicketStore.tickets(Chain.epoch())
 
     while epoch == Chain.epoch() do
       Chain.Worker.work()
@@ -471,19 +471,19 @@ defmodule Edge2Test do
       # Sending traffic
       assert rpc(:client_2, ["portsend", ref1, "ping from 2 on 1!"]) == ["ok"]
 
-      assert {:ok, [_req, ["portsend", ref1, "ping from 2 on 1!"]]} = crecv(:client_1)
+      assert {:ok, [_req, ["portsend", ^ref1, "ping from 2 on 1!"]]} = crecv(:client_1)
 
       assert rpc(:client_2, ["portsend", ref4, "ping from 2 on 2!"]) == ["ok"]
 
-      assert {:ok, [_req, ["portsend", ref4, "ping from 2 on 2!"]]} = crecv(:client_1)
+      assert {:ok, [_req, ["portsend", ^ref4, "ping from 2 on 2!"]]} = crecv(:client_1)
     end
 
     # Closing port1
     assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
-    assert {:ok, [_req, ["portclose", ref1]]} = crecv(:client_2)
+    assert {:ok, [_req, ["portclose", ^ref1]]} = crecv(:client_2)
     # Closing port2
     assert rpc(:client_1, ["portclose", ref4]) == ["ok"]
-    assert {:ok, [_req, ["portclose", ref4]]} = crecv(:client_2)
+    assert {:ok, [_req, ["portclose", ^ref4]]} = crecv(:client_2)
   end
 
   test "sharedport flags" do
@@ -520,7 +520,7 @@ defmodule Edge2Test do
 
     # Other port ref3 still working
     assert rpc(:client_1, ["portsend", ref3, "ping from 3!"]) == ["ok"]
-    {:ok, [_req, ["portsend", ref1, "ping from 3!"]]} = crecv(:client_2)
+    {:ok, [_req, ["portsend", ^ref1, "ping from 3!"]]} = crecv(:client_2)
 
     # Sending to closed port
     assert rpc(:client_1, ["portsend", ref1, "ping from 1!"]) == [
@@ -529,7 +529,7 @@ defmodule Edge2Test do
 
     # Closing port ref3
     assert rpc(:client_1, ["portclose", ref3]) == ["ok"]
-    assert {:ok, [_req, ["portclose", ref1]]} = crecv(:client_2)
+    assert {:ok, [_req, ["portclose", ^ref1]]} = crecv(:client_2)
   end
 
   # test "doubleconn" do

@@ -25,7 +25,6 @@ defmodule Diode.Mixfile do
   def application do
     [
       mod: {Diode, []},
-      applications: [:cowboy, :plug, :poison],
       extra_applications: [
         :logger,
         :runtime_tools,
