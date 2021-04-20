@@ -109,7 +109,8 @@ defmodule Network.EdgeV2 do
           unpaid_bytes: integer(),
           unpaid_rx_bytes: integer(),
           last_ticket: integer(),
-          pid: pid()
+          pid: pid(),
+          pending_packets: []
         }
 
   def do_init(state) do
@@ -123,7 +124,8 @@ defmodule Network.EdgeV2 do
         unpaid_bytes: 0,
         unpaid_rx_bytes: 0,
         last_ticket: nil,
-        pid: self()
+        pid: self(),
+        pending_packets: :queue.new()
       })
 
     log(state, "accepted connection")
@@ -194,8 +196,10 @@ defmodule Network.EdgeV2 do
     fun.(state)
   end
 
-  def handle_cast({:portsend, ref, data, _pid}, state) do
-    {:noreply, send_socket(state, random_ref(), ["portsend", ref, data])}
+  def handle_cast({:portsend, ref, data, _pid}, state = %{pending_packets: packets}) do
+    # Portsends get lower priority to avoid congestion
+    packets = :queue.in(["portsend", ref, data], packets)
+    {:noreply, send_socket(%{state | pending_packets: packets})}
   end
 
   def handle_cast({:portclose, ref}, state) do
@@ -830,9 +834,23 @@ defmodule Network.EdgeV2 do
     Rlp.encode!(msg)
   end
 
-  defp send_socket(state = %{unpaid_bytes: b, unpaid_rx_bytes: rx}, request_id, data) do
-    # io:format("send: ~p~n", [data])
+  defp send_socket(state = %{pending_packets: packets, unpaid_bytes: b}) do
+    # Send socket/1 is sending :sendport packages only if the unpaid bytes
+    # counter is below the set threshold atm. Diode.ticket_grace()/2
 
+    # Alternative use native socket queue to define threhsold
+    # {:ok, [send_pend: pending]} <- :inet.getstat(socket, [:send_pend]),
+    # true <- pending < 64_000,
+    with false <- :queue.is_empty(packets),
+         true <- b < Diode.ticket_grace() / 2,
+         {{:value, packet}, packets} <- :queue.out(packets) do
+      send_socket(%{state | pending_packets: packets}, random_ref(), packet)
+    else
+      _ -> state
+    end
+  end
+
+  defp send_socket(state = %{unpaid_bytes: b, unpaid_rx_bytes: rx}, request_id, data) do
     msg =
       if b > Diode.ticket_grace() do
         send(self(), {:stop_unpaid, b})
@@ -846,7 +864,9 @@ defmodule Network.EdgeV2 do
       end
 
     if msg != "", do: :ok = do_send_socket(state, msg)
+
     %{state | unpaid_bytes: b + byte_size(msg) + rx, unpaid_rx_bytes: 0}
+    |> send_socket()
   end
 
   defp do_send_socket(state, msg) do

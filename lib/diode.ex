@@ -228,7 +228,7 @@ defmodule Diode do
 
   @doc "Number of bytes the server is willing to send without payment yet."
   def ticket_grace() do
-    :persistent_term.get(:ticket_grace, 1024 * 40960)
+    :persistent_term.get(:ticket_grace, 1024 * 40_960)
   end
 
   def ticket_grace(bytes) when is_integer(bytes) do
