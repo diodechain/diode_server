@@ -59,7 +59,7 @@ defmodule Network.PeerHandler do
   def handle_cast({:sync_done, ret}, state = %{blocks: blocks}) do
     case ret do
       %Chain.Block{} ->
-        if Chain.Block.number(blocks.peak) <= Chain.Block.number(ret) do
+        if blocks == nil or Chain.Block.number(blocks.peak) <= Chain.Block.number(ret) do
           # delete backup list on first successfull block
           {:noreply, %{state | blocks: nil, random_blocks: 0, job: nil}}
         else
