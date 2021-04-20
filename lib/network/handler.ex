@@ -190,7 +190,8 @@ defmodule Network.Handler do
 
       def log(state, format, args \\ []) do
         mod = List.last(Module.split(__MODULE__))
-        :io.format("~s: ~s ~s~n", [mod, name(state), format(format, args)])
+        date = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second) |> to_string()
+        :io.format("~s ~s: ~s ~s~n", [date, mod, name(state), format(format, args)])
       end
 
       defp format(format, vars) do

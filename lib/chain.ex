@@ -692,13 +692,18 @@ defmodule Chain do
   end
 
   defp do_ets_lookup(idx) do
-    {time, ret} = :timer.tc(fn -> _lookup(idx) end)
+    _lookup(idx)
+    # Regularly getting output like this from the code below:
+    # Slow ets lookup 16896
+    # Slow ets lookup 10506
 
-    if time > 10000 do
-      :io.format("Slow ets lookup ~p~n", [time])
-    end
+    # {time, ret} = :timer.tc(fn -> _lookup(idx) end)
 
-    ret
+    # if time > 10000 do
+    #   :io.format("Slow ets lookup ~p~n", [time])
+    # end
+
+    # ret
   end
 
   defp _create(ets_extra) do

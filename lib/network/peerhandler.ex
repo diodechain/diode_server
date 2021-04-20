@@ -287,7 +287,7 @@ defmodule Network.PeerHandler do
         handle_block(Block.parent(block), block, state)
 
       true ->
-        log(state, "Chain.add_block: Skipping existing block #{Block.printable(block)}")
+        # log(state, "Chain.add_block: Skipping existing block #{Block.printable(block)}")
         {[@response, @publish, "ok"], state}
     end
   end

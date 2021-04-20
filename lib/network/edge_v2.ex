@@ -670,7 +670,7 @@ defmodule Network.EdgeV2 do
         |> Wallet.equal?(Diode.miner())
         |> if do
           pid = Channels.ensure(channel)
-          do_portopen(device_address(state), state.pid, portname, flags, pid)
+          do_portopen(state, device_address(state), state.pid, portname, flags, pid)
         else
           error("wrong host")
         end
@@ -691,7 +691,7 @@ defmodule Network.EdgeV2 do
         with <<bin::binary-size(20)>> <- device_id,
              w <- Wallet.from_address(bin),
              [pid | _] <- PubSub.subscribers({:edge, Wallet.address!(w)}) do
-          do_portopen(address, state.pid, portname, flags, pid)
+          do_portopen(state, address, state.pid, portname, flags, pid)
         else
           [] -> error("not found")
           other -> error("invalid address #{inspect(other)}")
@@ -714,7 +714,7 @@ defmodule Network.EdgeV2 do
     # :io.format("REF ~p~n", [ref])
   end
 
-  defp do_portopen(device_address, this, portname, flags, pid) do
+  defp do_portopen(state, device_address, this, portname, flags, pid) do
     mon = monitor(this, pid)
     ref = random_ref()
 
@@ -724,10 +724,10 @@ defmodule Network.EdgeV2 do
     # Todo: Check for network access based on contract
     resp =
       try do
-        GenServer.call(pid, {:portopen, this, ref, flags, portname, device_address})
+        GenServer.call(pid, {:portopen, this, ref, flags, portname, device_address}, 15_000)
       catch
         kind, what ->
-          IO.puts("Remote port failed ack on portopen: #{inspect({kind, what})}")
+          log(state, "Remote port failed ack on portopen: #{inspect({kind, what})}")
           :error
       end
 
