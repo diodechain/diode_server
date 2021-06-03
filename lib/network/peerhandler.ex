@@ -246,18 +246,18 @@ defmodule Network.PeerHandler do
   defp handle_msg([@store, key, value], state) do
     object = Object.decode!(value)
     # Checking that we got a valid object
-    ^key = Kademlia.hash(Object.key(object))
-
-    case KademliaSql.object(key) do
-      nil ->
-        KademliaSql.put_object(key, value)
-
-      existing ->
-        existing_object = Object.decode!(existing)
-
-        if Object.block_number(existing_object) < Object.block_number(object) do
+    if key == Kademlia.hash(Object.key(object)) do
+      case KademliaSql.object(key) do
+        nil ->
           KademliaSql.put_object(key, value)
-        end
+
+        existing ->
+          existing_object = Object.decode!(existing)
+
+          if Object.block_number(existing_object) < Object.block_number(object) do
+            KademliaSql.put_object(key, value)
+          end
+      end
     end
 
     {[@response, @store, "ok"], state}
