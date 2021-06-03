@@ -29,8 +29,15 @@ defmodule Object.Ticket do
             server_signature: Secp256k1.signature() | nil
           )
 
+  @impl true
   def key(tck = ticket()) do
     device_address(tck)
+  end
+
+  @impl true
+  def valid?(_serv) do
+    # validity is given by the correct key value
+    true
   end
 
   def device_address(tck = ticket()) do
@@ -108,6 +115,7 @@ defmodule Object.Ticket do
   def epoch(ticket), do: block(ticket) |> Block.epoch()
 
   def server_id(ticket(server_id: id)), do: id
+  @impl true
   def block_number(ticket(block_number: block)), do: block
   def block(ticket(block_number: block)), do: Chain.block(block)
   def block_hash(ticket), do: block(ticket) |> Block.hash()

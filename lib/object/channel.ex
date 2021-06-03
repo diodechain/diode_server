@@ -30,12 +30,14 @@ defmodule Object.Channel do
     channel(server_id: server_id, fleet_contract: fleet, name: name, signature: device_sig)
   end
 
+  @impl true
   @spec key(channel()) :: Object.key()
   def key(channel(fleet_contract: fleet, type: type, name: name, params: params)) do
     params = Rlp.encode!(params) |> Hash.keccak_256()
     Diode.hash(<<fleet::binary-size(20), type::binary, name::binary, params::binary>>)
   end
 
+  @impl true
   def valid?(ch = channel()) do
     valid_type?(ch) and valid_device?(ch) and valid_params?(ch)
   end
@@ -78,6 +80,7 @@ defmodule Object.Channel do
     channel(ch, signature: Secp256k1.sign(private, message(ch), :kec))
   end
 
+  @impl true
   def block_number(channel(block_number: block_number)), do: block_number
   def server_id(channel(server_id: server_id)), do: server_id
   def fleet_contract(channel(fleet_contract: fleet_contract)), do: fleet_contract

@@ -11,6 +11,7 @@ defmodule KademliaTest do
   # Need bigger number to have a not connected network
   # 30
   @network_size 50
+  @testkey Wallet.new()
   setup_all do
     reset()
     :io.format("Kademlia starting clones~n")
@@ -19,6 +20,18 @@ defmodule KademliaTest do
     on_exit(fn ->
       kill_clones()
     end)
+  end
+
+  defp new_value(name, value) do
+    Object.Data.new(Chain.peak(), name, value, Wallet.privkey!(@testkey))
+  end
+
+  defp find_value(name) do
+    Kademlia.find_value(Object.Data.key(Wallet.address!(@testkey), name))
+    |> case do
+      nil -> nil
+      other -> Object.decode!(other)
+    end
   end
 
   defp connect_clones(range) do
@@ -50,28 +63,26 @@ defmodule KademliaTest do
   test "send/receive" do
     connect_clones(1..@network_size)
 
-    values = Enum.map(1..100, fn idx -> {"#{idx}", "value_#{idx}"} end)
+    values = Enum.map(1..100, fn idx -> new_value("#{idx}", "value_#{idx}") end)
     before = Process.list()
 
     :io.format("Kademlia store")
 
-    for {key, value} <- values do
-      :io.format(" #{key}")
-      Kademlia.store(key, value)
+    for value <- values do
+      :io.format(" #{Object.Data.name(value)}")
+      Kademlia.store(value)
     end
 
-    :io.format("~n")
+    :io.format("~nKademlia find_value ")
 
-    :io.format("Kademlia find_value ")
-
-    for {key, value} <- values do
-      :io.format("#{key} ")
-      assert Kademlia.find_value(key) == value
+    for value <- values do
+      :io.format(" #{Object.Data.name(value)}")
+      assert find_value(Object.Data.name(value)) == value
     end
 
-    for {key, _value} <- values do
-      :io.format("not_#{key} ")
-      assert Kademlia.find_value("not_#{key}") == nil
+    for value <- values do
+      :io.format("not_#{Object.Data.name(value)}")
+      assert find_value("not_#{Object.Data.name(value)}") == nil
     end
 
     :io.format("~n")
@@ -83,13 +94,12 @@ defmodule KademliaTest do
   test "redistribute" do
     connect_clones(1..@network_size)
 
-    values = Enum.map(1..100, fn idx -> {"re_#{idx}", "value_#{idx}"} end)
-
+    values = Enum.map(1..100, fn idx -> new_value("re_#{idx}", "value_#{idx}") end)
     :io.format("Kademlia store")
 
-    for {key, value} <- values do
-      :io.format(" #{key}")
-      Kademlia.store(key, value)
+    for value <- values do
+      :io.format(" #{Object.Data.name(value)}")
+      Kademlia.store(value)
     end
 
     :io.format("~n")
@@ -106,20 +116,20 @@ defmodule KademliaTest do
 
     assert KBuckets.size(Kademlia.network()) == before + 1
 
-    for {key, value} <- values do
-      :io.format("Kademlia find_value #{key}~n")
-      assert Kademlia.find_value(key) == value
+    for value <- values do
+      :io.format("Kademlia find_value #{Object.Data.name(value)}~n")
+      assert find_value(Object.Data.name(value)) == value
     end
   end
 
   test "failed server" do
-    values = Enum.map(1..50, fn idx -> {"#{idx}", "value_#{idx}"} end)
+    values = Enum.map(1..50, fn idx -> new_value("#{idx}", "value_#{idx}") end)
 
     :io.format("Kademlia store")
 
-    for {key, value} <- values do
-      :io.format(" #{key}")
-      Kademlia.store(key, value)
+    for value <- values do
+      :io.format(" #{Object.Data.name(value)}")
+      Kademlia.store(value)
     end
 
     :io.format("~n")
@@ -128,9 +138,9 @@ defmodule KademliaTest do
 
     :io.format("Kademlia find_value")
 
-    for {key, value} <- values do
-      :io.format(" #{key}")
-      assert Kademlia.find_value(key) == value
+    for value <- values do
+      :io.format(" #{Object.Data.name(value)}")
+      assert find_value(Object.Data.name(value)) == value
     end
 
     :io.format("~n")

@@ -472,7 +472,7 @@ defmodule Chain do
             case ret do
               %Chain.Block{} = block ->
                 Stats.tc(:addblock, fn ->
-                  Chain.add_block(block)
+                  Chain.add_block(block, false)
                 end)
 
                 {:cont, block}

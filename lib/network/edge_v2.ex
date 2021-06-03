@@ -5,7 +5,6 @@ defmodule Network.EdgeV2 do
   use Network.Handler
   alias Object.Ticket
   alias Object.Channel
-  alias Object.Server
   import Ticket, only: :macros
   import Channel, only: :macros
 
@@ -289,7 +288,7 @@ defmodule Network.EdgeV2 do
 
             case Kademlia.find_value(key) do
               nil ->
-                Kademlia.store(key, Object.encode!(obj))
+                Kademlia.store(obj)
                 Object.encode_list!(obj)
 
               binary ->
@@ -609,7 +608,7 @@ defmodule Network.EdgeV2 do
             Debouncer.immediate(
               key,
               fn ->
-                Kademlia.store(key, Object.encode!(dl))
+                Kademlia.store(dl)
               end,
               15_000
             )
@@ -619,7 +618,7 @@ defmodule Network.EdgeV2 do
               :publish_me,
               fn ->
                 me = Diode.self()
-                Kademlia.store(Server.key(me), Object.encode!(me))
+                Kademlia.store(me)
               end,
               10_000
             )

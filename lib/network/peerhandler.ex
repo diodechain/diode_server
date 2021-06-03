@@ -40,14 +40,39 @@ defmodule Network.PeerHandler do
         msg_count: 0,
         start_time: System.os_time(:second),
         server: nil,
-        job: nil
+        job: nil,
+        last_publish: nil
       })
     )
+  end
+
+  defp publish_peak(state = %{last_publish: last}) do
+    block = Chain.peak_block()
+
+    if Block.hash(block) != last do
+      GenServer.cast(self(), {:rpc, [@publish, Block.export(block)]})
+    end
+
+    state
   end
 
   def ssl_options(opts) do
     Network.Server.default_ssl_options(opts)
     |> Keyword.put(:packet, 4)
+  end
+
+  # Catching any block publication and comparing to the last one
+  def handle_cast(
+        {:rpc, call = [@publish, %Chain.Block{} = block]},
+        state = %{last_publish: last}
+      ) do
+    if Block.hash(block) != last do
+      send!(state, call)
+      calls = :queue.in({call, nil}, state.calls)
+      {:noreply, %{state | calls: calls, last_publish: Block.hash(block)}}
+    else
+      {:noreply, state}
+    end
   end
 
   def handle_cast({:rpc, call}, state) do
@@ -57,21 +82,22 @@ defmodule Network.PeerHandler do
   end
 
   def handle_cast({:sync_done, ret}, state = %{blocks: blocks}) do
+    state = %{state | job: nil}
+
     case ret do
       %Chain.Block{} ->
         if blocks == nil or Chain.Block.number(blocks.peak) <= Chain.Block.number(ret) do
           # delete backup list on first successfull block
-          {:noreply, %{state | blocks: nil, random_blocks: 0, job: nil}}
+          {:noreply, %{state | blocks: nil, random_blocks: 0}}
         else
           # received a new block(s) in the meantime re-trigger sync
           handle_block(
-            Chain.block_by_hash(Chain.Block.parent_hash(blocks.oldest)),
-            blocks.oldest,
+            Chain.Block.parent(blocks.peak),
+            blocks.peak,
             state
           )
           |> case do
-            {reply, state} when not is_atom(reply) ->
-              send!(state, reply)
+            {[@response, @publish, "ok"], state} ->
               {:noreply, state}
 
             other ->
@@ -173,10 +199,7 @@ defmodule Network.PeerHandler do
 
       {:stop, :normal, state}
     else
-      GenServer.cast(
-        self(),
-        {:rpc, [Network.PeerHandler.publish(), Block.export(Chain.peak_block())]}
-      )
+      state = publish_peak(state)
 
       if Map.has_key?(state, :peer_port) do
         {:noreply, state}
@@ -221,7 +244,28 @@ defmodule Network.PeerHandler do
   end
 
   defp handle_msg([@store, key, value], state) do
-    KademliaSql.put_object(key, value)
+    object = Object.decode!(value)
+    hash = Kademlia.hash(Object.key(object))
+
+    if key != hash do
+      IO.puts("KEY != HASH #{inspect(key)} != #{inspect(hash)}")
+      IO.inspect(object)
+    end
+
+    ^key = hash
+
+    case KademliaSql.object(key) do
+      nil ->
+        KademliaSql.put_object(key, value)
+
+      existing ->
+        existing_object = Object.decode!(existing)
+
+        if Object.block_number(existing_object) < Object.block_number(object) do
+          KademliaSql.put_object(key, value)
+        end
+    end
+
     {[@response, @store, "ok"], state}
   end
 
@@ -328,6 +372,11 @@ defmodule Network.PeerHandler do
     respond(state, {:value, value})
   end
 
+  defp handle_msg([@response, @publish, "ok"], state) do
+    state = publish_peak(state)
+    respond(state, ["ok"])
+  end
+
   defp handle_msg([@response, _cmd | rest], state) do
     respond(state, rest)
   end
@@ -339,65 +388,68 @@ defmodule Network.PeerHandler do
 
   # Block is based on unknown predecessor
   # keep block in block backup list
-  defp handle_block(nil, block = %Chain.Block{}, state = %{blocks: blocks}) do
-    # Checking previous sync jobs
-    case blocks do
-      nil ->
-        parent = Model.SyncSql.search_parent(block)
-        {0, %{peak: block, oldest: parent}}
-
-      %{peak: peak, oldest: oldest} ->
-        if Block.number(oldest) <= Block.number(block) and
-             Block.number(block) <= Block.number(peak) do
-          {0, blocks}
-        else
+  defp handle_block(parent, block = %Chain.Block{}, state = %{blocks: blocks, job: job}) do
+    if is_nil(parent) or is_pid(job) do
+      # Checking previous sync jobs
+      case blocks do
+        nil ->
           parent = Model.SyncSql.search_parent(block)
+          {0, %{peak: block, oldest: parent}}
 
-          if Block.number(oldest) > Block.number(parent) do
-            {0, %{blocks | oldest: parent}}
+        %{peak: peak, oldest: oldest} ->
+          if Block.number(oldest) <= Block.number(block) and
+               Block.number(block) <= Block.number(peak) do
+            {0, blocks}
           else
-            # this happens when there is a new top block created on the remote side
-            if Block.parent_hash(block) == Block.hash(peak) do
-              {0, %{blocks | peak: block}}
-            else
-              # is this a randomly broadcasted block or a chain re-org?
-              # assuming reorg after n blocks
-              if state.random_blocks < 5 do
-                log(state, "ignoring wrong ordered block [~p]", [state.random_blocks + 1])
-                {state.random_blocks + 1, blocks}
-              else
-                log(state, "restarting sync because of random blocks [~p]", [
-                  state.random_blocks + 1
-                ])
+            parent = Model.SyncSql.search_parent(block)
 
-                {:error, :too_many_random_blocks}
+            if Block.number(oldest) > Block.number(parent) do
+              {0, %{blocks | oldest: parent}}
+            else
+              # this happens when there is a new top block created on the remote side
+              if Block.parent_hash(block) == Block.hash(peak) do
+                {0, %{blocks | peak: block}}
+              else
+                # is this a randomly broadcasted block or a chain re-org?
+                # assuming reorg after n blocks
+                if state.random_blocks < 5 do
+                  log(state, "ignoring wrong ordered block [~p]", [state.random_blocks + 1])
+                  {state.random_blocks + 1, blocks}
+                else
+                  log(state, "restarting sync because of random blocks [~p]", [
+                    state.random_blocks + 1
+                  ])
+
+                  {:error, :too_many_random_blocks}
+                end
               end
             end
           end
-        end
-    end
-    |> case do
-      {:error, reason} ->
-        {:stop, {:sync_error, reason}, state}
+      end
+      |> case do
+        {:error, reason} ->
+          {:stop, {:sync_error, reason}, state}
 
-      {random_blocks, blocks} ->
-        # if a search_parent() returns a known block we start the syncs
-        if Chain.block_by_hash?(Chain.Block.parent_hash(blocks.oldest)) do
-          handle_block(
-            Chain.block_by_hash(Chain.Block.parent_hash(blocks.oldest)),
-            blocks.oldest,
-            %{state | blocks: blocks, random_blocks: random_blocks}
-          )
+        {random_blocks, blocks} ->
+          # if a search_parent() returns a known block we start the syncs
+          if Chain.block_by_hash?(Chain.Block.parent_hash(blocks.oldest)) do
+            do_handle_block(
+              blocks.oldest,
+              %{state | blocks: blocks, random_blocks: random_blocks}
+            )
 
-          # otherwise keep asking for more blocks
-        else
-          {[@response, @publish, "missing_parent", Block.parent_hash(blocks.oldest)],
-           %{state | blocks: blocks, random_blocks: random_blocks}}
-        end
+            # otherwise keep asking for more blocks
+          else
+            {[@response, @publish, "missing_parent", Block.parent_hash(blocks.oldest)],
+             %{state | blocks: blocks, random_blocks: random_blocks}}
+          end
+      end
+    else
+      do_handle_block(block, state)
     end
   end
 
-  defp handle_block(_parent, block, state = %{job: job}) do
+  defp do_handle_block(block, state = %{job: job}) do
     if Chain.is_active_sync(true) and job == nil do
       me = self()
 
@@ -428,7 +480,6 @@ defmodule Network.PeerHandler do
 
   defp send!(%{socket: socket}, data) do
     raw = encode(data)
-    # log(state, format("Sending ~p bytes: ~p", [byte_size(raw), data]))
     :ok = :ssl.send(socket, raw)
   end
 

@@ -196,7 +196,7 @@ defmodule Diode do
 
   @version Mix.Project.config()[:full_version]
   def version() do
-    "ExDiode #{@version}"
+    "Diode Server #{@version}"
   end
 
   @spec dev_mode? :: boolean
@@ -366,7 +366,8 @@ defmodule Diode do
   def self(hostname) do
     Object.Server.new(hostname, edge2_port(), peer_port(), version(), [
       ["tickets", TicketStore.value(Chain.epoch())],
-      ["uptime", Diode.uptime()]
+      ["uptime", Diode.uptime()],
+      ["block", Chain.peak()]
     ])
     |> Object.Server.sign(Wallet.privkey!(Diode.miner()))
   end

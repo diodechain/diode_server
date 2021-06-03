@@ -55,6 +55,16 @@ defmodule Kademlia do
   end
 
   @doc """
+    store/1 same as store/2 but usees Object.key/1 and Object.encode/1
+  """
+  @spec store(tuple()) :: any()
+  def store(object) when is_tuple(object) do
+    key = Object.key(object)
+    value = Object.encode!(object)
+    store(key, value)
+  end
+
+  @doc """
     store() stores the given key-value pair in the @k nodes
     that are closest to the key
   """
@@ -418,7 +428,7 @@ defmodule Kademlia do
     GenServer.call(__MODULE__, {:call, fun})
   end
 
-  defp hash(binary) do
+  def hash(binary) do
     Diode.hash(binary)
   end
 end

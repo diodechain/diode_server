@@ -33,7 +33,7 @@ defmodule Chain.Pool do
     end)
   end
 
-  @spec add_transaction(Transaction.t(), boolean()) :: :ok
+  @spec add_transaction(Transaction.t(), boolean()) :: Transaction.t()
   def add_transaction(%Transaction{} = tx, broadcast \\ false) do
     key = Transaction.hash(tx)
 

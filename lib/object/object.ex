@@ -10,6 +10,8 @@ defmodule Object do
   """
   @type key :: <<_::160>>
   @callback key(tuple()) :: key()
+  @callback block_number(tuple()) :: integer()
+  @callback valid?(tuple()) :: boolean()
 
   def decode!(bin) when is_binary(bin) do
     BertExt.decode!(bin)
@@ -58,6 +60,10 @@ defmodule Object do
     {:channel, server_id, Rlpx.bin2num(block_num), fleet_contract, type, name, params, signature}
   end
 
+  def decode_rlp_list!(["data", block_num, name, value, signature]) do
+    {:name, block_num, name, value, signature}
+  end
+
   def encode!(record) do
     encode_list!(record)
     |> BertExt.encode!()
@@ -73,8 +79,9 @@ defmodule Object do
     modname(record).key(record)
   end
 
-  def ticket_id(record) do
-    modname(record).ticket_id(record)
+  @spec block_number(tuple()) :: integer()
+  def block_number(record) do
+    modname(record).block_number(record)
   end
 
   defp modname(record) do
@@ -89,6 +96,7 @@ defmodule Object do
       :ticket -> "ticket"
       :server -> "server"
       :channel -> "channel"
+      :data -> "data"
     end
   end
 
@@ -97,6 +105,7 @@ defmodule Object do
       "ticket" -> :ticket
       "server" -> :server
       "channel" -> :channel
+      "data" -> :data
     end
   end
 end

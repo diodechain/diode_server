@@ -30,11 +30,27 @@ defmodule Object.Server do
     server(host: host, peer_port: peer_port, edge_port: edge_port, version: version, extra: extra)
   end
 
+  @impl true
   @spec key(server()) :: Object.key()
   def key(serv) do
     Secp256k1.recover!(signature(serv), message(serv))
     |> Wallet.from_pubkey()
     |> Wallet.address!()
+  end
+
+  @impl true
+  def block_number(serv) do
+    Enum.find_value(extra(serv), 0, fn [key, value] ->
+      if key == "block" do
+        Rlpx.bin2int(value)
+      end
+    end)
+  end
+
+  @impl true
+  def valid?(_serv) do
+    # validity is given by the correct key value
+    true
   end
 
   def sign(serv, private) do
@@ -52,6 +68,18 @@ defmodule Object.Server do
 
   def peer_port(serv) do
     elem(serv, 3)
+  end
+
+  def version(serv) do
+    elem(serv, 4)
+  end
+
+  def extra(serv) do
+    if tuple_size(serv) > 5 do
+      elem(serv, 5)
+    else
+      []
+    end
   end
 
   def signature(serv) do

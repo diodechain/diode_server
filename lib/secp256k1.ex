@@ -2,7 +2,7 @@
 # Copyright 2021 Diode
 # Licensed under the Diode License, Version 1.1
 defmodule Secp256k1 do
-  import Wallet
+  import Wallet, only: [wallet: 0]
 
   @type private_key :: <<_::256>>
   @type compressed_public_key :: <<_::264>>

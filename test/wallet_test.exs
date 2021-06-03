@@ -25,4 +25,13 @@ defmodule WalletTest do
     assert {:error, nil} == Wallet.pubkey(w3)
     assert {:ok, Wallet.address!(w1)} == Wallet.address(w3)
   end
+
+  test "sign & recover" do
+    for _x <- 1..1000 do
+      w = Wallet.new()
+
+      signature = Wallet.sign!(w, "my message")
+      assert Wallet.equal?(w, Wallet.recover!("my message", signature))
+    end
+  end
 end

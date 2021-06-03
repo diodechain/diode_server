@@ -128,6 +128,19 @@ defmodule Wallet do
   def equal?(_, _) do
     false
   end
+
+  def recover!(msg, signature, algo \\ :kec) do
+    Secp256k1.recover!(signature, msg, algo)
+    |> from_pubkey()
+  end
+
+  def verify?(wallet() = w, msg, signature, algo \\ :kec) do
+    Secp256k1.verify(pubkey!(w), msg, signature, algo)
+  end
+
+  def sign!(wallet() = w, msg, algo \\ :kec) do
+    Secp256k1.sign(privkey!(w), msg, algo)
+  end
 end
 
 defimpl Inspect, for: Wallet do
