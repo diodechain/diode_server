@@ -34,7 +34,6 @@ defmodule Kademlia do
   def broadcast(msg) do
     msg = [Client.publish(), msg]
     list = KBuckets.to_list(network())
-
     max = length(list) |> :math.sqrt() |> trunc
     num = if max > @broadcast_factor, do: max, else: @broadcast_factor
 
@@ -68,8 +67,8 @@ defmodule Kademlia do
     store() stores the given key-value pair in the @k nodes
     that are closest to the key
   """
-  @spec store(binary(), any()) :: any()
-  def store(key, value) do
+  @spec store(binary(), binary()) :: any()
+  def store(key, value) when is_binary(value) do
     nodes = find_nodes(key)
     key = hash(key)
     nearest = KBuckets.nearest_n(nodes, key, @k)

@@ -41,11 +41,15 @@ defmodule BroadcastTest do
   end
 
   defp run(fun, size) do
-    nodes = 1..size |> Enum.map(fn num -> {start_relayer(fun, num), num} end)
-    :persistent_term.put(:broadcast_db, Map.new(nodes))
+    nodes =
+      1..size
+      |> Enum.map(fn num -> {start_relayer(fun, num), num} end)
+      |> Map.new()
 
-    Enum.each(nodes, fn {pid, _} -> send(pid, {:peers, nodes}) end)
-    nodes = Keyword.keys(nodes)
+    :persistent_term.put(:broadcast_db, nodes)
+
+    Enum.each(nodes, fn {pid, _} -> send(pid, {:peers, Map.to_list(nodes)}) end)
+    nodes = Map.keys(nodes)
 
     # Do stuff
     value = 1

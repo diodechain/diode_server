@@ -245,14 +245,8 @@ defmodule Network.PeerHandler do
 
   defp handle_msg([@store, key, value], state) do
     object = Object.decode!(value)
-    hash = Kademlia.hash(Object.key(object))
-
-    if key != hash do
-      IO.puts("KEY != HASH #{inspect(key)} != #{inspect(hash)}")
-      IO.inspect(object)
-    end
-
-    ^key = hash
+    # Checking that we got a valid object
+    ^key = Kademlia.hash(Object.key(object))
 
     case KademliaSql.object(key) do
       nil ->

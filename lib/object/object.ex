@@ -61,7 +61,7 @@ defmodule Object do
   end
 
   def decode_rlp_list!(["data", block_num, name, value, signature]) do
-    {:name, block_num, name, value, signature}
+    {:name, Rlpx.bin2num(block_num), name, value, signature}
   end
 
   def encode!(record) do

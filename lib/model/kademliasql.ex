@@ -55,5 +55,19 @@ defmodule Model.KademliaSql do
       )
     end
     |> Enum.map(fn [key: key, object: obj] -> {key, BertInt.decode!(obj)} end)
+    |> Enum.filter(fn {key, value} ->
+      # After a chain fork some signatures might have become invalid
+      hash =
+        Object.decode!(value)
+        |> Object.key()
+        |> Kademlia.hash()
+
+      if key != hash do
+        query!("DELETE FROM p2p_objects WHERE key = ?1", bind: [key])
+        false
+      else
+        true
+      end
+    end)
   end
 end
