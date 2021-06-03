@@ -42,7 +42,7 @@ defmodule Object.Server do
   def block_number(serv) do
     Enum.find_value(extra(serv), 0, fn [key, value] ->
       if key == "block" do
-        Rlpx.bin2int(value)
+        value
       end
     end)
   end
