@@ -66,6 +66,8 @@ defmodule Model.Sql do
   end
 
   def query(mod, sql, params \\ []) do
+    params = Keyword.put_new(params, :call_timeout, @infinity)
+
     Stats.tc(:query, fn ->
       Sqlitex.Server.query(map_mod(mod), sql, params)
     end)

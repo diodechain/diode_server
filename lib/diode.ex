@@ -56,7 +56,12 @@ defmodule Diode do
 
     puts("")
 
-    ets_extra = if memory_mode() == :minimal, do: [:compressed], else: []
+    ets_extra =
+      if memory_mode() == :minimal do
+        [:compressed]
+      else
+        []
+      end
 
     base_children = [
       worker(Stats, []),
