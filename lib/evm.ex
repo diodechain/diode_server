@@ -150,50 +150,57 @@ defmodule Evm do
            %Task{chain_state: state, tx: tx} = task
          ) do
       address = Task.address(task)
+      number = Task.number(task)
       account = State.account(state, address)
 
-      account = %Account{account | nonce: account.nonce + 1, balance: account.balance - value}
-      to_account = Account.new(nonce: 1, balance: value)
-
-      state =
-        state
-        |> State.set_account(to_address, to_account)
-        |> State.set_account(address, account)
-
-      task = %Task{task | chain_state: state}
-      tx = %Transaction{tx | value: value, data: nil, to: to_address, gasLimit: gas}
-
-      evm =
-        evm(%Task{
-          task
-          | tx: tx,
-            code: code,
-            from: Task.address(task) |> :binary.decode_unsigned()
-        })
-
-      if code != nil do
-        case Evm.eval_internal(evm) do
-          {:ok, evm2} ->
-            state = Evm.state(evm2)
-
-            state =
-              case State.account(state, to_address) do
-                nil ->
-                  state
-
-                to_account ->
-                  to_account = %Account{to_account | code: Evm.out(evm2)}
-                  State.set_account(state, to_address, to_account)
-              end
-
-            evm2 = Evm.set_state(evm2, state)
-            {:ok, %Evm{evm2 | create_address: Hash.integer(to_address), out: ""}}
-
-          {error, evm2} ->
-            {error, evm2}
-        end
+      if State.account(state, to_address) != nil and
+           ChainDefinition.allow_contract_override(number) == false do
+        {:evmc_invalid_instruction,
+         %Evm{evm(task) | gas: 0, out: "", msg: :evmc_invalid_instruction}}
       else
-        {:ok, evm}
+        account = %Account{account | nonce: account.nonce + 1, balance: account.balance - value}
+        to_account = Account.new(nonce: 1, balance: value)
+
+        state =
+          state
+          |> State.set_account(to_address, to_account)
+          |> State.set_account(address, account)
+
+        task = %Task{task | chain_state: state}
+        tx = %Transaction{tx | value: value, data: nil, to: to_address, gasLimit: gas}
+
+        evm =
+          evm(%Task{
+            task
+            | tx: tx,
+              code: code,
+              from: Task.address(task) |> :binary.decode_unsigned()
+          })
+
+        if code != nil do
+          case Evm.eval_internal(evm) do
+            {:ok, evm2} ->
+              state = Evm.state(evm2)
+
+              state =
+                case State.account(state, to_address) do
+                  nil ->
+                    state
+
+                  to_account ->
+                    to_account = %Account{to_account | code: Evm.out(evm2)}
+                    State.set_account(state, to_address, to_account)
+                end
+
+              evm2 = Evm.set_state(evm2, state)
+              {:ok, %Evm{evm2 | create_address: Hash.integer(to_address), out: ""}}
+
+            {error, evm2} ->
+              {error, evm2}
+          end
+        else
+          {:ok, evm}
+        end
       end
     end
 

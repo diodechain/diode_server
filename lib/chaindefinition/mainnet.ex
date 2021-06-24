@@ -10,12 +10,29 @@ defmodule ChainDefinition.Mainnet do
   # Planned date Monday 10 January 2021
   @pioneer 1_264_615
   @pioneer_t1 @pioneer - 1
+  # Planned date Friday 26 June 2021
+  @new_horizons 2_034_446
+
   @spec network(any) :: ChainDefinition.t()
+  def network(blockheight) when blockheight >= @new_horizons do
+    %ChainDefinition{
+      check_window: true,
+      get_block_hash_limit: 131_072,
+      min_diversity: 1,
+      block_reward_position: :last,
+      chain_id: 15,
+      min_transaction_fee: true,
+      # changed:
+      allow_contract_override: false
+    }
+  end
+
   def network(blockheight) when blockheight >= @voyager do
     %ChainDefinition{
       check_window: true,
       get_block_hash_limit: 131_072,
       min_diversity: 1,
+      allow_contract_override: true,
       # changed:
       block_reward_position: :last,
       chain_id: 15,
@@ -30,6 +47,7 @@ defmodule ChainDefinition.Mainnet do
       check_window: true,
       min_diversity: 1,
       min_transaction_fee: false,
+      allow_contract_override: true,
       # changed:
       get_block_hash_limit: 131_072
     }
@@ -42,6 +60,7 @@ defmodule ChainDefinition.Mainnet do
       check_window: true,
       get_block_hash_limit: 256,
       min_transaction_fee: false,
+      allow_contract_override: true,
       # changed:
       min_diversity: 1
     }
@@ -54,7 +73,8 @@ defmodule ChainDefinition.Mainnet do
       block_reward_position: :first,
       check_window: true,
       chain_id: 41043,
-      min_diversity: 0
+      min_diversity: 0,
+      allow_contract_override: true
     }
   end
 

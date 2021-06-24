@@ -8,7 +8,8 @@ defmodule ChainDefinition do
     :check_window,
     :min_diversity,
     :min_transaction_fee,
-    :get_block_hash_limit
+    :get_block_hash_limit,
+    :allow_contract_override
   ]
   defstruct @enforce_keys
 
@@ -18,7 +19,8 @@ defmodule ChainDefinition do
           check_window: bool(),
           get_block_hash_limit: non_neg_integer(),
           min_diversity: non_neg_integer(),
-          min_transaction_fee: bool()
+          min_transaction_fee: bool(),
+          allow_contract_override: bool()
         }
 
   @spec get_block_hash_limit(non_neg_integer) :: non_neg_integer()
@@ -39,6 +41,11 @@ defmodule ChainDefinition do
   @spec min_transaction_fee(non_neg_integer) :: bool()
   def min_transaction_fee(blockheight) do
     chain_definition(blockheight).min_transaction_fee
+  end
+
+  @spec allow_contract_override(non_neg_integer) :: bool()
+  def allow_contract_override(blockheight) do
+    chain_definition(blockheight).allow_contract_override
   end
 
   @spec chain_id(non_neg_integer) :: non_neg_integer()

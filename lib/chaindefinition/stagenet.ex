@@ -7,6 +7,7 @@ defmodule ChainDefinition.Stagenet do
   @voyager_t1 @voyager - 1
   @pioneer 20
   @pioneer_t1 @pioneer - 1
+  @new_horizons 20
 
   @spec network(any) :: ChainDefinition.t()
   def network(blockheight) when blockheight < @voyager do
@@ -16,16 +17,24 @@ defmodule ChainDefinition.Stagenet do
       check_window: false,
       get_block_hash_limit: 131_072,
       min_diversity: 0,
-      min_transaction_fee: false
+      min_transaction_fee: false,
+      allow_contract_override: true
     }
   end
 
   def network(blockheight) when blockheight >= @voyager do
     %ChainDefinition{
-      network(blockheight - 1)
+      network(@voyager - 1)
       | block_reward_position: :last,
         min_transaction_fee: true,
         chain_id: 13
+    }
+  end
+
+  def network(blockheight) when blockheight >= @new_horizons do
+    %ChainDefinition{
+      network(@new_horizons - 1)
+      | allow_contract_override: false
     }
   end
 
