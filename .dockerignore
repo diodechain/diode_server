@@ -1,5 +1,41 @@
-mix.lock
-*.tgz
-.git
-./_build
-./deps
+# App artifacts
+/_build
+/db
+/deps
+/*.ez
+/doc
+
+*.pem
+*.o
+*.pyc
+*.fprof
+*.cprof
+*.sq3
+fprof.trace
+blocks.dat
+perf.data
+/test/curl/out.json
+
+# Generated on crash by the VM
+erl_crash.dump
+
+/states
+/binlogs
+/.vscode
+/config/*.secret.exs
+.elixir_ls/
+clones
+config/diode.exs
+.history/
+evm/evm
+core
+ttb_last_config
+data_dev/
+data_prod/
+data_test/
+data_prod_old/
+supervise/
+
+# Docker
+Dockerfile
+docker

@@ -5,4 +5,4 @@
 export ERL_CRASH_DUMP_BYTES=5000000000
 export MIX_ENV=prod
 
-docker build . -t diode && exec docker run --name diode --rm --network=host -ti diode
+docker build . -t diode && exec docker run --mount type=bind,source="$(pwd)/data_prod",target=/app/data_prod --name diode --rm --network=host -ti diode

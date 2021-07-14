@@ -10,6 +10,7 @@
 *.pyc
 *.fprof
 *.cprof
+*.sq3
 fprof.trace
 blocks.dat
 perf.data
@@ -23,7 +24,6 @@ erl_crash.dump
 /.vscode
 /config/*.secret.exs
 .elixir_ls/
-./run
 clones
 config/diode.exs
 .history/
