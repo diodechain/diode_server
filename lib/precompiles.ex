@@ -21,10 +21,14 @@ defmodule PreCompiles do
       ) do
     <<recid::binary-size(1), r::binary-size(32), s::binary-size(32)>> = signature
 
-    Secp256k1.rlp_to_bitcoin(recid, r, s)
-    |> Secp256k1.recover!(digest, :none)
-    |> Wallet.from_pubkey()
-    |> Wallet.address!()
+    try do
+      Secp256k1.rlp_to_bitcoin(recid, r, s)
+      |> Secp256k1.recover!(digest, :none)
+      |> Wallet.from_pubkey()
+      |> Wallet.address!()
+    rescue
+      _ -> <<0::160>>
+    end
   end
 
   def sha256(:gas, bytes) do
