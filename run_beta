@@ -3,7 +3,7 @@
 # Copyright 2021 Diode
 # Licensed under the Diode License, Version 1.1
 export RPC_PORT=11000
-export EDGE_PORT=12000
+export EDGE2_PORT=12000
 export PEER_PORT=13000
 export SEED=diode://localhost:51053
 export DATA_DIR=./clones/man/

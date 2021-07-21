@@ -21,6 +21,19 @@ System.put_env("WORKER_MODE", "50")
 # System.put_env("WORKER_MODE", "disabled")
 ```
 
+# Default Ports
+
+TCP port bindings can be controlled through environment variables. The default bindings are:  
+
+| Variable     | Description                       | Default Port |
+| --------     | -----------                       | ---- |
+| `RPC_PORT`   | Ethereum JSON API endpoint        | 8545
+| `RPCS_PORT`  | SSL version of `RPC_PORT`*        |  8443
+| `EDGE2_PORT` | Client Communication Port         | 41046
+| `PEER_PORT`  | Miner-To-Miner Communication Port | 51054
+
+RPCS_PORT is only used & needed for access from Web2 services such as the blockchain explorer at https://diode.io/prenet/ - the port can be ignored in most deployments.
+
 # Pre-Requisites
 
 * Elixir 1.10.4
