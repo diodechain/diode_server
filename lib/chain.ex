@@ -598,18 +598,16 @@ defmodule Chain do
       # for block <- ChainSql.alt_blocks(), do: ets_add_alt(block)
     end)
 
-    spawn_link(fn ->
-      Diode.start_subwork("preloading hashes", fn ->
-        for [hash: hash, number: number] <- ChainSql.all_block_hashes() do
-          ets_add_placeholder(hash, number)
-        end
+    Diode.start_subwork("preloading hashes", fn ->
+      for [hash: hash, number: number] <- ChainSql.all_block_hashes() do
+        ets_add_placeholder(hash, number)
+      end
 
-        :persistent_term.put(:placeholder_complete, true)
-      end)
+      :persistent_term.put(:placeholder_complete, true)
+    end)
 
-      Diode.start_subwork("preloading top blocks", fn ->
-        for block <- ChainSql.top_blocks(@ets_size), do: ets_add(block)
-      end)
+    Diode.start_subwork("preloading top blocks", fn ->
+      for block <- ChainSql.top_blocks(@ets_size), do: ets_add(block)
     end)
   end
 
