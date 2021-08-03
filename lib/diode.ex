@@ -16,7 +16,7 @@ defmodule Diode do
 
   def start(_type, args) do
     :persistent_term.put(:env, Mix.env())
-    :logger.add_primary_filter(:ignore_supervisor_infos, {&filter_function/2, []})
+    # :logger.add_primary_filter(:ignore_supervisor_infos, {&filter_function/2, []})
 
     set_chaindefinition()
 
