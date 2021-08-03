@@ -330,7 +330,8 @@ defmodule Edge2Client do
       eccs: [:secp256k1],
       active: false,
       reuseaddr: true,
-      keyfile: cert
+      keyfile: cert,
+      delay_send: true
     ]
   end
 
