@@ -140,7 +140,7 @@ defmodule Network.EdgeV2 do
     if self() == this do
       Process.monitor(pid)
     else
-      GenServer.call(this, {:monitor, pid})
+      GenServer.call(this, {:monitor, pid}, :infinity)
     end
   end
 

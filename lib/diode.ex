@@ -6,8 +6,17 @@ require Logger
 defmodule Diode do
   use Application
 
+  # Ignoring all info level sasl messages
+  def filter_function(event, _) do
+    case event do
+      %{level: :info, meta: %{domain: [:otp, :sasl]}} -> :stop
+      _other -> :ignore
+    end
+  end
+
   def start(_type, args) do
     :persistent_term.put(:env, Mix.env())
+    :logger.add_primary_filter(:ignore_supervisor_infos, {&filter_function/2, []})
 
     set_chaindefinition()
 
