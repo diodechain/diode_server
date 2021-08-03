@@ -140,8 +140,12 @@ defmodule Network.EdgeV2 do
     if self() == this do
       Process.monitor(pid)
     else
-      GenServer.call(this, {:monitor, pid}, :infinity)
+      call(this, {:monitor, pid})
     end
+  end
+
+  defp call(pid, msg, timeout \\ :infinity) do
+    GenServer.call(pid, msg, timeout)
   end
 
   def handle_call(fun, from, state) when is_function(fun) do
@@ -398,7 +402,7 @@ defmodule Network.EdgeV2 do
 
       # "portopen" response
       ["response", ref, "ok"] ->
-        GenServer.call(state.pid, fn _from, state ->
+        call(state.pid, fn _from, state ->
           port = %Port{state: :pre_open} = PortCollection.get(state.ports, ref)
           GenServer.reply(port.from, {:ok, ref})
           ports = PortCollection.put(state.ports, %Port{port | state: :open, from: nil})
@@ -412,7 +416,7 @@ defmodule Network.EdgeV2 do
         port = %Port{state: :pre_open} = PortCollection.get(state.ports, ref)
         GenServer.reply(port.from, {:error, reason})
 
-        GenServer.call(state.pid, fn _from, state ->
+        call(state.pid, fn _from, state ->
           {:reply, :ok, portclose(state, port, false)}
         end)
 
@@ -424,7 +428,7 @@ defmodule Network.EdgeV2 do
             error("port does not exit")
 
           port = %Port{state: :open} ->
-            GenServer.call(state.pid, fn _from, state ->
+            call(state.pid, fn _from, state ->
               {:reply, :ok, portclose(state, port, false)}
             end)
 
@@ -723,7 +727,7 @@ defmodule Network.EdgeV2 do
     # Todo: Check for network access based on contract
     resp =
       try do
-        GenServer.call(pid, {:portopen, this, ref, flags, portname, device_address}, 15_000)
+        call(pid, {:portopen, this, ref, flags, portname, device_address}, 15_000)
       catch
         kind, what ->
           log(state, "Remote port failed ack on portopen: #{inspect({kind, what})}")
@@ -739,7 +743,7 @@ defmodule Network.EdgeV2 do
           write: String.contains?(flags, "w")
         }
 
-        GenServer.call(this, fn _from, state ->
+        call(this, fn _from, state ->
           ports =
             PortCollection.put(state.ports, %Port{state: :open, clients: [client], ref: ref})
 
