@@ -94,6 +94,13 @@ defmodule Network.Server do
         {:noreply, state}
 
       key ->
+        if reason != :normal do
+          :io.format("~0p Connection failed (~0p)~n", [
+            state.protocol,
+            {pid, reason}
+          ])
+        end
+
         clients = Map.drop(clients, [pid, key])
 
         clients =

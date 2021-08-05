@@ -100,6 +100,7 @@ defmodule Network.EdgeV2 do
 
   @type state :: %{
           socket: any(),
+          inbuffer: nil | {integer(), binary()},
           compression: nil | :zlib,
           extra_flags: [],
           node_id: Wallet.t(),
@@ -109,7 +110,7 @@ defmodule Network.EdgeV2 do
           unpaid_rx_bytes: integer(),
           last_ticket: integer(),
           pid: pid(),
-          pending_packets: []
+          sender: pid()
         }
 
   def do_init(state) do
@@ -118,13 +119,14 @@ defmodule Network.EdgeV2 do
     state =
       Map.merge(state, %{
         ports: %PortCollection{},
+        inbuffer: nil,
         compression: nil,
         extra_flags: [],
         unpaid_bytes: 0,
         unpaid_rx_bytes: 0,
         last_ticket: nil,
         pid: self(),
-        pending_packets: :queue.new()
+        sender: Network.Sender.new(state.socket)
       })
 
     log(state, "accepted connection")
@@ -132,8 +134,9 @@ defmodule Network.EdgeV2 do
     {:noreply, state}
   end
 
-  def ssl_options(extra) do
-    Network.Server.default_ssl_options(extra)
+  def ssl_options(opts) do
+    Network.Server.default_ssl_options(opts)
+    |> Keyword.put(:packet, :raw)
   end
 
   def monitor(this, pid) do
@@ -148,6 +151,7 @@ defmodule Network.EdgeV2 do
     GenServer.call(pid, msg, timeout)
   end
 
+  @impl true
   def handle_call(fun, from, state) when is_function(fun) do
     fun.(from, state)
   end
@@ -179,7 +183,13 @@ defmodule Network.EdgeV2 do
 
         case PortCollection.find_sharedport(state.ports, port) do
           nil ->
-            state = send_socket(state, random_ref(), ["portopen", portname, ref, device_address])
+            state =
+              send_socket(state, {:port, ref}, random_ref(), [
+                "portopen",
+                portname,
+                ref,
+                device_address
+              ])
 
             ports = PortCollection.put(state.ports, port)
             {:noreply, %{state | ports: ports}}
@@ -195,18 +205,23 @@ defmodule Network.EdgeV2 do
     end
   end
 
+  @impl true
   def handle_cast(fun, state) when is_function(fun) do
     fun.(state)
   end
 
-  def handle_cast({:portsend, ref, data, _pid}, state = %{pending_packets: packets}) do
-    # Portsends get lower priority to avoid congestion
-    packets = :queue.in(["portsend", ref, data], packets)
-    {:noreply, send_socket(%{state | pending_packets: packets})}
+  def handle_cast({:portsend, ref, data, _pid}, state) do
+    {:noreply, send_socket(state, {:port, ref}, random_ref(), ["portsend", ref, data])}
   end
 
   def handle_cast({:portclose, ref}, state) do
     {:noreply, portclose(state, ref)}
+  end
+
+  @impl true
+  def terminate(reason, _state) do
+    # log(state, "Received terminate ~p ~p", [reason, state])
+    reason
   end
 
   def handle_msg(msg, state) do
@@ -492,7 +507,7 @@ defmodule Network.EdgeV2 do
     ["error", message]
   end
 
-  def handle_info({:ssl, _socket, raw_msg}, state) do
+  def handle_packet(raw_msg, state) do
     state = account_incoming(state, raw_msg)
     msg = decode(state, raw_msg)
 
@@ -510,6 +525,33 @@ defmodule Network.EdgeV2 do
     end
   end
 
+  defp handle_data("", state) do
+    {:noreply, state}
+  end
+
+  defp handle_data(<<length::unsigned-size(16), raw_msg::binary>>, state = %{inbuffer: nil}) do
+    handle_data(length, raw_msg, state)
+  end
+
+  defp handle_data(<<more::binary>>, state = %{inbuffer: {length, buffer}}) do
+    handle_data(length, buffer <> more, %{state | inbuffer: nil})
+  end
+
+  defp handle_data(length, raw_msg, state) do
+    if byte_size(raw_msg) >= length do
+      {:noreply, state} = handle_packet(binary_part(raw_msg, 0, length), state)
+      rest = binary_part(raw_msg, length, byte_size(raw_msg) - length)
+      handle_data(rest, state)
+    else
+      {:noreply, %{state | inbuffer: {length, raw_msg}}}
+    end
+  end
+
+  @impl true
+  def handle_info({:ssl, _socket, data}, state) do
+    handle_data(data, state)
+  end
+
   def handle_info({:topic, _topic, _message}, state) do
     throw(:notimpl)
     # state = send_socket(state, random_ref(), [topic, message])
@@ -518,7 +560,6 @@ defmodule Network.EdgeV2 do
 
   def handle_info({:stop_unpaid, b0}, state = %{unpaid_bytes: b}) do
     log(state, "connection closed because unpaid #{b0}(#{b}) bytes.")
-
     {:stop, :normal, state}
   end
 
@@ -554,17 +595,17 @@ defmodule Network.EdgeV2 do
           result = handle_async_msg(method_params, state)
 
           GenServer.cast(pid, fn state2 ->
-            {:noreply, send_socket(state2, request_id, result)}
+            {:noreply, send_socket(state2, request_id, request_id, result)}
           end)
         end)
 
         {:noreply, state}
 
       {result, state} ->
-        {:noreply, send_socket(state, request_id, result)}
+        {:noreply, send_socket(state, request_id, request_id, result)}
 
       result ->
-        {:noreply, send_socket(state, request_id, result)}
+        {:noreply, send_socket(state, request_id, request_id, result)}
     end
   end
 
@@ -775,7 +816,7 @@ defmodule Network.EdgeV2 do
       if action do
         # {:current_stacktrace, what} = :erlang.process_info(self(), :current_stacktrace)
         # :io.format("portclose from: ~p~n", [what])
-        send_socket(state, random_ref(), ["portclose", port.ref])
+        send_socket(state, {:port, port.ref}, random_ref(), ["portclose", port.ref])
       else
         state
       end
@@ -803,7 +844,7 @@ defmodule Network.EdgeV2 do
       if action do
         # {:current_stacktrace, what} = :erlang.process_info(self(), :current_stacktrace)
         # :io.format("portclose from: ~p~n", [what])
-        send_socket(state, random_ref(), ["portclose", ref])
+        send_socket(state, {:port, ref}, random_ref(), ["portclose", ref])
       else
         state
       end
@@ -837,23 +878,7 @@ defmodule Network.EdgeV2 do
     Rlp.encode!(msg)
   end
 
-  defp send_socket(state = %{pending_packets: packets, unpaid_bytes: b}) do
-    # Send socket/1 is sending :sendport packages only if the unpaid bytes
-    # counter is below the set threshold atm. Diode.ticket_grace()/2
-
-    # Alternative use native socket queue to define threhsold
-    # {:ok, [send_pend: pending]} <- :inet.getstat(socket, [:send_pend]),
-    # true <- pending < 64_000,
-    with false <- :queue.is_empty(packets),
-         true <- b < Diode.ticket_grace() / 2,
-         {{:value, packet}, packets} <- :queue.out(packets) do
-      send_socket(%{state | pending_packets: packets}, random_ref(), packet)
-    else
-      _ -> state
-    end
-  end
-
-  defp send_socket(state = %{unpaid_bytes: b, unpaid_rx_bytes: rx}, request_id, data) do
+  defp send_socket(state = %{unpaid_bytes: b, unpaid_rx_bytes: rx}, partition, request_id, data) do
     msg =
       if b > Diode.ticket_grace() do
         send(self(), {:stop_unpaid, b})
@@ -866,20 +891,19 @@ defmodule Network.EdgeV2 do
         end
       end
 
-    if msg != "", do: :ok = do_send_socket(state, msg)
-
+    if msg != "", do: :ok = do_send_socket(state, partition, msg)
     %{state | unpaid_bytes: b + byte_size(msg) + rx, unpaid_rx_bytes: 0}
-    |> send_socket()
   end
 
-  defp do_send_socket(state, msg) do
+  defp do_send_socket(state, partition, msg) do
     msg =
       case state.compression do
         nil -> msg
         :zlib -> :zlib.zip(msg)
       end
 
-    :ssl.send(state.socket, msg)
+    length = byte_size(msg)
+    Network.Sender.push_async(state.sender, partition, <<length::unsigned-size(16), msg::binary>>)
   end
 
   @spec device_id(state()) :: Wallet.t()
