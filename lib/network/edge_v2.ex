@@ -211,7 +211,11 @@ defmodule Network.EdgeV2 do
   end
 
   def handle_cast({:portsend, ref, data, _pid}, state) do
-    {:noreply, send_socket(state, {:port, ref}, random_ref(), ["portsend", ref, data])}
+    if PortCollection.get(state.ports, ref) != nil do
+      {:noreply, send_socket(state, {:port, ref}, random_ref(), ["portsend", ref, data])}
+    else
+      {:noreply, state}
+    end
   end
 
   def handle_cast({:portclose, ref}, state) do
