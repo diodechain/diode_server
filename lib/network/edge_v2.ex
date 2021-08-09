@@ -101,6 +101,7 @@ defmodule Network.EdgeV2 do
   @type state :: %{
           socket: any(),
           inbuffer: nil | {integer(), binary()},
+          blocked: :queue.queue(tuple()),
           compression: nil | :zlib,
           extra_flags: [],
           node_id: Wallet.t(),
@@ -120,6 +121,7 @@ defmodule Network.EdgeV2 do
       Map.merge(state, %{
         ports: %PortCollection{},
         inbuffer: nil,
+        blocked: :queue.new(),
         compression: nil,
         extra_flags: [],
         unpaid_bytes: 0,
@@ -882,21 +884,39 @@ defmodule Network.EdgeV2 do
     Rlp.encode!(msg)
   end
 
-  defp send_socket(state = %{unpaid_bytes: b, unpaid_rx_bytes: rx}, partition, request_id, data) do
-    msg =
-      if b > Diode.ticket_grace() do
-        send(self(), {:stop_unpaid, b})
-        encode([random_ref(), ["goodbye", "ticket expected", "you might get blocked"]])
-      else
-        if data == nil do
-          ""
-        else
-          encode([request_id, data])
-        end
-      end
+  defp is_portsend({:port, _}), do: true
+  defp is_portsend(_), do: false
 
-    if msg != "", do: :ok = do_send_socket(state, partition, msg)
-    %{state | unpaid_bytes: b + byte_size(msg) + rx, unpaid_rx_bytes: 0}
+  defp send_socket(state = %{unpaid_bytes: b, unpaid_rx_bytes: rx}, partition, request_id, data) do
+    cond do
+      # early exit
+      b > Diode.ticket_grace() ->
+        send(self(), {:stop_unpaid, b})
+        msg = encode([random_ref(), ["goodbye", "ticket expected", "you might get blocked"]])
+        :ok = do_send_socket(state, partition, msg)
+        %{state | unpaid_bytes: b + byte_size(msg) + rx, unpaid_rx_bytes: 0}
+
+      # skip
+      data == nil ->
+        state
+
+      # stopping port data
+      b > Diode.ticket_grace() / 2 and is_portsend(partition) ->
+        %{state | blocked: :queue.in({partition, request_id, data}, state.blocked)}
+
+      true ->
+        msg = encode([request_id, data])
+        :ok = do_send_socket(state, partition, msg)
+        state = %{state | unpaid_bytes: b + byte_size(msg) + rx, unpaid_rx_bytes: 0}
+
+        # continue port data sending?
+        if b < Diode.ticket_grace() / 2 and not :queue.is_empty(state.blocked) do
+          {{:value, {partition, request_id, data}}, blocked} = :queue.out(state.blocked)
+          send_socket(%{state | blocked: blocked}, partition, request_id, data)
+        else
+          state
+        end
+    end
   end
 
   defp do_send_socket(state, partition, msg) do
