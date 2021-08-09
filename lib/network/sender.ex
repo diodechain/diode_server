@@ -35,19 +35,9 @@ defmodule Network.Sender do
 
   @impl true
   def handle_call(
-        {:push_async, _partition, data},
-        _from,
-        state = %Sender{waiting: [from | waiting]}
-      ) do
-    GenServer.reply(from, data)
-    {:reply, :ok, %Sender{state | waiting: waiting}}
-  end
-
-  @impl true
-  def handle_call(
         {:push_async, partition, data},
         _from,
-        state = %Sender{partitions: partitions, waiting: []}
+        state = %Sender{partitions: partitions, waiting: nil}
       ) do
     ps =
       Map.update(partitions, partition, {[data], [nil]}, fn {q, rest} ->
@@ -59,19 +49,19 @@ defmodule Network.Sender do
 
   @impl true
   def handle_call(
-        {:push, _partition, data},
+        {:push_async, _partition, data},
         _from,
-        state = %Sender{waiting: [from | waiting]}
+        state = %Sender{waiting: from}
       ) do
     GenServer.reply(from, data)
-    {:reply, :ok, %Sender{state | waiting: waiting}}
+    {:reply, :ok, %Sender{state | waiting: nil}}
   end
 
   @impl true
   def handle_call(
         {:push, partition, data},
         from,
-        state = %Sender{partitions: partitions, waiting: []}
+        state = %Sender{partitions: partitions, waiting: nil}
       ) do
     ps =
       Map.update(partitions, partition, {[data], [from]}, fn {q, rest} ->
@@ -79,6 +69,16 @@ defmodule Network.Sender do
       end)
 
     {:noreply, %Sender{state | partitions: ps}}
+  end
+
+  @impl true
+  def handle_call(
+        {:push, _partition, data},
+        _from,
+        state = %Sender{waiting: from}
+      ) do
+    GenServer.reply(from, data)
+    {:reply, :ok, %Sender{state | waiting: nil}}
   end
 
   @impl true
@@ -116,7 +116,7 @@ defmodule Network.Sender do
   end
 
   # Coalescing data frames into 64kb at least when available
-  defp do_await(data \\ "", from, state = %Sender{partitions: partitions, waiting: waiting}) do
+  defp do_await(data \\ "", from, state = %Sender{partitions: partitions, waiting: nil}) do
     if map_size(partitions) > 0 and byte_size(data) < 64_000 do
       {:reply, new_data, state} = handle_call(:pop, from, state)
       do_await(data <> new_data, from, state)
@@ -124,7 +124,7 @@ defmodule Network.Sender do
       if byte_size(data) > 0 do
         {:reply, data, state}
       else
-        {:noreply, %Sender{state | waiting: waiting ++ [from]}}
+        {:noreply, %Sender{state | waiting: from}}
       end
     end
   end
@@ -137,11 +137,13 @@ defmodule Network.Sender do
       relayer_loop(q, socket)
     end)
 
-    {:ok, %Sender{partitions: %{}, waiting: []}}
+    {:ok, %Sender{partitions: %{}, waiting: nil}}
   end
 
   defp relayer_loop(q, socket) do
-    :ok = :ssl.send(socket, await(q))
-    relayer_loop(q, socket)
+    case :ssl.send(socket, await(q)) do
+      :ok -> relayer_loop(q, socket)
+      other -> Process.exit(self(), other)
+    end
   end
 end

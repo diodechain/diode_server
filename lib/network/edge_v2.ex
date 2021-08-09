@@ -513,7 +513,7 @@ defmodule Network.EdgeV2 do
     ["error", message]
   end
 
-  def handle_packet(raw_msg, state) do
+  defp handle_packet(raw_msg, state) do
     state = account_incoming(state, raw_msg)
     msg = decode(state, raw_msg)
 
@@ -535,6 +535,10 @@ defmodule Network.EdgeV2 do
     {:noreply, state}
   end
 
+  defp handle_data(<<0::unsigned-size(16), rest::binary>>, state = %{inbuffer: nil}) do
+    handle_data(rest, state)
+  end
+
   defp handle_data(<<length::unsigned-size(16), raw_msg::binary>>, state = %{inbuffer: nil}) do
     handle_data(length, raw_msg, state)
   end
@@ -547,7 +551,7 @@ defmodule Network.EdgeV2 do
     if byte_size(raw_msg) >= length do
       {:noreply, state} = handle_packet(binary_part(raw_msg, 0, length), state)
       rest = binary_part(raw_msg, length, byte_size(raw_msg) - length)
-      handle_data(rest, state)
+      handle_data(rest, %{state | inbuffer: nil})
     else
       {:noreply, %{state | inbuffer: {length, raw_msg}}}
     end
@@ -887,30 +891,41 @@ defmodule Network.EdgeV2 do
   defp is_portsend({:port, _}), do: true
   defp is_portsend(_), do: false
 
-  defp send_socket(state = %{unpaid_bytes: b, unpaid_rx_bytes: rx}, partition, request_id, data) do
+  defp send_threshold() do
+    Diode.ticket_grace() - Diode.ticket_grace() / 4
+  end
+
+  defp send_socket(
+         state = %{unpaid_bytes: unpaid},
+         partition,
+         request_id,
+         data
+       ) do
     cond do
       # early exit
-      b > Diode.ticket_grace() ->
-        send(self(), {:stop_unpaid, b})
+      unpaid > Diode.ticket_grace() ->
+        send(self(), {:stop_unpaid, unpaid})
         msg = encode([random_ref(), ["goodbye", "ticket expected", "you might get blocked"]])
         :ok = do_send_socket(state, partition, msg)
-        %{state | unpaid_bytes: b + byte_size(msg) + rx, unpaid_rx_bytes: 0}
-
-      # skip
-      data == nil ->
-        state
+        account_outgoing(state, msg)
 
       # stopping port data
-      b > Diode.ticket_grace() / 2 and is_portsend(partition) ->
+      unpaid > send_threshold() and is_portsend(partition) ->
         %{state | blocked: :queue.in({partition, request_id, data}, state.blocked)}
+        |> account_outgoing()
 
       true ->
-        msg = encode([request_id, data])
-        :ok = do_send_socket(state, partition, msg)
-        state = %{state | unpaid_bytes: b + byte_size(msg) + rx, unpaid_rx_bytes: 0}
+        state =
+          if data == nil do
+            account_outgoing(state)
+          else
+            msg = encode([request_id, data])
+            :ok = do_send_socket(state, partition, msg)
+            account_outgoing(state, msg)
+          end
 
         # continue port data sending?
-        if b < Diode.ticket_grace() / 2 and not :queue.is_empty(state.blocked) do
+        if state.unpaid_bytes < send_threshold() and not :queue.is_empty(state.blocked) do
           {{:value, {partition, request_id, data}}, blocked} = :queue.out(state.blocked)
           send_socket(%{state | blocked: blocked}, partition, request_id, data)
         else
@@ -934,8 +949,12 @@ defmodule Network.EdgeV2 do
   def device_id(%{node_id: id}), do: id
   def device_address(%{node_id: id}), do: Wallet.address!(id)
 
-  defp account_incoming(state = %{unpaid_rx_bytes: b}, msg) do
-    %{state | unpaid_rx_bytes: b + byte_size(msg)}
+  defp account_incoming(state = %{unpaid_rx_bytes: unpaid_rx}, msg) do
+    %{state | unpaid_rx_bytes: unpaid_rx + byte_size(msg)}
+  end
+
+  defp account_outgoing(state = %{unpaid_bytes: unpaid, unpaid_rx_bytes: unpaid_rx}, msg \\ "") do
+    %{state | unpaid_bytes: unpaid + unpaid_rx + byte_size(msg), unpaid_rx_bytes: 0}
   end
 
   def on_nodeid(_edge) do
