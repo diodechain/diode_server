@@ -105,8 +105,7 @@ defmodule Network.PeerHandler do
           end
         end
 
-      _error ->
-        err = "sync failed"
+      err ->
         {:stop, {:validation_error, err}, state}
     end
   end

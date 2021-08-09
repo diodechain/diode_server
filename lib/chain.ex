@@ -285,7 +285,7 @@ defmodule Chain do
   end
 
   @spec add_block(any()) :: :added | :stored
-  def add_block(block, relay \\ true) do
+  def add_block(block, relay \\ true, async \\ false) do
     block_hash = Block.hash(block)
     true = Block.has_state?(block)
 
@@ -301,77 +301,89 @@ defmodule Chain do
       true ->
         parent_hash = Block.parent_hash(block)
 
-        ret = GenServer.call(__MODULE__, {:add_block, block, parent_hash, relay})
+        if async == false do
+          ret = GenServer.call(__MODULE__, {:add_block, block, parent_hash, relay})
 
-        if ret == :added do
-          Chain.Worker.update()
+          if ret == :added do
+            Chain.Worker.update()
+          end
+
+          ret
+        else
+          GenServer.cast(__MODULE__, {:add_block, block, parent_hash, relay})
+          :unknown
         end
-
-        ret
     end
   end
 
+  def handle_cast({:add_block, block, parent_hash, relay}, state) do
+    {:reply, _reply, state} = handle_call({:add_block, block, parent_hash, relay}, nil, state)
+    {:noreply, state}
+  end
+
   def handle_call({:add_block, block, parent_hash, relay}, _from, state) do
-    peak = state.peak
-    peak_hash = Block.hash(peak)
-    info = Block.printable(block)
+    Stats.tc(:addblock, fn ->
+      peak = state.peak
+      peak_hash = Block.hash(peak)
+      info = Block.printable(block)
 
-    cond do
-      block_by_hash?(Block.hash(block)) ->
-        IO.puts("Chain.add_block: Skipping existing block (3)")
-        {:reply, :added, state}
+      cond do
+        block_by_hash?(Block.hash(block)) ->
+          IO.puts("Chain.add_block: Skipping existing block (3)")
+          {:reply, :added, state}
 
-      peak_hash != parent_hash and Block.total_difficulty(block) <= Block.total_difficulty(peak) ->
-        ChainSql.put_new_block(block)
-        ets_add_alt(block)
-        IO.puts("Chain.add_block: Extended   alt #{info} | (@#{Block.printable(peak)}")
-        {:reply, :stored, state}
+        peak_hash != parent_hash and Block.total_difficulty(block) <= Block.total_difficulty(peak) ->
+          ChainSql.put_new_block(block)
+          ets_add_alt(block)
+          IO.puts("Chain.add_block: Extended   alt #{info} | (@#{Block.printable(peak)}")
+          {:reply, :stored, state}
 
-      true ->
-        # Update the state
-        if peak_hash == parent_hash do
-          IO.puts("Chain.add_block: Extending main #{info}")
+        true ->
+          # Update the state
+          if peak_hash == parent_hash do
+            IO.puts("Chain.add_block: Extending main #{info}")
 
-          Stats.incr(:block_cnt)
-          ChainSql.put_block(block)
-          ets_add(block)
-        else
-          IO.puts("Chain.add_block: Replacing main #{info}")
-
-          # Recursively makes a new branch normative
-          ChainSql.put_peak(block)
-          ets_refetch(block)
-        end
-
-        state = %{state | peak: block}
-        :persistent_term.put(:epoch, Block.epoch(block))
-
-        # Printing some debug output per transaction
-        if Diode.dev_mode?() do
-          print_transactions(block)
-        end
-
-        # Remove all transactions that have been processed in this block
-        # from the outstanding local transaction pool
-        Chain.Pool.remove_transactions(block)
-
-        # Let the ticketstore know the new block
-        PubSub.publish(:rpc, {:rpc, :block, block})
-
-        Debouncer.immediate(TicketStore, fn ->
-          TicketStore.newblock(block)
-        end)
-
-        if relay do
-          if Wallet.equal?(Block.miner(block), Diode.miner()) do
-            Kademlia.broadcast(Block.export(block))
+            Stats.incr(:block_cnt)
+            ChainSql.put_block(block)
+            ets_add(block)
           else
-            Kademlia.relay(Block.export(block))
-          end
-        end
+            IO.puts("Chain.add_block: Replacing main #{info}")
 
-        {:reply, :added, state}
-    end
+            # Recursively makes a new branch normative
+            ChainSql.put_peak(block)
+            ets_refetch(block)
+          end
+
+          state = %{state | peak: block}
+          :persistent_term.put(:epoch, Block.epoch(block))
+
+          # Printing some debug output per transaction
+          if Diode.dev_mode?() do
+            print_transactions(block)
+          end
+
+          # Remove all transactions that have been processed in this block
+          # from the outstanding local transaction pool
+          Chain.Pool.remove_transactions(block)
+
+          # Let the ticketstore know the new block
+          PubSub.publish(:rpc, {:rpc, :block, block})
+
+          Debouncer.immediate(TicketStore, fn ->
+            TicketStore.newblock(block)
+          end)
+
+          if relay do
+            if Wallet.equal?(Block.miner(block), Diode.miner()) do
+              Kademlia.broadcast(Block.export(block))
+            else
+              Kademlia.relay(Block.export(block))
+            end
+          end
+
+          {:reply, :added, state}
+      end
+    end)
   end
 
   def handle_call({:call, fun}, from, state) when is_function(fun) do
@@ -471,10 +483,7 @@ defmodule Chain do
 
             case ret do
               %Chain.Block{} = block ->
-                Stats.tc(:addblock, fn ->
-                  Chain.add_block(block, false)
-                end)
-
+                add_block(block, false, false)
                 {:cont, block}
 
               nonblock ->

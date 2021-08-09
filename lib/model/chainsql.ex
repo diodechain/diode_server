@@ -119,31 +119,40 @@ defmodule Model.ChainSql do
   end
 
   def put_new_block(block) do
-    with_transaction(fn db ->
-      query(
-        db,
-        "INSERT OR FAIL INTO blocks (hash, parent, miner, data, state) VALUES(?1, ?2, ?3, ?4, ?5)",
-        bind: [
-          Block.hash(block),
-          Block.parent_hash(block),
-          Block.miner(block) |> Wallet.pubkey!(),
-          Block.strip_state(block) |> BertInt.encode!(),
-          prepare_state(block)
-        ]
-      )
-      |> case do
-        {:ok, _some} ->
-          put_transactions(db, block)
-          true
+    {state, encoded_state} = prepare_state(block)
 
-        {:error, _some} ->
-          false
-      end
-    end)
+    ret =
+      with_transaction(fn db ->
+        query(
+          db,
+          "INSERT OR FAIL INTO blocks (hash, parent, miner, data, state) VALUES(?1, ?2, ?3, ?4, ?5)",
+          bind: [
+            Block.hash(block),
+            Block.parent_hash(block),
+            Block.miner(block) |> Wallet.pubkey!(),
+            Block.strip_state(block) |> BertInt.encode!(),
+            encoded_state
+          ]
+        )
+        |> case do
+          {:ok, _some} ->
+            put_transactions(db, block)
+            true
+
+          {:error, _some} ->
+            false
+        end
+      end)
+
+    compress_state(block, state)
+
+    ret
   end
 
   @spec put_block(Chain.Block.t()) :: Chain.Block.t()
   def put_block(block) do
+    {state, encoded_state} = prepare_state(block)
+
     with_transaction(fn db ->
       query(
         db,
@@ -154,7 +163,7 @@ defmodule Model.ChainSql do
           Block.miner(block) |> Wallet.pubkey!(),
           Block.number(block),
           Block.strip_state(block) |> BertInt.encode!(),
-          prepare_state(block)
+          encoded_state
         ]
       )
       |> case do
@@ -166,6 +175,8 @@ defmodule Model.ChainSql do
           false
       end
     end)
+
+    compress_state(block, state)
 
     block
   end
@@ -326,23 +337,36 @@ defmodule Model.ChainSql do
       Block.state(block)
       |> Chain.State.compact()
 
+    {state, BertInt.encode!(state)}
+  end
+
+  defp compress_state(block, state) do
     nr = Block.number(block)
 
     if nr > 0 and rem(nr, 100) == 1 do
-      BertInt.encode!(state)
+      :nop
     else
-      prev = nr - rem(nr, 100) + 1
+      spawn_link(fn ->
+        prev = nr - rem(nr, 100) + 1
 
-      case Sql.query!(__MODULE__, "SELECT hash, state FROM blocks WHERE number = ?1", bind: [prev]) do
-        [[hash: hash, state: bin]] ->
-          prev_state = %Chain.State{} = BertInt.decode!(bin)
+        case Sql.query!(__MODULE__, "SELECT hash, state FROM blocks WHERE number = ?1",
+               bind: [prev]
+             ) do
+          [[hash: hash, state: bin]] ->
+            prev_state = %Chain.State{} = BertInt.decode!(bin)
 
-          {hash, Chain.State.difference(prev_state, state)}
-          |> BertInt.encode!()
+            compressed_state =
+              {hash, Chain.State.difference(prev_state, state)}
+              |> BertInt.encode!()
 
-        [] ->
-          BertInt.encode!(state)
-      end
+            Sql.query_async!(__MODULE__, "UPDATE blocks SET state = ?2 WHERE hash = ?1",
+              bind: [Block.hash(block), compressed_state]
+            )
+
+          [] ->
+            :nop
+        end
+      end)
     end
   end
 end
