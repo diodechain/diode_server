@@ -109,7 +109,7 @@ defmodule Network.EdgeV2 do
           ports: PortCollection.t(),
           unpaid_bytes: integer(),
           unpaid_rx_bytes: integer(),
-          last_ticket: integer(),
+          last_ticket: Time.t(),
           pid: pid(),
           sender: pid()
         }
@@ -132,8 +132,12 @@ defmodule Network.EdgeV2 do
       })
 
     log(state, "accepted connection")
-    Process.send_after(self(), :must_have_ticket, 20_000)
-    {:noreply, state}
+    {:noreply, must_have_ticket(state)}
+  end
+
+  defp must_have_ticket(state = %{last_ticket: last}) do
+    Process.send_after(self(), {:must_have_ticket, last}, 20_000)
+    state
   end
 
   def ssl_options(opts) do
@@ -156,6 +160,14 @@ defmodule Network.EdgeV2 do
   @impl true
   def handle_call(fun, from, state) when is_function(fun) do
     fun.(from, state)
+  end
+
+  def handle_call(:socket, _from, state) do
+    {:reply, state.socket, state}
+  end
+
+  def handle_call({:socket_do, fun}, _from, state) do
+    {:reply, fun.(state.socket), state}
   end
 
   def handle_call({:monitor, pid}, _from, state) do
@@ -573,8 +585,8 @@ defmodule Network.EdgeV2 do
     {:stop, :normal, state}
   end
 
-  def handle_info(:must_have_ticket, state = %{last_ticket: timestamp}) do
-    if timestamp == nil do
+  def handle_info({:must_have_ticket, last}, state = %{last_ticket: timestamp}) do
+    if timestamp == nil or timestamp == last do
       log(state, "connection closed because no valid ticket sent within time limit.")
       {:stop, :normal, state}
     else
@@ -654,8 +666,15 @@ defmodule Network.EdgeV2 do
 
       true ->
         dl = Ticket.server_sign(dl, Wallet.privkey!(Diode.miner()))
+        ret = TicketStore.add(dl, device_id(state))
 
-        case TicketStore.add(dl, device_id(state)) do
+        # address = Ticket.device_address(dl)
+        # short = String.slice(Base16.encode(address), 0..7)
+        # total = Ticket.total_bytes(dl)
+        # unpaid = state.unpaid_bytes
+        # IO.puts("[#{short}] TICKET total: #{total} unpaid: #{unpaid} ret => #{inspect(ret)}")
+
+        case ret do
           {:ok, bytes} ->
             key = Object.key(dl)
 
@@ -909,10 +928,11 @@ defmodule Network.EdgeV2 do
         :ok = do_send_socket(state, partition, msg)
         account_outgoing(state, msg)
 
-      # stopping port data
+      # stopping port data, and ensure there is a ticket within 20s
       unpaid > send_threshold() and is_portsend(partition) ->
         %{state | blocked: :queue.in({partition, request_id, data}, state.blocked)}
         |> account_outgoing()
+        |> must_have_ticket()
 
       true ->
         state =
