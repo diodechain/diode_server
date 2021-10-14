@@ -61,8 +61,16 @@ defmodule Secp256k1 do
     ])
   end
 
+  require Record
+
+  Record.defrecord(
+    :eCPrivateKey,
+    Record.extract(:ECPrivateKey, from_lib: "public_key/include/public_key.hrl")
+  )
+
   def erl_encode_private(private, public) do
-    {:ECPrivateKey, 1, private, curve_params(), public}
+    eCPrivateKey(version: 1, privateKey: private, parameters: curve_params(), publicKey: public)
+    |> put_elem(0, :ECPrivateKey)
   end
 
   def selfsigned(private, public) do

@@ -4,29 +4,33 @@
 defmodule Network.RpcWs do
   @behaviour :cowboy_websocket_handler
 
-  def init(_, _req, _opts) do
-    {:upgrade, :protocol, :cowboy_websocket}
+  def init(req, state) do
+    {:cowboy_websocket, req, state}
   end
 
-  def websocket_init(_type, req, _opts) do
+  def websocket_init(state) do
     PubSub.subscribe(:rpc)
-    {:ok, req, %{status: "inactive"}}
+    {:ok, state}
   end
 
-  def websocket_handle({:ping, message}, req, state) do
-    {:reply, {:pong, message}, req, state}
+  def websocket_handle({:ping, message}, state) do
+    {:reply, {:pong, message}, state}
   end
 
-  def websocket_handle({:text, message}, req, state) do
+  def websocket_handle({:binary, message}, state) do
+    websocket_handle({:text, message}, state)
+  end
+
+  def websocket_handle({:text, message}, state) do
     with {:ok, message} <- Poison.decode(message) do
       {_status, response} = Network.Rpc.handle_jsonrpc(message, extra: {__MODULE__, :execute_rpc})
-      {:reply, {:text, Poison.encode!(response)}, req, state}
+      {:reply, {:text, Poison.encode!(response)}, state}
     else
       {:ok, state} ->
-        {:ok, req, state}
+        {:ok, state}
 
       _ ->
-        {:reply, {:text, Poison.encode!("what?")}, req, state}
+        {:reply, {:text, Poison.encode!("what?")}, state}
     end
   end
 
@@ -73,7 +77,7 @@ defmodule Network.RpcWs do
     :ok
   end
 
-  def websocket_info(any, req, state) do
+  def websocket_info(any, state) do
     case any do
       {:rpc, :block, block} ->
         reply =
@@ -97,9 +101,9 @@ defmodule Network.RpcWs do
           end)
 
         if reply != [] do
-          {:reply, reply, req, state}
+          {:reply, reply, state}
         else
-          {:ok, req, state}
+          {:ok, state}
         end
 
       {:rpc, :syncing, bool} ->
@@ -130,14 +134,14 @@ defmodule Network.RpcWs do
           end)
 
         if reply != [] do
-          {:reply, reply, req, state}
+          {:reply, reply, state}
         else
-          {:ok, req, state}
+          {:ok, state}
         end
 
       _ ->
         :io.format("rpc_ws:websocket_info(~p)~n", [any])
-        {:ok, req, state}
+        {:ok, state}
     end
   end
 end
