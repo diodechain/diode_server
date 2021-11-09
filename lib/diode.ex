@@ -172,7 +172,7 @@ defmodule Diode do
           {:_,
            [
              {"/ws", Network.RpcWs, []},
-             {:_, Plug.Adapters.Cowboy.Handler, {Network.RpcHttp, []}}
+             {:_, Plug.Cowboy.Handler, {Network.RpcHttp, []}}
            ]}
         ]
       ] ++ opts
