@@ -281,12 +281,21 @@ defmodule Kademlia do
     try do
       GenServer.call(pid, {:rpc, call}, 2000)
     rescue
-      _error ->
-        IO.puts("Failed to get a result from #{Wallet.printable(node_id)}")
+      error ->
+        IO.puts("Failed to get a result from #{Wallet.printable(node_id)} #{inspect(error)}")
         []
     catch
-      _any, _what ->
-        IO.puts("Failed(2) to get a result from #{Wallet.printable(node_id)}")
+      :exit, {:timeout, _} ->
+        IO.puts("Timeout while getting a result from #{Wallet.printable(node_id)}")
+        # TODO: This *always* happens when a node is still syncing. How to handle this better?
+        # Process.exit(pid, :timeout)
+        []
+
+      any, what ->
+        IO.puts(
+          "Failed(2) to get a result from #{Wallet.printable(node_id)} #{inspect({any, what})}"
+        )
+
         []
     end
   end

@@ -805,7 +805,11 @@ defmodule Network.EdgeV2 do
         call(pid, {:portopen, this, ref, flags, portname, device_address}, 35_000)
       catch
         kind, what ->
-          log(state, "Remote port failed ack on portopen: #{inspect({kind, what})}")
+          log(
+            state,
+            "Portopen failed for #{Base16.encode(device_address)} #{inspect({kind, what})}"
+          )
+
           :error
       end
 
