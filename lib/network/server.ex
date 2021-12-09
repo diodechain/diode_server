@@ -220,18 +220,19 @@ defmodule Network.Server do
         :io.format("~p Anomaly - Connection closed before TLS handshake~n", [state.protocol])
 
       {:ok, newSocket} ->
-        {:ok, {address, port}} = :ssl.peername(newSocket)
-        # Todo: Need more accept workers with such a high timeout
-        # or move the handshake to worker...
-        case :ssl.handshake(newSocket, 5000) do
-          {:ok, newSocket2} ->
-            worker = start_worker!(state, :init)
-            :ok = :ssl.controlling_process(newSocket2, worker)
-            send(worker, {:init, newSocket2})
+        spawn_link(fn ->
+          {:ok, {address, port}} = :ssl.peername(newSocket)
 
-          {:error, error} ->
-            :io.format("~p Handshake error: ~0p ~0p~n", [state.protocol, error, {address, port}])
-        end
+          case :ssl.handshake(newSocket, 25000) do
+            {:ok, newSocket2} ->
+              worker = start_worker!(state, :init)
+              :ok = :ssl.controlling_process(newSocket2, worker)
+              send(worker, {:init, newSocket2})
+
+            {:error, error} ->
+              :io.format("~p Handshake error: ~0p ~0p~n", [state.protocol, error, {address, port}])
+          end
+        end)
     end
 
     do_accept(state)

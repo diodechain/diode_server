@@ -174,9 +174,17 @@ defmodule Network.EdgeV2 do
     {:reply, Process.monitor(pid), state}
   end
 
+  @max_preopen_ports 5
   def handle_call({:portopen, pid, ref, flags, portname, device_address}, from, state) do
-    case PortCollection.get(state.ports, ref) do
-      nil ->
+    cond do
+      Enum.count(state.ports.refs, fn {_key, %Port{state: pstate}} -> pstate == :pre_open end) >
+          @max_preopen_ports ->
+        {:reply, {:error, "too many hanging ports"}, state}
+
+      PortCollection.get(state.ports, ref) != nil ->
+        {:reply, {:error, "already opening"}, state}
+
+      true ->
         mon = monitor(state.pid, pid)
 
         client = %PortClient{
@@ -213,9 +221,6 @@ defmodule Network.EdgeV2 do
             ports = PortCollection.put(state.ports, port)
             {:reply, {:ok, existing_port.ref}, %{state | ports: ports}}
         end
-
-      _other ->
-        {:reply, {:error, "already opening"}, state}
     end
   end
 
@@ -797,7 +802,7 @@ defmodule Network.EdgeV2 do
     # Todo: Check for network access based on contract
     resp =
       try do
-        call(pid, {:portopen, this, ref, flags, portname, device_address}, 15_000)
+        call(pid, {:portopen, this, ref, flags, portname, device_address}, 35_000)
       catch
         kind, what ->
           log(state, "Remote port failed ack on portopen: #{inspect({kind, what})}")
