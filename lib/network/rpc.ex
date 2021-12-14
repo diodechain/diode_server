@@ -95,7 +95,7 @@ defmodule Network.Rpc do
 
   defp execute([], [method, params]) do
     :io.format("Unhandled: ~p ~p~n", [method, params])
-    result(422, "what method?")
+    result("what method?", 422)
   end
 
   def execute_rpc("", _params, _opts) do
