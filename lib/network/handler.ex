@@ -194,6 +194,8 @@ defmodule Network.Handler do
         :io.format("~s ~s: ~s ~s~n", [date, mod, name(state), format(format, args)])
       end
 
+      defp format(format, []), do: format
+
       defp format(format, vars) do
         string = :io_lib.format(format, vars) |> :erlang.iolist_to_binary()
 
