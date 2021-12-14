@@ -41,15 +41,20 @@ defmodule Shell do
   def call_tx(tx, blockRef) do
     block = Network.Rpc.get_block(blockRef)
     state = Chain.Block.state(block)
-    {:ok, _state, rcpt} = Chain.Transaction.apply(tx, block, state, static: true)
 
-    ret =
-      case rcpt.msg do
-        :evmc_revert -> ABI.decode_revert(rcpt.evmout)
-        _ -> rcpt.evmout
-      end
+    case Chain.Transaction.apply(tx, block, state, static: true) do
+      {:ok, _state, rcpt} ->
+        ret =
+          case rcpt.msg do
+            :evmc_revert -> ABI.decode_revert(rcpt.evmout)
+            _ -> rcpt.evmout
+          end
 
-    {ret, rcpt.gas_used}
+        {ret, rcpt.gas_used}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   def submit_from(wallet, address, name, types, values, opts \\ [])
