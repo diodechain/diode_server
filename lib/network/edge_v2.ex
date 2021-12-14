@@ -441,10 +441,16 @@ defmodule Network.EdgeV2 do
       # "portopen" response
       ["response", ref, "ok"] ->
         call(state.pid, fn _from, state ->
-          port = %Port{state: :pre_open} = PortCollection.get(state.ports, ref)
-          GenServer.reply(port.from, {:ok, ref})
-          ports = PortCollection.put(state.ports, %Port{port | state: :open, from: nil})
-          {:reply, :ok, %{state | ports: ports}}
+          case PortCollection.get(state.ports, ref) do
+            port = %Port{state: :pre_open} ->
+              GenServer.reply(port.from, {:ok, ref})
+              ports = PortCollection.put(state.ports, %Port{port | state: :open, from: nil})
+              {:reply, :ok, %{state | ports: ports}}
+
+            nil ->
+              log(state, "ignoring response for undefined ref ~p", [ref])
+              {:reply, :ok, state}
+          end
         end)
 
         nil
