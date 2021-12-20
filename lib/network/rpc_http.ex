@@ -16,11 +16,11 @@ defmodule Network.RpcHttp do
   defp cors(conn) do
     headers = %{
       # "access-control-allow-credentials" => "true",
-      "Access-Control-Allow-Origin" => "*",
-      "Access-Control-Allow-Methods" => "POST, GET",
-      "Access-Control-Allow-Headers" => "Content-Type",
-      # "Access-Control-Expose-Headers" => "content-type",
-      "Content-Type" => "application/json"
+      "access-control-allow-origin" => "*",
+      "access-control-allow-methods" => "POST, GET",
+      "access-control-allow-headers" => "Content-Type",
+      # "access-control-expose-headers" => "content-type",
+      "content-type" => "application/json"
     }
 
     conn
