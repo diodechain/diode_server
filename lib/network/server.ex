@@ -64,8 +64,12 @@ defmodule Network.Server do
 
   def check(_cert, event, state) do
     case event do
-      {:bad_cert, :selfsigned_peer} -> {:valid, state}
-      _ -> {:fail, event}
+      {:bad_cert, :selfsigned_peer} ->
+        {:valid, state}
+
+      other ->
+        IO.puts("Failed for #{inspect(other)}")
+        {:fail, event}
     end
   end
 
@@ -139,8 +143,10 @@ defmodule Network.Server do
 
   def handle_call({:ensure_node_connection, node_id, address, port}, _from, state) do
     if Wallet.equal?(Diode.miner(), node_id) do
-      if state.self_conns != [] do
-        {:reply, hd(state.self_conns), state}
+      client = Enum.find(state.self_conns, fn pid -> Process.alive?(pid) end)
+
+      if client != nil do
+        {:reply, client, state}
       else
         worker = start_worker!(state, [:connect, node_id, "localhost", Diode.peer_port()])
         {:reply, worker, %{state | self_conns: [worker]}}
@@ -148,18 +154,18 @@ defmodule Network.Server do
     else
       key = to_key(node_id)
 
-      case Map.get(state.clients, key) do
-        nil ->
-          worker = start_worker!(state, [:connect, node_id, address, port])
+      client = Map.get(state.clients, key)
 
-          clients =
-            Map.put(state.clients, key, worker)
-            |> Map.put(worker, key)
+      if client != nil and Process.alive?(client) do
+        {:reply, client, state}
+      else
+        worker = start_worker!(state, [:connect, node_id, address, port])
 
-          {:reply, worker, %{state | clients: clients}}
+        clients =
+          Map.put(state.clients, key, worker)
+          |> Map.put(worker, key)
 
-        client ->
-          {:reply, client, state}
+        {:reply, worker, %{state | clients: clients}}
       end
     end
   end
