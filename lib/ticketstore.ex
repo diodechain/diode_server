@@ -47,6 +47,9 @@ defmodule TicketStore do
     tickets =
       tickets(epoch)
       |> Enum.filter(fn tck ->
+        estimate_ticket_value(tck, epoch) > 1_000_000
+      end)
+      |> Enum.filter(fn tck ->
         Ticket.raw(tck)
         |> Contract.Registry.submit_ticket_raw_tx()
         |> Shell.call_tx("latest")
@@ -62,9 +65,6 @@ defmodule TicketStore do
             :io.format("TicketStore:submit_tickets(~p) ticket error: ~p~n", [epoch, other])
             false
         end
-      end)
-      |> Enum.filter(fn tck ->
-        estimate_ticket_value(tck, epoch) > 1_000_000
       end)
 
     if length(tickets) > 0 do
