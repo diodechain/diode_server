@@ -405,7 +405,7 @@ defmodule Network.PeerHandler do
               else
                 # is this a randomly broadcasted block or a chain re-org?
                 # assuming reorg after n blocks
-                if state.random_blocks < 5 do
+                if state.random_blocks < 100 do
                   log(state, "ignoring wrong ordered block [~p]", [state.random_blocks + 1])
                   {state.random_blocks + 1, blocks}
                 else
