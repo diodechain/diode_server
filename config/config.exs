@@ -5,8 +5,8 @@ use Mix.Config
 
 # Configures Elixir's Logger
 config :logger,
-  handle_otp_reports: true,
-  handle_sasl_reports: true,
+  handle_otp_reports: false,
+  handle_sasl_reports: false,
   backends: [:console],
   truncate: :infinity,
   format: "$time $metadata[$level] $message\n",
