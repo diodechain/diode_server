@@ -7,10 +7,12 @@ defmodule EtsLru do
   """
 
   def new(name \\ nil, max_size) do
+    opts = [:public, {:read_concurrency, true}, {:write_concurrency, true}]
+
     name =
       case name do
-        nil -> :ets.new(name, [:public])
-        _other -> :ets.new(name, [:named_table, :public])
+        nil -> :ets.new(name, opts)
+        _other -> :ets.new(name, [:named_table | opts])
       end
 
     :ets.insert(name, {:meta, 0, max_size})
