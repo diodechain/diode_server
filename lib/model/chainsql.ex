@@ -290,7 +290,7 @@ defmodule Model.ChainSql do
 
   def all_block_hashes() do
     Stream.resource(
-      fn -> 0 end,
+      fn -> -1 end,
       fn n ->
         fn ->
           Sql.query!(

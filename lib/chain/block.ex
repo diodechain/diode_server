@@ -3,6 +3,7 @@
 # Licensed under the Diode License, Version 1.1
 defmodule Chain.Block do
   alias Chain.{Block, BlockCache, State, Transaction, Header}
+  require Logger
 
   @enforce_keys [:coinbase]
   defstruct transactions: [], header: %Chain.Header{}, receipts: [], coinbase: nil
@@ -612,8 +613,14 @@ defmodule Chain.Block do
     block
   end
 
-  def last_final(%Block{} = block, parent) do
-    parent = parent(block, parent)
+  def last_final(%Block{} = block, oparent) do
+    parent = parent(block, oparent)
+
+    if parent == nil do
+      Logger.error("Corrupt database block #{Block.printable(block)} has no parent!")
+      %Block{} = parent
+    end
+
     prev_final = BlockCache.last_final(parent)
     window = blockquick_scores(prev_final)
 
