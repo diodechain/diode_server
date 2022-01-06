@@ -6,6 +6,7 @@ defmodule Chain.BlockCache do
   alias Model.Sql
   alias Chain.Block
   use GenServer
+  @timeout 60_000
 
   defstruct blockquick_window: nil,
             difficulty: nil,
@@ -104,7 +105,7 @@ defmodule Chain.BlockCache do
       end
 
       block = Chain.block(n)
-      GenServer.call(__MODULE__, {:do_cache!, block}, 60_000)
+      GenServer.call(__MODULE__, {:do_cache!, block}, @timeout)
 
       if n > 100 and rem(n, 1000) == 0 do
         last_final(block)
@@ -155,6 +156,8 @@ defmodule Chain.BlockCache do
     Sql.fetch!(__MODULE__, "SELECT data FROM blockcache WHERE hash = ?1", [hash])
   end
 
+  def cache(nil), do: nil
+
   def cache(block) do
     hash = Block.hash(block)
 
@@ -165,7 +168,7 @@ defmodule Chain.BlockCache do
             if :erlang.whereis(__MODULE__) == self() do
               put_cache(hash, create_cache(block))
             else
-              GenServer.call(__MODULE__, {:do_cache, block}, 60_000)
+              GenServer.call(__MODULE__, {:do_cache, block}, @timeout)
             end
 
           data ->
