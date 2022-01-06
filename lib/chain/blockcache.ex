@@ -270,7 +270,7 @@ defmodule Chain.BlockCache do
   defdelegate hash_valid?(block), to: Block
   defdelegate header(block), to: Block
   defdelegate in_final_window?(block), to: Block
-  defdelegate increment_nonce(block), to: Block
+  defdelegate increment_nonce(block, n), to: Block
   defdelegate set_timestamp(block, timestamp), to: Block
   defdelegate logs(block), to: Block
   defdelegate logs_bloom(block), to: Block

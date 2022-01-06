@@ -518,9 +518,9 @@ defmodule Chain.Block do
     end)
   end
 
-  @spec increment_nonce(Chain.Block.t()) :: Chain.Block.t()
-  def increment_nonce(%Block{header: header} = block) do
-    %{block | header: %{header | nonce: nonce(block) + 1}}
+  @spec increment_nonce(Chain.Block.t(), integer()) :: Chain.Block.t()
+  def increment_nonce(%Block{header: header} = block, n \\ 1) do
+    %{block | header: %{header | nonce: nonce(block) + n}}
   end
 
   @spec set_timestamp(Chain.Block.t(), integer()) :: Chain.Block.t()

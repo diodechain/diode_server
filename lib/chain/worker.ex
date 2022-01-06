@@ -162,25 +162,43 @@ defmodule Chain.Worker do
     state
   end
 
+  @samples 1000
   defp do_work(state) do
     state = generate_candidate(state)
     %{creds: creds, candidate: candidate, target: target} = state
 
+    workers =
+      case state.mode do
+        percentage when is_integer(percentage) -> max(1, ceil(percentage / 100))
+        _ -> 1
+      end
+
+    Stats.incr(:hashrate, @samples * workers)
+
     block =
-      Enum.reduce_while(1..100, candidate, fn _, candidate ->
-        candidate = update_block(candidate, creds)
+      Enum.map(1..5, fn i ->
+        Task.async(fn ->
+          candidate = update_block(candidate, creds, i * @samples)
 
+          Enum.reduce_while(1..@samples, candidate, fn _, candidate ->
+            candidate = update_block(candidate, creds)
+            hash = Block.hash(candidate) |> Hash.integer()
+
+            if hash < target do
+              {:halt, candidate}
+            else
+              {:cont, candidate}
+            end
+          end)
+        end)
+      end)
+      |> Task.await_many(:infinity)
+      |> Enum.find(fn candidate ->
         hash = Block.hash(candidate) |> Hash.integer()
-
-        if hash < target do
-          {:halt, candidate}
-        else
-          {:cont, candidate}
-        end
+        hash < target
       end)
 
-    Stats.incr(:hashrate, 100)
-
+    block = block || update_block(candidate, creds, @samples * workers + 1)
     hash = Block.hash(block) |> Hash.integer()
     state = %{state | working: false, candidate: block}
 
@@ -300,9 +318,9 @@ defmodule Chain.Worker do
     |> update_block(creds)
   end
 
-  def update_block(block, creds) do
+  def update_block(block, creds, n \\ 1) do
     block
-    |> Block.increment_nonce()
+    |> Block.increment_nonce(n)
     |> Block.sign(creds)
   end
 

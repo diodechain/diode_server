@@ -204,8 +204,8 @@ defmodule Diode do
   end
 
   @spec chain_id :: non_neg_integer()
-  def chain_id() do
-    ChainDefinition.chain_id(Chain.peak())
+  def chain_id(block_number \\ Chain.peak()) do
+    ChainDefinition.chain_id(block_number)
   end
 
   @version Mix.Project.config()[:full_version]

@@ -597,7 +597,7 @@ defmodule Chain do
   #######################
   # ETS CACHE FUNCTIONS
   #######################
-  @ets_size 1000
+  @ets_size 500
   defp ets_prefetch() do
     :persistent_term.put(:placeholder_complete, false)
     _clear()

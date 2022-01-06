@@ -753,10 +753,12 @@ defmodule Network.Rpc do
     gas_price = Map.get(opts, "gasPrice", 0x3B9ACA00)
     value = Map.get(opts, "value", 0x0)
     blockRef = Map.get(opts, "blockRef", "latest")
+    block = get_block(blockRef)
+    chain_id = Block.number(block) |> Diode.chain_id()
 
     nonce =
       Map.get_lazy(opts, "nonce", fn ->
-        Chain.Block.state(get_block(blockRef))
+        Chain.Block.state(block)
         |> Chain.State.ensure_account(from)
         |> Chain.Account.nonce()
       end)
@@ -772,7 +774,7 @@ defmodule Network.Rpc do
             gasLimit: gas,
             init: data,
             value: value,
-            chain_id: Diode.chain_id()
+            chain_id: chain_id
           }
 
         to ->
@@ -784,7 +786,7 @@ defmodule Network.Rpc do
             gasLimit: gas,
             data: data,
             value: value,
-            chain_id: Diode.chain_id()
+            chain_id: chain_id
           }
       end
 
