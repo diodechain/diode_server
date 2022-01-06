@@ -9,7 +9,24 @@ defmodule BertInt do
   def encode!(term) do
     term
     |> :erlang.term_to_binary()
-    |> :zlib.zip()
+    |> zip()
+  end
+
+  # Custom impl of :zlib.zip() for faster compression
+  defp zip(data, level \\ 1) do
+    z = :zlib.open()
+
+    bs =
+      try do
+        :zlib.deflateInit(z, level, :deflated, -15, 8, :default)
+        b = :zlib.deflate(z, data, :finish)
+        :zlib.deflateEnd(z)
+        b
+      after
+        :zlib.close(z)
+      end
+
+    :erlang.iolist_to_binary(bs)
   end
 
   @spec decode!(binary()) :: any()
