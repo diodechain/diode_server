@@ -176,7 +176,7 @@ defmodule Chain.Worker do
     Stats.incr(:hashrate, @samples * workers)
 
     block =
-      Enum.map(1..5, fn i ->
+      Enum.map(1..workers, fn i ->
         Task.async(fn ->
           candidate = update_block(candidate, creds, i * @samples)
 
