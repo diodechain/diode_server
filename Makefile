@@ -3,6 +3,7 @@
 # Licensed under the Diode License, Version 1.1
 SHELL := /bin/bash
 TESTS := $(wildcard test/*_test.exs)
+TESTDATA := test/pems/device1_certificate.pem test/pems/device2_certificate.pem
 
 evm/evm: $(wildcard evm/*.cpp evm/*.hpp evm/*/*.cpp evm/*/*.hpp)
 	make -j4 -C evm
@@ -11,10 +12,16 @@ evm/evm: $(wildcard evm/*.cpp evm/*.hpp evm/*/*.cpp evm/*/*.hpp)
 clean:
 	make -C evm clean
 
-.PHONY: test $(TESTS)
-test:
+.PHONY: test
+test: $(TESTDATA)
 	-rm -rf data_test/ clones/
 	make --no-print-directory $(TESTS)
+
+secp256k1_params.pem:
+	openssl ecparam -name secp256k1 -out secp256k1_params.pem
+
+%.pem: secp256k1_params.pem
+	openssl req -newkey ec:./secp256k1_params.pem -nodes -keyout $@ -x509 -days 365 -out $@ -subj "/CN=device"
 
 .PHONY: $(TESTS)
 $(TESTS):
