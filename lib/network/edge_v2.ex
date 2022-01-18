@@ -242,8 +242,12 @@ defmodule Network.EdgeV2 do
   end
 
   @impl true
-  def terminate(reason, _state) do
+  def terminate(reason, %{sender: sender}) do
     # log(state, "Received terminate ~p ~p", [reason, state])
+    if reason == :normal do
+      Network.Sender.stop(sender)
+    end
+
     reason
   end
 

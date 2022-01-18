@@ -6,7 +6,7 @@ defmodule Network.Sender do
   """
   use GenServer
   alias Network.Sender
-  defstruct [:partitions, :waiting]
+  defstruct [:partitions, :waiting, :relay]
 
   def new(socket) do
     {:ok, pid} = GenServer.start_link(__MODULE__, [socket], hibernate_after: 5_000)
@@ -130,14 +130,24 @@ defmodule Network.Sender do
   end
 
   @impl true
+  def terminate(reason, %Sender{relay: relay}) do
+    if reason == :normal do
+      Process.exit(relay, :kill)
+    end
+
+    reason
+  end
+
+  @impl true
   def init([socket]) do
     q = self()
 
-    spawn_link(fn ->
-      relayer_loop(q, socket)
-    end)
+    relay =
+      spawn_link(fn ->
+        relayer_loop(q, socket)
+      end)
 
-    {:ok, %Sender{partitions: %{}, waiting: nil}}
+    {:ok, %Sender{partitions: %{}, waiting: nil, relay: relay}}
   end
 
   defp relayer_loop(q, socket) do
