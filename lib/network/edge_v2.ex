@@ -116,6 +116,7 @@ defmodule Network.EdgeV2 do
 
   def do_init(state) do
     PubSub.subscribe({:edge, device_address(state)})
+    PubSub.subscribe(:rpc)
 
     state =
       Map.merge(state, %{
@@ -593,6 +594,18 @@ defmodule Network.EdgeV2 do
     throw(:notimpl)
     # state = send_socket(state, random_ref(), [topic, message])
     {:noreply, state}
+  end
+
+  def handle_info({:rpc, topic, message}, state) do
+    case topic do
+      :block ->
+        request_id = random_ref()
+        state = send_socket(state, request_id, request_id, ["block", Chain.Block.number(message)])
+        {:noreply, state}
+
+      _ ->
+        {:noreply, state}
+    end
   end
 
   def handle_info({:stop_unpaid, b0}, state = %{unpaid_bytes: b}) do
