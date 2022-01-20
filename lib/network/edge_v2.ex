@@ -110,6 +110,7 @@ defmodule Network.EdgeV2 do
           unpaid_bytes: integer(),
           unpaid_rx_bytes: integer(),
           last_ticket: Time.t(),
+          last_message: Time.t(),
           pid: pid(),
           sender: pid()
         }
@@ -128,6 +129,7 @@ defmodule Network.EdgeV2 do
         unpaid_bytes: 0,
         unpaid_rx_bytes: 0,
         last_ticket: nil,
+        last_message: Time.utc_now(),
         pid: self(),
         sender: Network.Sender.new(state.socket)
       })
@@ -180,6 +182,8 @@ defmodule Network.EdgeV2 do
     cond do
       Enum.count(state.ports.refs, fn {_key, %Port{state: pstate}} -> pstate == :pre_open end) >
           @max_preopen_ports ->
+        # Send message to ensure this is still an active port
+        Process.send_after(self(), {:check_activity, state.last_message}, 15_000)
         {:reply, {:error, "too many hanging ports"}, state}
 
       PortCollection.get(state.ports, ref) != nil ->
@@ -586,8 +590,16 @@ defmodule Network.EdgeV2 do
   end
 
   @impl true
+  def handle_info({:check_activity, then_last_message}, state = %{last_message: now_last_message}) do
+    if then_last_message == now_last_message do
+      {:stop, :no_activity_timeout, state}
+    else
+      {:noreply, state}
+    end
+  end
+
   def handle_info({:ssl, _socket, data}, state) do
-    handle_data(data, state)
+    handle_data(data, %{state | last_message: Time.utc_now()})
   end
 
   def handle_info({:topic, _topic, _message}, state) do
