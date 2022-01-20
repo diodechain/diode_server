@@ -608,9 +608,10 @@ defmodule Chain do
     end)
 
     Diode.start_subwork("preloading hashes", fn ->
-      for [hash: hash, number: number] <- ChainSql.all_block_hashes() do
+      ChainSql.all_block_hashes()
+      |> Enum.each(fn [hash: hash, number: number] ->
         ets_add_placeholder(hash, number)
-      end
+      end)
 
       :persistent_term.put(:placeholder_complete, true)
     end)

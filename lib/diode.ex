@@ -150,6 +150,7 @@ defmodule Diode do
   end
 
   def start_subwork(label, fun) do
+    puts("  #{label}...")
     {t, ret} = :timer.tc(fun)
     puts("  done #{label} after #{Float.round(t / 1_000_000, 3)}s")
     ret

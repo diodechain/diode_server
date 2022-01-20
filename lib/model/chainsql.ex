@@ -289,29 +289,33 @@ defmodule Model.ChainSql do
   end
 
   def all_block_hashes() do
-    Stream.resource(
-      fn -> -1 end,
-      fn n ->
-        fn ->
-          Sql.query!(
-            __MODULE__,
-            "SELECT hash, number FROM blocks WHERE number > ?1 ORDER BY number LIMIT 1000",
-            bind: [n]
-          )
-        end
-        |> :timer.tc()
-        |> case do
-          {_, []} ->
-            {:halt, n}
+    Sql.query!(__MODULE__, "SELECT hash, number FROM blocks ORDER BY number")
+  end
 
-          {time, items} ->
-            # Sleep for half the query time to leave time for other queries
-            Process.sleep(div(time, 2000))
-            {items, n + length(items)}
+  def some_block_hashes() do
+    Stream.resource(
+      fn -> 2_500_000 end,
+      fn n ->
+        Sql.query!(
+          __MODULE__,
+          "SELECT hash, number FROM blocks WHERE number > ?1 ORDER BY number LIMIT 1000",
+          bind: [n]
+        )
+        |> case do
+          [] -> {:halt, n}
+          items -> {items, n + length(items)}
         end
       end,
       fn _n -> :ok end
     )
+  end
+
+  def query!(sql) do
+    Sql.query!(__MODULE__, sql)
+  end
+
+  def bench() do
+    :timer.tc(fn -> Enum.count(some_block_hashes()) end)
   end
 
   def alt_blocks() do
