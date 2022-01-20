@@ -11,6 +11,7 @@
 *.fprof
 *.cprof
 *.sq3
+.erlang.cookie
 fprof.trace
 blocks.dat
 perf.data
