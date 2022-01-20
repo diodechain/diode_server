@@ -534,7 +534,7 @@ defmodule Chain do
   end
 
   defp finish_sync() do
-    Process.unregister(:active_sync)
+    if Process.whereis(:active_sync) != nil, do: Process.unregister(:active_sync)
     PubSub.publish(:rpc, {:rpc, :syncing, false})
 
     spawn(fn ->
