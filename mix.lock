@@ -27,7 +27,7 @@
   "profiler": {:git, "https://github.com/dominicletz/profiler.git", "fa164ca623b755f11e4065ceb74e8f67a578e577", []},
   "ranch": {:hex, :ranch, "1.8.0", "8c7a100a139fd57f17327b6413e4167ac559fbc04ca7448e9be9057311597a1d", [:make, :rebar3], [], "hexpm", "49fbcfd3682fab1f5d109351b61257676da1a2fdbe295904176d5e521a2ddfe5"},
   "sha3": {:hex, :sha3, "2.0.0", "fbe5db75a8389fdc810b682446c053b91e591d38d5422808f3a702ed2b270515", [:rebar3], [{:hex2bin, "1.0.0", [hex: :hex2bin, repo: "hexpm", optional: false]}], "hexpm"},
-  "sqlitex": {:git, "https://github.com/diodechain/sqlitex.git", "73e932cfb13ee8dc5b49def474583846dfefda96", []},
+  "sqlitex": {:git, "https://github.com/diodechain/sqlitex.git", "165f909690599074ca26cfabad9989440d4b6219", []},
   "telemetry": {:hex, :telemetry, "1.0.0", "0f453a102cdf13d506b7c0ab158324c337c41f1cc7548f0bc0e130bbf0ae9452", [:rebar3], [], "hexpm", "73bc09fa59b4a0284efb4624335583c528e07ec9ae76aca96ea0673850aec57a"},
   "while": {:hex, :while, "0.2.3", "71a85cca7c979baad2d2968d390dda41527056b81c22a5b422e8cc4d02697f30", [:mix], [], "hexpm", "49e40bd15c219325e2586d1d7166b561e74b90bc02f2ad35890b0346d37ebadb"},
 }
