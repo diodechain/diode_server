@@ -17,6 +17,4 @@ COPY . /app/
 
 RUN mix compile
 
-#CMD ["/app/run"]
-CMD ["iex", "-S","mix", "run"]
-
+CMD ["/app/run"]
