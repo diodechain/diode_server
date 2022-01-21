@@ -16,8 +16,8 @@ defmodule Kademlia do
   @relay_factor 3
   @broadcast_factor 50
 
-  defstruct tasks: %{}, network: nil, cache: Lru.new(1024)
-  @type t :: %Kademlia{tasks: Map.t(), network: KBuckets.t(), cache: Lru.t()}
+  defstruct tasks: %{}, network: nil
+  @type t :: %Kademlia{tasks: Map.t(), network: KBuckets.t()}
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, :ok, name: __MODULE__, hibernate_after: 5_000)
@@ -84,37 +84,32 @@ defmodule Kademlia do
   @spec find_value(binary()) :: any()
   def find_value(key) do
     key = hash(key)
+    nodes = do_find_nodes(key, KBuckets.k(), Client.find_value())
 
-    case do_node_lookup(key) do
-      {_, nearest} ->
-        nodes = do_find_nodes(key, nearest, KBuckets.k(), Client.find_value())
+    case nodes do
+      {:value, value, visited} ->
+        result = KBuckets.nearest_n(visited, key, KBuckets.k())
 
-        case nodes do
-          {:value, value, visited} ->
-            result = KBuckets.nearest_n(visited, key, KBuckets.k())
+        call(fn _from, state ->
+          network = KBuckets.insert_items(state.network, visited)
+          {:reply, :ok, %Kademlia{state | network: network}}
+        end)
 
-            call(fn _from, state ->
-              network = KBuckets.insert_items(state.network, visited)
-              cache = Lru.insert(state.cache, key, result)
-              {:reply, :ok, %Kademlia{state | network: network, cache: cache}}
-            end)
-
-            # Kademlia logic: Writing found result to second nearest node
-            case Enum.at(result, 1) do
-              nil -> :nothing
-              second_nearest -> rpcast(second_nearest, [Client.store(), key, value])
-            end
-
-            value
-
-          visited ->
-            call(fn _from, state ->
-              network = KBuckets.insert_items(state.network, visited)
-              {:reply, :ok, %Kademlia{state | network: network}}
-            end)
-
-            nil
+        # Kademlia logic: Writing found result to second nearest node
+        case Enum.at(result, 1) do
+          nil -> :nothing
+          second_nearest -> rpcast(second_nearest, [Client.store(), key, value])
         end
+
+        value
+
+      visited ->
+        call(fn _from, state ->
+          network = KBuckets.insert_items(state.network, visited)
+          {:reply, :ok, %Kademlia{state | network: network}}
+        end)
+
+        nil
     end
   end
 
@@ -135,33 +130,33 @@ defmodule Kademlia do
   @spec find_nodes(any()) :: [KBuckets.Item.t()]
   def find_nodes(key) do
     key = hash(key)
+    visited = do_find_nodes(key, KBuckets.k(), Client.find_node())
+    result = KBuckets.nearest_n(visited, key, KBuckets.k())
 
-    case do_node_lookup(key) do
-      {:cached, result} ->
-        result
+    call(fn _from, state ->
+      network = KBuckets.insert_items(state.network, visited)
+      {:reply, :ok, %Kademlia{state | network: network}}
+    end)
 
-      {:network, nearest} ->
-        visited = do_find_nodes(key, nearest, KBuckets.k(), Client.find_node())
-        result = KBuckets.nearest_n(visited, key, KBuckets.k())
-
-        call(fn _from, state ->
-          network = KBuckets.insert_items(state.network, visited)
-          cache = Lru.insert(state.cache, key, result)
-          {:reply, :ok, %Kademlia{state | network: network, cache: cache}}
-        end)
-
-        result
-    end
+    result
   end
 
+  @doc """
+  Retrieves for the target key either the last cached values or
+  the nearest k entries from the KBuckets store
+  """
   @spec find_node_lookup(any()) :: [KBuckets.item()]
   def find_node_lookup(key) do
-    {_, nodes} = do_node_lookup(key)
-    nodes
+    get_cached(&nearest_n/1, key)
   end
 
   def network() do
     call(fn _from, state -> {:reply, state.network, state} end)
+  end
+
+  @impl true
+  def handle_call({:nearest_n, key}, _from, state) do
+    {:reply, KBuckets.nearest_n(state.network, key, KBuckets.k()), state}
   end
 
   def handle_call({:call, fun}, from, state) do
@@ -181,6 +176,7 @@ defmodule Kademlia do
     {:reply, :ok, register_node(state, node_id, server)}
   end
 
+  @impl true
   def handle_info(:save, state) do
     spawn(fn -> Chain.store_file(Diode.data_dir("kademlia.etf"), state) end)
     Process.send_after(self(), :save, 60_000)
@@ -204,6 +200,7 @@ defmodule Kademlia do
     {:noreply, state}
   end
 
+  @impl true
   def handle_continue(:seed, state) do
     Process.send_after(self(), :save, 60_000)
     handle_info(:contact_seeds, state)
@@ -211,6 +208,7 @@ defmodule Kademlia do
   end
 
   # Private call used by PeerHandler when connections are established
+  @impl true
   def handle_cast({:register_node, node_id, server}, state) do
     {:noreply, register_node(state, node_id, server)}
   end
@@ -346,7 +344,10 @@ defmodule Kademlia do
     if is_atom(node.object), do: node.object, else: Object.Server.edge_port(node.object)
   end
 
+  @impl true
   def init(:ok) do
+    EtsLru.new(__MODULE__, 2048)
+
     kb =
       Chain.load_file(Diode.data_dir("kademlia.etf"), fn ->
         %Kademlia{network: KBuckets.new(Diode.miner())}
@@ -411,25 +412,39 @@ defmodule Kademlia do
     end
   end
 
-  defp do_find_nodes(key, nearest, k, cmd) do
+  defp do_find_nodes(key, k, cmd) do
     # :io.format("KademliaSearch.find_nodes(key=#{Base16.encode(key)}, nearest=~p, k=#{k}, cmd=#{cmd})~n", [Enum.map(nearest, &port/1)])
-    KademliaSearch.find_nodes(key, nearest, k, cmd)
+    get_cached(
+      fn {cmd, key} ->
+        KademliaSearch.find_nodes(key, find_node_lookup(key), k, cmd)
+      end,
+      {cmd, key}
+    )
   end
 
-  # Retrieves for the target key either the last cached values or
-  # the nearest k entries from the KBuckets store
-  @spec do_node_lookup(any()) :: {:network | :cached, [KBuckets.item()]}
-  defp do_node_lookup(key) do
-    call(fn _from, state ->
-      # case Lru.get(state.cache, key) do
-      # nil ->
-      nodes = {:network, KBuckets.nearest_n(state.network, key, KBuckets.k())}
-      # cached -> {:cached, cached}
-      # end
+  defp nearest_n(key) do
+    GenServer.call(__MODULE__, {:nearest_n, key}, :infinity)
+  end
 
-      # :io.format("do_node_lookup(key) -> ~p, ~p~n", [elem(nodes, 0), length(elem(nodes, 1))])
-      {:reply, nodes, state}
-    end)
+  @cache_timeout 20_000
+  defp get_cached(fun, key) do
+    cache_key = {fun, key}
+
+    case EtsLru.get(__MODULE__, cache_key) do
+      nil ->
+        EtsLru.put(__MODULE__, cache_key, fun.(key))
+
+      other ->
+        Debouncer.immediate(
+          cache_key,
+          fn ->
+            EtsLru.put(__MODULE__, cache_key, fun.(key))
+          end,
+          @cache_timeout
+        )
+
+        other
+    end
   end
 
   defp call(fun) do
