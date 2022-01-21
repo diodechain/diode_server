@@ -141,6 +141,9 @@ defmodule Network.RpcWs do
           {:ok, state}
         end
 
+      {:EXIT, _pid, :normal} ->
+        {:ok, state}
+
       _ ->
         :io.format("rpc_ws:websocket_info(~p)~n", [any])
         {:ok, state}

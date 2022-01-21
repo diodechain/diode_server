@@ -14,15 +14,30 @@ defmodule Network.Rpc do
   end
 
   def handle_jsonrpc(rpcs, opts) when is_list(rpcs) do
-    body =
-      Enum.reduce(rpcs, [], fn rpc, acc ->
-        {_status, body} = handle_jsonrpc(rpc, opts)
-        [body | acc]
-        # :io.format("~p~n", [body])
-      end)
-      |> Enum.reverse()
+    [head | rest] = Enum.chunk_every(rpcs, 100)
 
-    {200, body}
+    tasks =
+      Enum.map(rest, fn rpcs ->
+        Task.async(fn ->
+          Enum.map(rpcs, fn rpc ->
+            {_status, body} = handle_jsonrpc(rpc, opts)
+            body
+          end)
+        end)
+      end)
+
+    head_body =
+      Enum.map(head, fn rpc ->
+        {_status, body} = handle_jsonrpc(rpc, opts)
+        body
+      end)
+
+    rest_body =
+      Enum.flat_map(tasks, fn taskref ->
+        Task.await(taskref, :infinity)
+      end)
+
+    {200, head_body ++ rest_body}
   end
 
   def handle_jsonrpc(body_params, opts) when is_map(body_params) do
