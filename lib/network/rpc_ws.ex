@@ -80,6 +80,8 @@ defmodule Network.RpcWs do
   def websocket_info(any, state) do
     case any do
       {:rpc, :block, block} ->
+        Process.put(:latest, block)
+
         reply =
           Enum.filter(Process.get(), fn
             {{:subs, _id}, {:block, _includeTransactions}} -> true

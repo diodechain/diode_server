@@ -143,8 +143,16 @@ defmodule Chain do
   end
 
   @spec peak_block() :: Chain.Block.t()
-  def peak_block() do
-    call(fn state, _from -> {:reply, state.peak, state} end)
+  def peak_block(cache \\ false) do
+    case Process.get(:latest, nil) do
+      nil ->
+        block = call(fn state, _from -> {:reply, state.peak, state} end)
+        if cache, do: Process.put(:latest, block)
+        block
+
+      block ->
+        block
+    end
   end
 
   @spec peak_state() :: Chain.State.t()

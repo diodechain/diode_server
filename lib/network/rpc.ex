@@ -133,7 +133,7 @@ defmodule Network.Rpc do
         tx = Chain.Transaction.from_rlp(bintx)
 
         # Testing transaction
-        peak = Chain.peak_block()
+        peak = Chain.peak_block(true)
         state = Block.state(peak)
 
         {res, code, err} = apply_transaction(tx, peak, state)
@@ -631,7 +631,7 @@ defmodule Network.Rpc do
         ref
 
       "latest" ->
-        Chain.peak_block()
+        Chain.peak_block(true)
 
       "pending" ->
         Chain.Worker.candidate()
@@ -664,7 +664,7 @@ defmodule Network.Rpc do
         throw(:badrequest)
 
       "latest" ->
-        Chain.peak_block()
+        Chain.peak_block(true)
 
       "pending" ->
         Chain.Worker.candidate()
