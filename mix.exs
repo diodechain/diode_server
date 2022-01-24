@@ -13,11 +13,14 @@ defmodule Diode.Mixfile do
       app: Diode,
       version: :persistent_term.get(:vsn, @vsn),
       full_version: :persistent_term.get(:full_vsn, @full_vsn),
+      source_url: @url,
+      description: "Diode Network Full Blockchain Node implementation",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       compilers: [:elixir_make] ++ Mix.compilers(),
       elixirc_paths: elixirc_paths(Mix.env()),
-      docs: docs()
+      docs: docs(),
+      package: package()
     ]
   end
 
@@ -51,6 +54,15 @@ defmodule Diode.Mixfile do
         "README.md": [title: "Readme"],
         "guides/running_your_miner.md": [title: "Running your miner"]
       ]
+    ]
+  end
+
+  defp package do
+    [
+      maintainers: ["Dominic Letz"],
+      licenses: ["DIODE"],
+      links: %{github: @url},
+      files: ~w(evm lib LICENSE mix.exs README.md)
     ]
   end
 
