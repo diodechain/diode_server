@@ -6,7 +6,7 @@ defmodule Lru do
   Provides Least-Recently-Used Queue with a fixed maximum size
   """
   defstruct queue: :queue.new(), map: %{}, max_size: nil
-  @type t :: %Lru{queue: any(), map: Map.t(), max_size: integer()}
+  @type t :: %Lru{queue: any(), map: map(), max_size: integer()}
 
   @spec new(pos_integer()) :: Lru.t()
   def new(max_size) do

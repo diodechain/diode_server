@@ -16,11 +16,11 @@ defmodule ChainDefinition do
   @type t :: %ChainDefinition{
           block_reward_position: :last | :first,
           chain_id: non_neg_integer(),
-          check_window: bool(),
+          check_window: boolean(),
           get_block_hash_limit: non_neg_integer(),
           min_diversity: non_neg_integer(),
-          min_transaction_fee: bool(),
-          allow_contract_override: bool()
+          min_transaction_fee: boolean(),
+          allow_contract_override: boolean()
         }
 
   @spec get_block_hash_limit(non_neg_integer) :: non_neg_integer()
@@ -38,12 +38,12 @@ defmodule ChainDefinition do
     chain_definition(blockheight).block_reward_position
   end
 
-  @spec min_transaction_fee(non_neg_integer) :: bool()
+  @spec min_transaction_fee(non_neg_integer) :: boolean()
   def min_transaction_fee(blockheight) do
     chain_definition(blockheight).min_transaction_fee
   end
 
-  @spec allow_contract_override(non_neg_integer) :: bool()
+  @spec allow_contract_override(non_neg_integer) :: boolean()
   def allow_contract_override(blockheight) do
     chain_definition(blockheight).allow_contract_override
   end
@@ -53,7 +53,7 @@ defmodule ChainDefinition do
     chain_definition(blockheight).chain_id
   end
 
-  @spec check_window(non_neg_integer) :: bool()
+  @spec check_window(non_neg_integer) :: boolean()
   def check_window(blockheight) do
     chain_definition(blockheight).check_window
   end

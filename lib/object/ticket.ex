@@ -28,7 +28,17 @@ defmodule Object.Ticket do
             device_signature: Secp256k1.signature(),
             server_signature: Secp256k1.signature() | nil
           )
-
+  @type t ::
+          record(:ticket,
+            server_id: binary(),
+            block_number: integer(),
+            fleet_contract: binary(),
+            total_connections: integer(),
+            total_bytes: integer(),
+            local_address: binary(),
+            device_signature: Secp256k1.signature(),
+            server_signature: Secp256k1.signature() | nil
+          )
   @impl true
   def key(tck = ticket()) do
     device_address(tck)

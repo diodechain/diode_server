@@ -10,6 +10,7 @@ defmodule MerkleTree do
 
   @type proof_type :: {proof_type, proof_type} | [any()]
   @type merkle :: {atom(), map(), any()}
+  @type t :: {atom(), map(), any()}
 
   # ========================================================
   # Public Functions only in the facade

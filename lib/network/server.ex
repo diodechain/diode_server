@@ -26,7 +26,7 @@ defmodule Network.Server do
 
   @type t :: %Network.Server{
           socket: sslsocket,
-          clients: Map.t(),
+          clients: map(),
           protocol: atom(),
           port: integer(),
           opts: %{},

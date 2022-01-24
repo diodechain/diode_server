@@ -24,7 +24,7 @@ defmodule Chain.Worker do
           candidate: Chain.Block.t(),
           target: non_neg_integer(),
           mode: non_neg_integer() | :poll | :disabled,
-          working: bool()
+          working: boolean()
         }
 
   def candidate() do

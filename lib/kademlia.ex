@@ -17,7 +17,7 @@ defmodule Kademlia do
   @broadcast_factor 50
 
   defstruct tasks: %{}, network: nil
-  @type t :: %Kademlia{tasks: Map.t(), network: KBuckets.t()}
+  @type t :: %Kademlia{tasks: map(), network: KBuckets.t()}
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, :ok, name: __MODULE__, hibernate_after: 5_000)
@@ -145,7 +145,7 @@ defmodule Kademlia do
   Retrieves for the target key either the last cached values or
   the nearest k entries from the KBuckets store
   """
-  @spec find_node_lookup(any()) :: [KBuckets.item()]
+  @spec find_node_lookup(any()) :: [KBuckets.Item.t()]
   def find_node_lookup(key) do
     get_cached(&nearest_n/1, key)
   end

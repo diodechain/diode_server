@@ -11,7 +11,7 @@ defmodule Chain do
   @type t :: %Chain{
           peak: Chain.Block.t(),
           by_hash: %{binary() => Chain.Block.t()} | nil,
-          states: Map.t()
+          states: map()
         }
 
   @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}

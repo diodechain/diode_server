@@ -6,6 +6,7 @@ defmodule Diode.Mixfile do
 
   @vsn "0.5.4"
   @full_vsn "v0.5.4"
+  @url "https://github.com/diodechain/diode_server"
 
   def project do
     [
@@ -15,7 +16,8 @@ defmodule Diode.Mixfile do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       compilers: [:elixir_make] ++ Mix.compilers(),
-      elixirc_paths: elixirc_paths(Mix.env())
+      elixirc_paths: elixirc_paths(Mix.env()),
+      docs: docs()
     ]
   end
 
@@ -37,12 +39,27 @@ defmodule Diode.Mixfile do
     ]
   end
 
+  defp docs do
+    [
+      source_ref: "v#{@vsn}",
+      source_url: @url,
+      formatters: ["html"],
+      main: "readme",
+      extra_section: "GUIDES",
+      extras: [
+        LICENSE: [title: "License"],
+        "README.md": [title: "Readme"],
+        "guides/running_your_miner.md": [title: "Running your miner"]
+      ]
+    ]
+  end
+
   defp deps do
     [
       {:benchee, "~> 1.0", only: :benchmark},
       {:debouncer, "~> 0.1"},
       {:elixir_make, "~> 0.4", runtime: false},
-      {:ex_doc, "~> 0.21.2", only: :dev, runtime: false},
+      {:ex_doc, "~> 0.28", only: :dev, runtime: false},
       {:keccakf1600, github: "diodechain/erlang-keccakf1600"},
       {:libsecp256k1, github: "diodechain/libsecp256k1"},
       {:plug_cowboy, "~> 2.5"},
