@@ -12,14 +12,20 @@ defmodule Network.Handler do
       use GenServer
 
       def init({state, :init}) do
-        Process.link(state.server_pid)
+        setup_process(state)
         {:ok, state, {:continue, :init}}
       end
 
       def init({state, [:connect, node_id, address, port]}) do
-        Process.link(state.server_pid)
+        setup_process(state)
         log({node_id, address}, "Creating connect worker")
         {:ok, state, {:continue, [:connect, node_id, address, port]}}
+      end
+
+      @word_size 8
+      defp setup_process(state) do
+        Process.link(state.server_pid)
+        Process.flag(:max_heap_size, div(100_000_000, @word_size))
       end
 
       def handle_continue(:init, state) do
