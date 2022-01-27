@@ -20,7 +20,10 @@ test: $(TESTDATA)
 secp256k1_params.pem:
 	openssl ecparam -name secp256k1 -out secp256k1_params.pem
 
-%.pem: secp256k1_params.pem
+test/pems:
+	mkdir -p test/pems
+
+%.pem: secp256k1_params.pem test/pems
 	openssl req -newkey ec:./secp256k1_params.pem -nodes -keyout $@ -x509 -days 365 -out $@ -subj "/CN=device"
 
 .PHONY: $(TESTS)
