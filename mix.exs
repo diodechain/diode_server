@@ -4,8 +4,8 @@
 defmodule Diode.Mixfile do
   use Mix.Project
 
-  @vsn "0.5.5"
-  @full_vsn "v0.5.5"
+  @vsn "0.5.6"
+  @full_vsn "v0.5.6"
   @url "https://github.com/diodechain/diode_server"
 
   def project do

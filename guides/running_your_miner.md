@@ -26,11 +26,24 @@ If you already have dio balance on your miners wallet you can add that to your s
 
 ### Checking your current Balance / Stake
 
-Check your current stake
+* Print your address
+    ```elixir
+    iex> Wallet.printable(Diode.miner)
+    "riot_silly       (0xd02ab46443c1dcdcd680f253d436a98d95f22dd1)"
+    ```
+* Check your balance
+    ```elixir
+    iex> Shell.get_balance(Diode.miner)
+    0
+    ```
+* Check your current stake
+    ```elixir
+    iex> Shell.get_miner_stake(Diode.miner)
+    0
+    ```
 
-```
-Shell.get_miner_stake(Diode.miner)
-```
+You can also use the blockchain explorer at https://diode.io/prenet to check your balance after finding your address using `Wallet.printable(Diode.miner)`. The direct link would include the address you want to check: https://diode.io/prenet/#/address/0xd02ab46443c1dcdcd680f253d436a98d95f22dd1
+
 
 ### Converting Balance to Stake
 
