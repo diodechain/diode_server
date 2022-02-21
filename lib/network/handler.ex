@@ -170,12 +170,12 @@ defmodule Network.Handler do
         :ssl.setopts(socket, [{:raw, level, opt, <<value::unsigned-little-size(32)>>}])
       end
 
-      def name(%{node_id: node_id, address: node_address, node_port: node_port})
+      def name(%{node_id: node_id, address: node_address})
           when node_address != nil do
         name({node_id, node_address})
       end
 
-      def name(%{node_id: node_id, node_address: node_address, node_port: node_port}) do
+      def name(%{node_id: node_id, node_address: node_address}) do
         name({node_id, node_address})
       end
 

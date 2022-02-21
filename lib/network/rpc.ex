@@ -3,9 +3,8 @@
 # Licensed under the Diode License, Version 1.1
 defmodule Network.Rpc do
   alias Chain.BlockCache, as: Block
-  alias Chain.Transaction
-  alias Chain.Account
-  alias Chain.State
+  alias Chain.{Account, Transaction, State}
+  alias Model.ChainSql
 
   def handle_jsonrpc(rpcs, opts \\ [])
 
@@ -148,10 +147,11 @@ defmodule Network.Rpc do
         tx = Chain.Transaction.from_rlp(bintx)
 
         # Testing transaction
-        peak = Chain.peak_block(true)
-        state = Block.state(peak)
-
-        {res, code, err} = apply_transaction(tx, peak, state)
+        {res, code, err} =
+          Chain.with_peak(fn peak ->
+            state = Block.state(peak)
+            apply_transaction(tx, peak, state)
+          end)
 
         # Adding transacton, even when :nonce_too_high
         if err == nil or err["code"] == -32001 do
@@ -186,7 +186,7 @@ defmodule Network.Rpc do
       "eth_getTransactionByHash" ->
         [txh] = params
         txh = Base16.decode(txh)
-        tx = Chain.transaction(txh)
+        tx = ChainSql.transaction(txh)
 
         if tx == nil do
           throw(:notfound)
@@ -194,7 +194,7 @@ defmodule Network.Rpc do
 
         case tx do
           %Transaction{} ->
-            block = Chain.block_by_txhash(txh)
+            block = ChainSql.block_by_txhash(txh)
             result(transaction_result(tx, block))
 
           nil ->
@@ -204,13 +204,15 @@ defmodule Network.Rpc do
       # Network.Rpc.handle_jsonrpc(%{"id" => 0, "method" => "eth_getBlockByNumber", "params" => ["0x0", false]})
       "eth_getBlockByHash" ->
         [ref, full] = params
-        block = get_block_by_hash(ref)
-        result(get_block_rpc(block, full))
+
+        with_block_by_ref(ref, fn block -> get_block_rpc(block, full) end)
+        |> result()
 
       "eth_getBlockByNumber" ->
         [ref, full] = params
-        block = get_block(ref)
-        result(get_block_rpc(block, full))
+
+        with_block(ref, fn block -> get_block_rpc(block, full) end)
+        |> result()
 
       "eth_mining" ->
         mining =
@@ -288,21 +290,23 @@ defmodule Network.Rpc do
           end
 
         tx = create_transaction(wallet, data, opts, false)
-        block = get_block(ref)
-        state = Block.state(block)
-        apply_transaction(tx, block, state)
+
+        with_block(ref, fn block ->
+          state = Block.state(block)
+          apply_transaction(tx, block, state)
+        end)
 
       "eth_getTransactionReceipt" ->
         # TODO
         [txh] = params
         txbin = Base16.decode(txh)
 
-        case Chain.block_by_txhash(txbin) do
+        case ChainSql.block_by_txhash(txbin) do
           nil ->
             result(nil, 404)
 
           block ->
-            tx = Chain.transaction(txbin)
+            tx = ChainSql.transaction(txbin)
 
             logs =
               Block.logs(block)
@@ -338,8 +342,8 @@ defmodule Network.Rpc do
         [%{"fromBlock" => blockRef}] = params
 
         try do
-          block = get_block(blockRef)
-          result(Block.logs(block))
+          with_block(blockRef, &Block.logs/1)
+          |> result()
         catch
           :notfound -> result([])
         end
@@ -378,14 +382,17 @@ defmodule Network.Rpc do
       # curl --data '{"method":"trace_replayBlockTransactions","params":["0x2ed119",["trace"]],"id":1,"jsonrpc":"2.0"}' -H "Content-Type: application/json" -X POST localhost:8545
       "trace_replayBlockTransactions" ->
         [ref, ["trace"]] = params
-        block = get_block(ref)
-        txs = Block.transactions(block)
+
+        {txs, traces, number} =
+          with_block(ref, fn block ->
+            traces =
+              Block.simulate(block)
+              |> Block.receipts()
+
+            {Block.transactions(block), traces, Block.number(block)}
+          end)
 
         # reward =
-
-        traces =
-          Block.simulate(block)
-          |> Block.receipts()
 
         Enum.zip(txs, traces)
         |> Enum.map(fn {tx, rcpt} ->
@@ -409,8 +416,8 @@ defmodule Network.Rpc do
                 "subtraces" => {:raw, 0},
                 "traceAddress" => [],
                 "transactionHash" => Transaction.hash(tx),
-                "transactionPosition" => {:raw, Block.transaction_index(block, tx)},
-                "blockNumber" => {:raw, Block.number(block)},
+                "transactionPosition" => {:raw, Enum.find_index(txs, &(&1 == tx))},
+                "blockNumber" => {:raw, number},
                 "type" =>
                   if Transaction.contract_creation?(tx) do
                     "create"
@@ -449,17 +456,21 @@ defmodule Network.Rpc do
 
       "trace_block" ->
         [ref] = params
-        block = get_block(ref)
+
+        {author, hash, number} =
+          with_block(ref, fn block ->
+            {Wallet.address!(Block.miner(block)), Block.hash(block), Block.number(block)}
+          end)
 
         result([
           %{
             "action" => %{
-              "author" => Wallet.address!(Block.miner(block)),
+              "author" => author,
               "rewardType" => "block",
               "value" => 0
             },
-            "blockHash" => Block.hash(block),
-            "blockNumber" => {:raw, Block.number(block)},
+            "blockHash" => hash,
+            "blockNumber" => {:raw, number},
             "subtraces" => {:raw, 0},
             "traceAddress" => [],
             "type" => "reward"
@@ -497,28 +508,31 @@ defmodule Network.Rpc do
       "dio_codeCount" ->
         codehash = Base16.decode(hd(params))
 
-        Chain.peak_state()
-        |> Chain.State.accounts()
-        |> Enum.filter(fn {_key, account} -> Chain.Account.codehash(account) == codehash end)
-        |> Enum.count()
-        |> result()
+        Chain.with_peak_state(fn pstate ->
+          Chain.State.accounts(pstate)
+          |> Enum.filter(fn {_key, account} -> Chain.Account.codehash(account) == codehash end)
+          |> Enum.count()
+          |> result()
+        end)
 
       "dio_codeGroups" ->
-        Chain.peak_state()
-        |> Chain.State.accounts()
-        |> Enum.map(fn {_key, account} -> Chain.Account.codehash(account) end)
-        |> Enum.reduce(%{}, fn hash, map ->
-          Map.update(map, hash, 1, fn x -> x + 1 end)
+        Chain.with_peak_state(fn pstate ->
+          Chain.State.accounts(pstate)
+          |> Enum.map(fn {_key, account} -> Chain.Account.codehash(account) end)
+          |> Enum.reduce(%{}, fn hash, map ->
+            Map.update(map, hash, 1, fn x -> x + 1 end)
+          end)
+          |> Json.prepare!(big_x: false)
+          |> result()
         end)
-        |> Json.prepare!(big_x: false)
-        |> result()
 
       "dio_supply" ->
-        Chain.peak_state()
-        |> Chain.State.accounts()
-        |> Enum.map(fn {_key, account} -> Chain.Account.balance(account) end)
-        |> Enum.sum()
-        |> result()
+        Chain.with_peak_state(fn pstate ->
+          Chain.State.accounts(pstate)
+          |> Enum.map(fn {_key, account} -> Chain.Account.balance(account) end)
+          |> Enum.sum()
+          |> result()
+        end)
 
       "dio_network" ->
         conns = Network.Server.get_connections(Network.PeerHandler)
@@ -540,18 +554,19 @@ defmodule Network.Rpc do
         |> result()
 
       "dio_accounts" ->
-        Chain.peak_state()
-        |> State.accounts()
-        |> Enum.map(fn {id, acc} ->
-          {id,
-           %{
-             "codehash" => Account.codehash(acc),
-             "balance" => Account.balance(acc),
-             "nonce" => Account.nonce(acc)
-           }}
+        Chain.with_peak_state(fn pstate ->
+          State.accounts(pstate)
+          |> Enum.map(fn {id, acc} ->
+            {id,
+             %{
+               "codehash" => Account.codehash(acc),
+               "balance" => Account.balance(acc),
+               "nonce" => Account.nonce(acc)
+             }}
+          end)
+          |> Map.new()
+          |> result()
         end)
-        |> Map.new()
-        |> result()
 
       _ ->
         nil
@@ -629,73 +644,30 @@ defmodule Network.Rpc do
   defp get_account([address, ref]) do
     address = Base16.decode(address)
 
-    get_block(ref)
-    |> Block.state()
-    |> Chain.State.ensure_account(address)
+    with_block(ref, fn block ->
+      block
+      |> Block.state()
+      |> Chain.State.ensure_account(address)
+    end)
   end
 
-  def get_block(ref) do
-    case ref do
-      nil ->
-        throw(:badrequest)
+  def with_block(nil, _fun), do: throw(:badrequest)
+  def with_block(%Chain.Block{} = block, fun), do: fun.(block)
+  def with_block(%Chain.BlockCache{} = block, fun), do: fun.(block)
 
-      %Chain.Block{} ->
-        ref
-
-      %Chain.BlockCache{} ->
-        ref
-
-      "latest" ->
-        Chain.peak_block(true)
-
-      "pending" ->
-        Chain.Worker.candidate()
-
-      "earliest" ->
-        Chain.block(0)
-
-      <<"0x", _rest::binary()>> ->
-        get_block(Base16.decode_int(ref))
-
-      num when is_integer(num) ->
-        if num > Chain.peak() do
-          throw(:notfound)
-        else
-          case Chain.block(num) do
-            nil ->
-              IO.puts("should happen with block #{num}: #{Chain.block(num)}")
-              nil
-
-            block ->
-              block
-          end
-        end
-    end
+  def with_block(ref, fun) do
+    BlockProcess.with_block(ref, fn
+      nil -> throw(:notfound)
+      block -> fun.(block)
+    end)
   end
 
-  def get_block_by_hash(ref) do
-    case ref do
-      nil ->
-        throw(:badrequest)
+  def with_block_by_ref(nil, _fun) do
+    throw(:badrequest)
+  end
 
-      "latest" ->
-        Chain.peak_block(true)
-
-      "pending" ->
-        Chain.Worker.candidate()
-
-      "earliest" ->
-        Chain.block(0)
-
-      <<"0x", _rest::binary()>> ->
-        hash = Base16.decode(ref)
-
-        if Chain.block_by_hash?(hash) do
-          Chain.block_by_hash(hash)
-        else
-          throw(:notfound)
-        end
-    end
+  def with_block_by_ref(ref, fun) do
+    BlockProcess.with_block(ref, fun)
   end
 
   def get_block_rpc(block, full) do
@@ -768,14 +740,15 @@ defmodule Network.Rpc do
     gas_price = Map.get(opts, "gasPrice", 0x3B9ACA00)
     value = Map.get(opts, "value", 0x0)
     blockRef = Map.get(opts, "blockRef", "latest")
-    block = get_block(blockRef)
-    chain_id = Block.number(block) |> Diode.chain_id()
+    chain_id = with_block(blockRef, fn block -> Diode.chain_id(Block.number(block)) end)
 
     nonce =
       Map.get_lazy(opts, "nonce", fn ->
-        Chain.Block.state(block)
-        |> Chain.State.ensure_account(from)
-        |> Chain.Account.nonce()
+        with_block(blockRef, fn block ->
+          Chain.Block.state(block)
+          |> Chain.State.ensure_account(from)
+          |> Chain.Account.nonce()
+        end)
       end)
 
     tx =

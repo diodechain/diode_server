@@ -32,15 +32,7 @@ defmodule Kademlia do
     broadcast is used to broadcast self generated blocks/transactions through the network
   """
   def broadcast(msg) do
-    msg = [Client.publish(), msg]
-    list = KBuckets.to_list(network())
-    max = length(list) |> :math.sqrt() |> trunc
-    num = if max > @broadcast_factor, do: max, else: @broadcast_factor
-
-    list
-    |> Enum.reject(fn a -> KBuckets.is_self(a) end)
-    |> Enum.take_random(num)
-    |> Enum.each(fn item -> rpcast(item, msg) end)
+    GenServer.cast(__MODULE__, {:broadcast, msg})
   end
 
   @doc """
@@ -232,6 +224,20 @@ defmodule Kademlia do
       nil -> {:noreply, state}
       item -> {:noreply, %{state | network: do_failed_node(item, state.network)}}
     end
+  end
+
+  def handle_cast({:broadcast, msg}, state = %Kademlia{network: network}) do
+    msg = [Client.publish(), msg]
+    list = KBuckets.to_list(network)
+    max = length(list) |> :math.sqrt() |> trunc
+    num = if max > @broadcast_factor, do: max, else: @broadcast_factor
+
+    list
+    |> Enum.reject(fn a -> KBuckets.is_self(a) end)
+    |> Enum.take_random(num)
+    |> Enum.each(fn item -> rpcast(item, msg) end)
+
+    {:noreply, state}
   end
 
   defp register_node(state = %Kademlia{network: network}, node_id, server) do

@@ -28,15 +28,12 @@ defmodule Model.Sql do
   def start_link() do
     Application.put_env(:sqlitex, :call_timeout, 300_000)
     {:ok, pid} = Supervisor.start_link(__MODULE__, [], name: __MODULE__)
+
     Model.MerkleSql.init()
     Model.ChainSql.init()
     Model.StateSql.init()
     Model.TicketSql.init()
     Model.KademliaSql.init()
-
-    Enum.each(databases(), fn {atom, _file} ->
-      init_connection(atom)
-    end)
 
     {:ok, pid}
   end
@@ -44,24 +41,35 @@ defmodule Model.Sql do
   defp init_connection(conn) do
     query!(conn, "PRAGMA journal_mode = WAL")
     query!(conn, "PRAGMA synchronous = NORMAL")
-    query!(conn, "PRAGMA OPTIMIZE", call_timeout: @infinity)
+    # query!(conn, "PRAGMA OPTIMIZE", call_timeout: @infinity)
   end
 
   def init(_args) do
     File.mkdir(Diode.data_dir())
 
     children =
-      Enum.map(databases(), fn {atom, file} ->
-        opts = [name: atom, db_timeout: @infinity, stmt_cache_size: 50]
-
-        %{
-          id: atom,
-          start: {Sqlitex.Server, :start_link, [Diode.data_dir(file) |> to_charlist(), opts]}
-        }
+      databases()
+      |> Keyword.keys()
+      |> Enum.map(fn name ->
+        %{id: name, start: {__MODULE__, :start_database, [name, name]}}
       end)
 
     children = children ++ [Model.CredSql, Model.SyncSql]
     Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  @spec start_database(atom(), atom() | nil) :: {:ok, pid()}
+  def start_database(db, name \\ nil) do
+    path =
+      Keyword.fetch!(databases(), db)
+      |> Diode.data_dir()
+      |> to_charlist()
+
+    opts = [name: name, db_timeout: @infinity, stmt_cache_size: 50]
+
+    {:ok, pid} = Sqlitex.Server.start_link(path, opts)
+    init_connection(pid)
+    {:ok, pid}
   end
 
   def query(mod, sql, params \\ []) do

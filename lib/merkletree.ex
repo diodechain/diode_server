@@ -112,7 +112,7 @@ defmodule MerkleTree do
     mod.member?(merkle, key)
   end
 
-  @spec insert_items(merkle(), [item()]) :: merkle()
+  @spec insert_items(merkle(), Enumerable.t()) :: merkle()
   def insert_items({mod, _options, _tree} = merkle, items) do
     mod.insert_items(merkle, items)
   end

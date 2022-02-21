@@ -46,7 +46,7 @@ defmodule Object.Data do
   end
 
   defp message(data(block_number: num, name: name, value: value)) do
-    ["data", num, Chain.Block.hash(Chain.block(num)), name, value]
+    ["data", num, Chain.blockhash(num), name, value]
     |> Enum.map(&ABI.encode("bytes32", &1))
     |> :erlang.iolist_to_binary()
   end

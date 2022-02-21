@@ -3,7 +3,6 @@
 # Licensed under the Diode License, Version 1.1
 defmodule TicketStore do
   alias Object.Ticket
-  alias Chain.BlockCache, as: Block
   alias Model.TicketSql
   alias Model.Ets
   use GenServer
@@ -32,11 +31,8 @@ defmodule TicketStore do
   end
 
   # Should be called on each new block
-  def newblock(peak) do
-    epoch = Block.epoch(peak)
-
-    # Submitting traffic tickets not too late
-    height = Block.number(peak)
+  def newblock(peak_hash) do
+    [height, epoch] = BlockProcess.fetch(peak_hash, [:number, :epoch])
 
     if not Diode.dev_mode?() and rem(height, Chain.epoch_length()) > Chain.epoch_length() / 2 do
       submit_tickets(epoch - 1)

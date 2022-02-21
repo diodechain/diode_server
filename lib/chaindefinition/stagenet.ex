@@ -42,18 +42,18 @@ defmodule ChainDefinition.Stagenet do
     case Chain.Block.number(block) do
       @voyager_t1 ->
         state = Voyager.apply(Chain.Block.state(block))
-        Chain.Block.with_state(block, state)
+        Chain.Block.ensure_state(block, state)
 
       @pioneer_t1 ->
         state = Pioneer.apply(Chain.Block.state(block))
-        Chain.Block.with_state(block, state)
+        Chain.Block.ensure_state(block, state)
 
       _ ->
         block
     end
   end
 
-  @spec genesis_accounts() :: [{binary(), Account.t()}]
+  @spec genesis_accounts() :: [{binary(), Chain.Account.t()}]
   def genesis_accounts() do
     File.read!("data/genesis.bin") |> Chain.State.from_binary() |> Chain.State.accounts()
   end

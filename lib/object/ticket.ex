@@ -122,13 +122,13 @@ defmodule Object.Ticket do
     |> :erlang.iolist_to_binary()
   end
 
-  def epoch(ticket), do: block(ticket) |> Block.epoch()
+  def epoch(ticket), do: with_block(ticket, &Block.epoch/1)
 
   def server_id(ticket(server_id: id)), do: id
   @impl true
-  def block_number(ticket(block_number: block)), do: block
-  def block(ticket(block_number: block)), do: Chain.block(block)
-  def block_hash(ticket), do: block(ticket) |> Block.hash()
+  def block_number(ticket(block_number: n)), do: n
+  def with_block(ticket(block_number: n), fun), do: BlockProcess.with_block(n, fun)
+  def block_hash(ticket(block_number: n)), do: Chain.blockhash(n)
   def device_signature(ticket(device_signature: signature)), do: signature
   def server_signature(ticket(server_signature: signature)), do: signature
   def fleet_contract(ticket(fleet_contract: fc)), do: fc

@@ -71,7 +71,7 @@ defmodule Object.Channel do
        ) do
     params = Rlp.encode!(params) |> Diode.hash()
 
-    ["channel", id, Chain.Block.hash(Chain.block(num)), fleet, type, name, params]
+    ["channel", id, Chain.blockhash(num), fleet, type, name, params]
     |> Enum.map(&ABI.encode("bytes32", &1))
     |> :erlang.iolist_to_binary()
   end

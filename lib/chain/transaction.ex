@@ -180,7 +180,7 @@ defmodule Chain.Transaction do
   end
 
   @spec apply(Chain.Transaction.t(), Chain.Block.t(), Chain.State.t(), Keyword.t()) ::
-          {:error, atom()} | {:ok, Chain.State.t(), Chain.Receipt.t()}
+          {:error, atom()} | {:ok, Chain.State.t(), Chain.TransactionReceipt.t()}
   def apply(
         tx = %Chain.Transaction{nonce: nonce},
         env = %Chain.Block{},

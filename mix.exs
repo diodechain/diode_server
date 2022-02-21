@@ -5,7 +5,7 @@ defmodule Diode.Mixfile do
   use Mix.Project
 
   @vsn "0.5.6"
-  @full_vsn "v0.5.6"
+  @full_vsn "v0.5.6-4-ge971911-dirty"
   @url "https://github.com/diodechain/diode_server"
 
   def project do
@@ -16,8 +16,10 @@ defmodule Diode.Mixfile do
       full_version: :persistent_term.get(:full_vsn, @full_vsn),
       source_url: @url,
       description: "Diode Network Full Blockchain Node implementation",
+      elixirc_options: [warnings_as_errors: Mix.target() == :host],
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      aliases: aliases(),
       compilers: [:elixir_make] ++ Mix.compilers(),
       elixirc_paths: elixirc_paths(Mix.env()),
       docs: docs(),
@@ -32,13 +34,24 @@ defmodule Diode.Mixfile do
     [
       mod: {Diode, []},
       extra_applications: [
-        :logger,
-        :runtime_tools,
         :debouncer,
-        :sqlitex,
         :keccakf1600,
         :libsecp256k1,
-        :observer
+        :logger,
+        :mix,
+        :observer,
+        :runtime_tools,
+        :sqlitex
+      ]
+    ]
+  end
+
+  defp aliases do
+    [
+      lint: [
+        "compile",
+        "format --check-formatted",
+        "credo --only warning"
       ]
     ]
   end
@@ -80,7 +93,11 @@ defmodule Diode.Mixfile do
       {:profiler, github: "dominicletz/profiler"},
       {:sqlitex, github: "diodechain/sqlitex"},
       {:niffler, "~> 0.1"},
-      {:while, "~> 0.2"}
+      {:while, "~> 0.2"},
+
+      # linting
+      {:dialyxir, "~> 1.1", only: [:dev], runtime: false},
+      {:credo, "~> 1.5", only: [:dev, :test], runtime: false}
     ]
   end
 end

@@ -22,8 +22,9 @@ defmodule Json do
 
   def decode(binary) do
     case Poison.decode(binary) do
-      {:ok, object} -> {:ok, do_decode(object)}
-      other -> other
+      {:ok, object} ->
+        {:ok, do_decode(object)}
+        # other -> other
     end
   end
 

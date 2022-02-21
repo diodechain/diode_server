@@ -13,7 +13,7 @@ defmodule BlockQuickTest do
   test "forced stop" do
     target_size = Chain.window_size() * 2
     build(target_size)
-    assert Chain.final_block() |> Block.number() == Chain.window_size() - 1
+    assert Chain.with_final(&Block.number/1) == Chain.window_size() - 1
     assert Chain.peak() == target_size - 11
   end
 

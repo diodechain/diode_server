@@ -72,7 +72,7 @@ defmodule KademliaSearch do
     sends = min(length(queryable), length(waiting))
     {nexts, queryable} = Enum.split(queryable, sends)
     {pids, waiting} = Enum.split(waiting, sends)
-    Enum.zip(nexts, pids) |> Enum.map(fn {next, pid} -> send(pid, {:next, next}) end)
+    Enum.zip(nexts, pids) |> Enum.each(fn {next, pid} -> send(pid, {:next, next}) end)
     queried = state.queried ++ nexts
 
     if queryable == [] and length(waiting) == @alpha do

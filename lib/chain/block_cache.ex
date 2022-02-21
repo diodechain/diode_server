@@ -2,14 +2,12 @@
 # Copyright 2021 Diode
 # Licensed under the Diode License, Version 1.1
 defmodule Chain.BlockCache do
-  alias Chain.BlockCache
+  alias Chain.{Block, BlockCache}
   alias Model.Sql
-  alias Chain.Block
   use GenServer
   @timeout 60_000
 
-  defstruct blockquick_window: nil,
-            difficulty: nil,
+  defstruct difficulty: nil,
             total_difficulty: nil,
             epoch: nil,
             last_final: nil
@@ -50,9 +48,8 @@ defmodule Chain.BlockCache do
     {:reply, cache(block), state}
   end
 
-  def handle_call({:do_cache!, block}, _from, state) do
-    hash = Block.hash(block)
-    {:reply, put_cache(hash, create_cache(block)), state}
+  def handle_call({:do_cache!, {hash, cache}}, _from, state) do
+    {:reply, put_cache(hash, cache), state}
   end
 
   def handle_cast({:store, hash, cache}, state = %Server{store_buffer: buffer}) do
@@ -87,11 +84,13 @@ defmodule Chain.BlockCache do
   end
 
   def warmup() do
-    block = Chain.peak_block()
-    hash = Block.hash(block)
+    {hash, n} =
+      BlockProcess.with_block(Chain.peak(), fn
+        # nil -> {nil, nil}
+        block -> {Block.hash(block), Block.number(block)}
+      end)
 
     if fetch!(hash) == nil do
-      n = Block.number(block)
       warmup(0, div(n, 2), n)
     end
   end
@@ -104,29 +103,31 @@ defmodule Chain.BlockCache do
         IO.puts("BlockCache initialization #{n}/#{peak}")
       end
 
-      block = Chain.block(n)
-      GenServer.call(__MODULE__, {:do_cache!, block}, @timeout)
+      cache = BlockProcess.with_block(n, fn block -> {Block.hash(block), create_cache(block)} end)
+      GenServer.call(__MODULE__, {:do_cache!, cache}, @timeout)
 
       if n > 100 and rem(n, 1000) == 0 do
-        last_final(block)
+        last_final(n)
       end
     end
   end
 
   defp warmup(low, n, high) do
-    if fetch!(Block.hash(Chain.block(n))) == nil do
+    if fetch!(Chain.blockhash(n)) == nil do
       warmup(low, div(n, 2), n)
     else
       warmup(n, n + div(high - n, 2), high)
     end
   end
 
-  def create_cache(block) do
-    parent = Block.parent(block)
+  def create_cache(nil) do
+    nil
+  end
 
+  def create_cache(block) do
     %BlockCache{
-      difficulty: Block.difficulty(block, parent),
-      total_difficulty: Block.total_difficulty(block, parent),
+      difficulty: Block.difficulty(block),
+      total_difficulty: Block.total_difficulty(block),
       epoch: Block.epoch(block)
     }
   end
@@ -135,8 +136,8 @@ defmodule Chain.BlockCache do
   #   %Chain.BlockCache{}
   # end
 
-  defp cache?(block) do
-    case Block.hash(block) do
+  defp cache?(hash) do
+    case hash do
       nil ->
         nil
 
@@ -158,18 +159,14 @@ defmodule Chain.BlockCache do
 
   def cache(nil), do: nil
 
-  def cache(block) do
-    hash = Block.hash(block)
+  def cache(block_ref) do
+    hash = BlockProcess.with_block(block_ref, &Block.hash/1)
 
-    case cache?(block) do
+    case cache?(hash) do
       nil ->
         case fetch!(hash) do
           nil ->
-            if :erlang.whereis(__MODULE__) == self() do
-              put_cache(hash, create_cache(block))
-            else
-              GenServer.call(__MODULE__, {:do_cache, block}, @timeout)
-            end
+            put_cache(hash, BlockProcess.with_block(block_ref, &create_cache/1))
 
           data ->
             :ets.insert(__MODULE__, {hash, data})
@@ -181,30 +178,24 @@ defmodule Chain.BlockCache do
     end
   end
 
-  def put_cache(nil, cache) do
-    cache
-  end
-
-  def put_cache(hash, cache) do
-    :ets.insert(__MODULE__, {hash, cache})
-    GenServer.cast(__MODULE__, {:store, hash, cache})
+  defp put_cache(hash, cache) do
+    if hash != nil and cache != nil do
+      :ets.insert(__MODULE__, {hash, cache})
+      GenServer.cast(__MODULE__, {:store, hash, cache})
+    end
 
     cache
   end
 
-  defp do_get_cache(block, name) do
-    do_get_cache(block, name, fn -> apply(Block, name, [block]) end)
-  end
-
-  defp do_get_cache(block, name, fun) do
-    old_cache = cache(block)
+  defp do_get_cache(hash, name, fun) when is_binary(hash) do
+    old_cache = cache(hash)
 
     case Map.get(old_cache, name) do
       nil ->
         value = fun.()
         cache = Map.put(old_cache, name, value)
         # :io.format("put_cache (~p) => ~p~n~p~n", [name, old_cache, cache])
-        put_cache(Block.hash(block), cache)
+        put_cache(hash, cache)
         value
 
       value ->
@@ -216,25 +207,19 @@ defmodule Chain.BlockCache do
     cache(block).difficulty
   end
 
-  def last_final(block) do
-    hash = do_get_cache(block, :last_final, fn -> Block.last_final(block) |> Block.hash() end)
-    final = Chain.block_by_hash(hash)
-    # IO.puts("final #{Base16.encode(hash)} == #{Block.printable(final)}")
-    final
+  def last_final(block_ref) when block_ref != nil do
+    hash = BlockProcess.with_block(block_ref, &Block.hash/1)
+
+    do_get_cache(hash, :last_final, fn ->
+      BlockProcess.with_block(hash, &Block.last_final/1)
+    end)
   end
 
-  def blockquick_window(block, parent \\ nil) do
-    nr = Block.number(block)
-
-    if nr > 100 and rem(nr, 10) == 1 do
-      do_get_cache(block, :blockquick_window)
-    else
-      Block.blockquick_window(block, parent)
+  def total_difficulty(hash) do
+    case cache(hash) do
+      nil -> 0
+      %{total_difficulty: total_difficulty} -> total_difficulty
     end
-  end
-
-  def total_difficulty(block) do
-    cache(block).total_difficulty
   end
 
   def epoch(block) do
@@ -263,7 +248,6 @@ defmodule Chain.BlockCache do
   defdelegate gas_limit(block), to: Block
   defdelegate gas_price(block), to: Block
   defdelegate gas_used(block), to: Block
-  defdelegate has_state?(block), to: Block
   defdelegate hash(block), to: Block
   defdelegate hash_in_target?(block, hash), to: Block
   defdelegate hash_target(block), to: Block
@@ -277,7 +261,6 @@ defmodule Chain.BlockCache do
   defdelegate miner(block), to: Block
   defdelegate nonce(block), to: Block
   defdelegate number(block), to: Block
-  defdelegate parent(block), to: Block
   defdelegate parent_hash(block), to: Block
   defdelegate printable(block), to: Block
   defdelegate receipts(block), to: Block
@@ -287,6 +270,7 @@ defmodule Chain.BlockCache do
   defdelegate size(block), to: Block
   defdelegate state(block), to: Block
   defdelegate state_hash(block), to: Block
+  defdelegate state_tree(block), to: Block
   defdelegate strip_state(block), to: Block
   defdelegate timestamp(block), to: Block
   defdelegate transaction(block, hash), to: Block
@@ -296,7 +280,7 @@ defmodule Chain.BlockCache do
   defdelegate transactions(block), to: Block
   defdelegate transaction_status(block, transaction), to: Block
   defdelegate txhash(block), to: Block
-  defdelegate validate(block, parent), to: Block
-  defdelegate valid?(block), to: Block
-  defdelegate with_state(block), to: Block
+  defdelegate validate(block), to: Block
+  defdelegate ensure_state(block), to: Block
+  defdelegate with_parent(block, fun), to: Block
 end

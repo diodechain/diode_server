@@ -79,9 +79,7 @@ defmodule Network.RpcWs do
 
   def websocket_info(any, state) do
     case any do
-      {:rpc, :block, block} ->
-        Process.put(:latest, block)
-
+      {:rpc, :block, block_hash} ->
         reply =
           Enum.filter(Process.get(), fn
             {{:subs, _id}, {:block, _includeTransactions}} -> true
@@ -89,7 +87,7 @@ defmodule Network.RpcWs do
           end)
           |> Enum.map(fn {{:subs, id}, {:block, includeTransactions}} ->
             {block, _, _} =
-              Network.Rpc.execute_rpc("eth_getBlockByNumber", [block, includeTransactions], [])
+              Network.Rpc.execute_rpc("eth_getBlockByHash", [block_hash, includeTransactions], [])
 
             {:text,
              Poison.encode!(%{

@@ -86,36 +86,43 @@ defmodule Model.ChainSql do
     :ok
   end
 
-  defp set_normative_all(db, block) do
-    put_block_number(__MODULE__, block)
-    set_normative_all(db, Block.parent(block))
+  defp set_normative_all(db, block_ref) do
+    parent_hash =
+      BlockProcess.with_block(block_ref, fn block ->
+        put_block_number(db, block)
+        Block.parent_hash(block)
+      end)
+
+    set_normative_all(db, parent_hash)
   end
 
-  defp set_normative(db, block) do
-    hash = Block.hash(block)
+  defp set_normative(db, block_ref) do
+    {parent_hash, hash, number} =
+      BlockProcess.with_block(block_ref, fn block ->
+        {Block.parent_hash(block), Block.hash(block), Block.number(block)}
+      end)
 
-    case query!(db, "SELECT hash FROM blocks WHERE number = ?1", bind: [Block.number(block)]) do
+    IO.puts("set_normative: #{number}")
+
+    case query!(db, "SELECT hash FROM blocks WHERE number = ?1", bind: [number]) do
       [[hash: ^hash]] ->
         :done
 
       [] ->
-        put_block_number(db, block)
-        set_normative(db, Block.parent(block))
+        BlockProcess.with_block(block_ref, fn block -> put_block_number(db, block) end)
+        set_normative(db, parent_hash)
 
       _others ->
-        query!(db, "UPDATE blocks SET number = null WHERE number = ?1",
-          bind: [Block.number(block)]
-        )
-
-        put_block_number(db, block)
-        set_normative(db, Block.parent(block))
+        query!(db, "UPDATE blocks SET number = null WHERE number = ?1", bind: [number])
+        BlockProcess.with_block(block_ref, fn block -> put_block_number(db, block) end)
+        set_normative(db, parent_hash)
     end
   end
 
-  defp put_block_number(db, block) do
-    query!(db, "UPDATE blocks SET number = ?2 WHERE hash = ?1",
-      bind: [Block.hash(block), Block.number(block)]
-    )
+  def put_block_number(db \\ __MODULE__, block_ref) do
+    [hash, number] = BlockProcess.fetch(block_ref, [:hash, :number])
+    # IO.puts("put_block_number(#{number})")
+    query!(db, "UPDATE blocks SET number = ?2 WHERE hash = ?1", bind: [hash, number])
   end
 
   def put_new_block(block) do
@@ -144,8 +151,7 @@ defmodule Model.ChainSql do
         end
       end)
 
-    compress_state(block, state)
-
+    if ret, do: compress_state(block, state)
     ret
   end
 
@@ -177,21 +183,17 @@ defmodule Model.ChainSql do
     end)
 
     compress_state(block, state)
-
     block
   end
 
-  def put_peak(block) do
+  def put_peak(block_hash) do
+    [number] = BlockProcess.fetch(block_hash, [:number])
+
     with_transaction(fn db ->
-      put_new_block(block)
-
-      query!(db, "UPDATE blocks SET number = null WHERE number >= ?1", bind: [Block.number(block)])
-
-      put_block_number(db, block)
-      set_normative(db, Block.parent(block))
+      query!(db, "UPDATE blocks SET number = null WHERE number >= ?1", bind: [number])
+      put_block_number(db, block_hash)
+      set_normative(db, block_hash)
     end)
-
-    block
   end
 
   defp put_transactions(db, block) do
@@ -288,34 +290,39 @@ defmodule Model.ChainSql do
     |> Enum.map(fn [data: data] -> BertInt.decode!(data) end)
   end
 
+  @splits 3
   def all_block_hashes() do
-    Sql.query!(__MODULE__, "SELECT hash, number FROM blocks ORDER BY number")
+    case Sql.query!(__MODULE__, "SELECT MAX(number) as number FROM blocks") do
+      [] ->
+        []
+
+      [[number: num]] ->
+        size = ceil((num + 1) / @splits)
+
+        Enum.map(0..(@splits - 1), fn n ->
+          Task.async(fn -> select_hashes(n * size, (n + 1) * size) end)
+        end)
+        |> Task.await_many(:infinity)
+        |> Stream.concat()
+    end
   end
 
-  def some_block_hashes() do
-    Stream.resource(
-      fn -> 2_500_000 end,
-      fn n ->
-        Sql.query!(
-          __MODULE__,
-          "SELECT hash, number FROM blocks WHERE number > ?1 ORDER BY number LIMIT 1000",
-          bind: [n]
-        )
-        |> case do
-          [] -> {:halt, n}
-          items -> {items, n + length(items)}
-        end
-      end,
-      fn _n -> :ok end
-    )
+  def select_hashes(from, to) do
+    {:ok, db} = Sql.start_database(Db.Default)
+
+    ret =
+      Sql.query!(
+        db,
+        "SELECT hash, number FROM blocks WHERE number >= ?1 AND number < ?2 ORDER BY number",
+        bind: [from, to]
+      )
+
+    Sqlitex.Server.stop(db)
+    ret
   end
 
   def query!(sql) do
     Sql.query!(__MODULE__, sql)
-  end
-
-  def bench() do
-    :timer.tc(fn -> Enum.count(some_block_hashes()) end)
   end
 
   def alt_blocks() do

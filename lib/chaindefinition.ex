@@ -58,7 +58,7 @@ defmodule ChainDefinition do
     chain_definition(blockheight).check_window
   end
 
-  @spec genesis_accounts() :: [{binary(), Account.t()}]
+  @spec genesis_accounts() :: [{binary(), Chain.Account.t()}]
   def genesis_accounts() do
     chain_definition().genesis_accounts()
   end

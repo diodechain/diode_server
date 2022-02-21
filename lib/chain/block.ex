@@ -3,6 +3,7 @@
 # Licensed under the Diode License, Version 1.1
 defmodule Chain.Block do
   alias Chain.{Block, BlockCache, State, Transaction, Header}
+  alias Model.ChainSql
   require Logger
 
   @enforce_keys [:coinbase]
@@ -15,21 +16,14 @@ defmodule Chain.Block do
           coinbase: any()
         }
 
+  @type ref :: <<_::256>> | %Chain.Block{}
+
   @min_difficulty 65536
   @max_difficulty 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
 
   def header(%Block{header: header}), do: header
   def txhash(%Block{header: header}), do: header.transaction_hash
 
-  def parent(block, parent \\ nil)
-
-  def parent(
-        %Block{header: %Header{previous_block: hash}},
-        %Block{header: %Header{block_hash: hash}} = parent
-      ),
-      do: parent
-
-  def parent(%Block{} = block, nil), do: Chain.block_by_hash(parent_hash(block))
   def parent_hash(%Block{header: header}), do: header.previous_block
   def nonce(%Block{header: header}), do: header.nonce
   def state_hash(%Block{header: header}), do: Header.state_hash(header)
@@ -43,45 +37,32 @@ defmodule Chain.Block do
   def timestamp(%Block{header: header}), do: header.timestamp
   def receipts(%Block{receipts: receipts}), do: receipts
 
-  def has_state?(%Block{header: %{state_hash: %Chain.State{}}}) do
-    true
-  end
-
-  def has_state?(_block) do
-    false
-  end
-
   @spec state(Chain.Block.t()) :: Chain.State.t()
+  def state(%Block{header: %{state_hash: state = %Chain.State{}}}) do
+    state
+  end
+
   def state(%Block{} = block) do
-    if has_state?(block) do
-      # This is actually a full %Chain.State{} object when has_state?() == true
-      block.header.state_hash
-    else
-      Model.ChainSql.state(hash(block))
-    end
+    BlockProcess.maybe_cache(hash(block), :state, fn -> Model.ChainSql.state(hash(block)) end)
+  end
+
+  def state_tree(%Block{} = block) do
+    BlockProcess.maybe_cache(hash(block), :state_tree, fn -> Chain.State.tree(state(block)) end)
   end
 
   @doc "For snapshot exporting ensure the block has a full state object"
-  @spec with_state(Chain.Block.t()) :: Chain.Block.t()
-  def with_state(%Block{} = block) do
-    if has_state?(block) do
-      block
-    else
-      with_state(block, state(block))
-    end
+  @spec ensure_state(Chain.Block.t()) :: Chain.Block.t()
+  def ensure_state(block = %Block{header: %{state_hash: %Chain.State{}}}) do
+    block
   end
 
-  @spec with_state(Chain.Block.t(), Chain.State.t()) :: Chain.Block.t()
-  def with_state(%Block{} = block, %Chain.State{} = state) do
+  def ensure_state(%Block{} = block) do
+    ensure_state(block, state(block))
+  end
+
+  @spec ensure_state(Chain.Block.t(), Chain.State.t()) :: Chain.Block.t()
+  def ensure_state(%Block{} = block, %Chain.State{} = state) do
     %Block{block | header: %{block.header | state_hash: state}}
-  end
-
-  @spec valid?(Chain.Block.t()) :: boolean()
-  def valid?(block) do
-    case validate(block, parent(block)) do
-      %Block{} -> true
-      _ -> false
-    end
   end
 
   defp test(test, fun) do
@@ -97,42 +78,41 @@ defmodule Chain.Block do
   end
 
   @blockquick_margin div(Chain.window_size(), 10)
-  def in_final_window?(block), do: in_final_window?(block, parent(block))
-
-  def in_final_window?(block, parent) do
+  def in_final_window?(block) do
     nr = number(block)
 
     if ChainDefinition.check_window(nr) do
-      Block.number(last_final(block, parent)) + Chain.window_size() - @blockquick_margin >=
+      BlockProcess.with_block(last_final(block), &Block.number/1) + Chain.window_size() -
+        @blockquick_margin >=
         Block.number(block)
     else
       true
     end
   end
 
-  @spec validate(Chain.Block.t(), Chain.Block.t()) :: Chain.Block.t() | {non_neg_integer(), any()}
-  def validate(%Block{} = block, %Block{} = parent) do
+  @spec validate(Chain.Block.t()) :: Chain.Block.ref() | {non_neg_integer(), any()}
+  def validate(%Block{} = block) do
     # IO.puts("Block #{number(block)}.: #{length(transactions(block))}txs")
-    BlockCache.cache(block)
+    tc(:cache, fn -> BlockCache.cache(block) end)
 
     with {_, %Block{}} <- {:is_block, block},
          {_, true} <-
-           test(:has_parent, fn -> parent_hash(block) == hash(parent) end),
+           test(:has_parent, fn -> parent_hash(block) == with_parent(block, &hash/1) end),
          {_, true} <-
-           test(:correct_number, fn -> number(block) == number(parent) + 1 end),
+           test(:correct_number, fn -> number(block) == with_parent(block, &number/1) + 1 end),
          {_, true} <-
            test_tc(:diverse, fn ->
-             is_diverse?(ChainDefinition.min_diversity(number(block)), block, parent)
+             is_diverse?(ChainDefinition.min_diversity(number(block)), block)
            end),
          {_, true} <-
-           test_tc(:in_final_window, fn -> in_final_window?(block, parent) end),
+           test_tc(:in_final_window, fn -> in_final_window?(block) end),
          {_, true} <- test(:hash_valid, fn -> hash_valid?(block) end),
          {_, []} <-
            test_tc(:tx_valid, fn ->
              Enum.map(transactions(block), &Transaction.validate/1)
              |> Enum.reject(fn tx -> tx == true end)
            end),
-         {_, true} <- test_tc(:min_tx_fee, fn -> conforms_min_tx_fee?(block, parent) end),
+         {_, true} <- test_tc(:min_tx_fee, fn -> conforms_min_tx_fee?(block) end),
          {_, true} <-
            test(:tx_hash_valid, fn ->
              Diode.hash(encode_transactions(transactions(block))) == txhash(block)
@@ -140,19 +120,24 @@ defmodule Chain.Block do
          {_, sim_block} <- test_tc(:simulate, fn -> simulate(block) end),
          {_, true} <- test_tc(:registry_tx, fn -> has_registry_tx?(sim_block) end),
          {_, true} <- test_tc(:state_equal, fn -> state_equal(sim_block, block) end) do
-      %{sim_block | header: %{block.header | state_hash: sim_block.header.state_hash}}
+      # {:reply, self(),
+      #  %{sim_block | header: %{block.header | state_hash: sim_block.header.state_hash}}}
+      block = %{sim_block | header: %{block.header | state_hash: sim_block.header.state_hash}}
+      tc(:put_new_block, fn -> ChainSql.put_new_block(block) end)
+      tc(:ets_add_alt, fn -> Chain.ets_add_alt(block) end)
+      tc(:start_block, fn -> BlockProcess.start_block(block) end)
     else
       {nr, error} -> {nr, error}
     end
   end
 
-  def validate(_block, nil) do
-    {:has_parent, false}
+  def with_parent(block = %Block{}, fun) do
+    BlockProcess.with_block(parent_hash(block), fun)
   end
 
-  defp conforms_min_tx_fee?(block, parent) do
+  defp conforms_min_tx_fee?(block) do
     if ChainDefinition.min_transaction_fee(number(block)) do
-      fee = Contract.Registry.min_transaction_fee(parent)
+      fee = Contract.Registry.min_transaction_fee(parent_hash(block))
       # We're ignoring the last TX because that is by convention the Registry TX with
       # a gas price of 0
       txs = transactions(block)
@@ -232,8 +217,6 @@ defmodule Chain.Block do
 
   @spec hash_target(Chain.Block.t()) :: integer
   def hash_target(block) do
-    blockRef = parent(block)
-
     # Calculating stake weight as
     # ( stake / 1000 )²  but no less than 1
     #
@@ -241,14 +224,16 @@ defmodule Chain.Block do
     # (( stake / 100 )² * max_diff) / (10² * difficulty_block)
     #
     stake =
-      if blockRef == nil do
-        1
-      else
-        Contract.Registry.miner_value(0, BlockCache.coinbase(block), blockRef)
-        |> div(Shell.ether(1000))
-        |> max(1)
-        |> min(50)
-      end
+      with_parent(block, fn parent ->
+        if parent == nil do
+          1
+        else
+          Contract.Registry.miner_value(0, BlockCache.miner(block), parent)
+          |> div(Shell.ether(1000))
+          |> max(1)
+          |> min(50)
+        end
+      end)
 
     diff = BlockCache.difficulty(block)
     div(stake * stake * @max_difficulty, diff)
@@ -258,15 +243,16 @@ defmodule Chain.Block do
 
   @doc "Creates a new block and stores the generated state in cache file"
   @spec create(
-          Chain.Block.t(),
+          Chain.Block.ref(),
           [Chain.Transaction.t()],
           Wallet.t(),
           non_neg_integer(),
           true | false
         ) ::
           Chain.Block.t()
-  def create(%Block{} = parent, transactions, miner, time, trace? \\ false) do
-    block = create_empty(parent, miner, time)
+  def create(parent_ref, transactions, miner, time, trace? \\ false) do
+    block =
+      BlockProcess.with_block(parent_ref, fn parent -> create_empty(parent, miner, time) end)
 
     Stats.tc(:tx, fn ->
       Enum.reduce(transactions, block, fn %Transaction{} = tx, block ->
@@ -301,10 +287,6 @@ defmodule Chain.Block do
   end
 
   def append_transaction(%Block{transactions: txs, receipts: rcpts} = block, tx, trace? \\ false) do
-    if not has_state?(block) do
-      throw(:requires_embedded_state)
-    end
-
     state = state(block)
 
     case Transaction.apply(tx, block, state, trace: trace?) do
@@ -349,14 +331,14 @@ defmodule Chain.Block do
 
   @spec simulate(Chain.Block.t()) :: Chain.Block.t()
   def simulate(%Block{} = block) do
-    parent =
+    parent_ref =
       if Block.number(block) >= 1 do
-        %Block{} = parent(block)
+        Block.parent_hash(block)
       else
         Chain.GenesisFactory.testnet_parent()
       end
 
-    create(parent, transactions(block), miner(block), timestamp(block), false)
+    create(parent_ref, transactions(block), miner(block), timestamp(block), false)
   end
 
   @spec sign(Block.t(), Wallet.t()) :: Block.t()
@@ -382,50 +364,50 @@ defmodule Chain.Block do
   end
 
   # The second parameter is an optimizaton for cache bootstrap
-  @spec difficulty(Block.t(), Block.t() | nil) :: non_neg_integer()
-  def difficulty(%Block{} = block, parent \\ nil) do
+  @spec difficulty(Block.t()) :: non_neg_integer()
+  def difficulty(%Block{} = block) do
     if Diode.dev_mode?() do
       1
     else
-      do_difficulty(block, parent(block, parent))
+      do_difficulty(block)
     end
   end
 
-  defp do_difficulty(%Block{} = block, parent) do
-    if parent == nil do
-      @min_difficulty
-    else
-      delta = timestamp(block) - timestamp(parent)
-      diff = BlockCache.difficulty(parent)
-      step = div(diff, 10)
-
-      diff =
-        if delta < Chain.blocktime_goal() do
-          diff + step
-        else
-          diff - step
-        end
-
-      if diff < @min_difficulty do
+  defp do_difficulty(%Block{} = block) do
+    with_parent(block, fn
+      nil -> nil
+      parent -> {timestamp(parent), BlockCache.difficulty(parent)}
+    end)
+    |> case do
+      nil ->
         @min_difficulty
-      else
-        diff
-      end
+
+      {parent_timestamp, parent_difficulty} ->
+        delta = timestamp(block) - parent_timestamp
+        diff = parent_difficulty
+        step = div(diff, 10)
+
+        diff =
+          if delta < Chain.blocktime_goal() do
+            diff + step
+          else
+            diff - step
+          end
+
+        if diff < @min_difficulty do
+          @min_difficulty
+        else
+          diff
+        end
     end
   end
 
   # The second parameter is an optimizaton for cache bootstrap
-  @spec total_difficulty(Block.t(), Block.t() | nil) :: non_neg_integer()
-  def total_difficulty(%Block{} = block, parent \\ nil) do
-    parent = parent(block, parent)
-
+  @spec total_difficulty(Block.t()) :: non_neg_integer()
+  def total_difficulty(%Block{} = block) do
     # Explicit usage of Block and BlockCache cause otherwise cache filling
     # becomes self-recursive problem
-    if parent == nil do
-      Block.difficulty(block)
-    else
-      BlockCache.total_difficulty(parent) + Block.difficulty(block, parent)
-    end
+    Block.difficulty(block) + BlockCache.total_difficulty(parent_hash(block))
   end
 
   @spec number(Block.t()) :: non_neg_integer()
@@ -559,9 +541,7 @@ defmodule Chain.Block do
     "##{Block.number(block)}[#{prefix}](#{len} TX) @#{author}"
   end
 
-  def blockquick_window(block, parent \\ nil)
-
-  def blockquick_window(%Block{header: %Header{number: num}}, _) when num <= 100 do
+  def blockquick_window(%Block{header: %Header{number: num}}) when num <= 100 do
     [
       598_746_696_357_369_325_966_849_036_647_255_306_831_025_787_168,
       841_993_309_363_539_165_963_431_397_261_483_173_734_566_208_300,
@@ -572,28 +552,41 @@ defmodule Chain.Block do
     |> Enum.take(100)
   end
 
-  def blockquick_window(%Block{} = block, parent) do
-    [_ | window] = parent(block, parent) |> BlockCache.blockquick_window()
-    window ++ [Block.coinbase(block)]
+  def blockquick_window(%Block{} = block) do
+    parent_hash = parent_hash(block)
+
+    [_ | window] =
+      get_cached(parent_hash, :blockquick_window, fn -> blockquick_window(parent_hash) end)
+
+    window ++ [coinbase(block)]
+  end
+
+  def blockquick_window(block_hash) when is_binary(block_hash) do
+    {_, window} =
+      Enum.reduce(0..99, {block_hash, []}, fn _, {parent_hash, window} ->
+        BlockProcess.with_block(parent_hash, fn block ->
+          {parent_hash(block), [coinbase(block) | window]}
+        end)
+      end)
+
+    window
   end
 
   def blockquick_scores(%Block{} = block) do
-    BlockCache.blockquick_window(block)
+    blockquick_window(block)
     |> Enum.reduce(%{}, fn coinbase, scores ->
       Map.update(scores, coinbase, 1, fn i -> i + 1 end)
     end)
   end
 
-  @spec is_diverse?(non_neg_integer(), Chain.Block.t(), nil | Chain.Block.t()) :: boolean
-  def is_diverse?(0, _block, _parent) do
+  @spec is_diverse?(non_neg_integer(), Chain.Block.t()) :: boolean
+  def is_diverse?(0, _block) do
     true
   end
 
-  def is_diverse?(1, %Block{} = block, parent) do
-    parent = parent(block, parent)
-
+  def is_diverse?(1, %Block{} = block) do
     miners =
-      blockquick_window(block, parent)
+      blockquick_window(block)
       |> Enum.reverse()
       |> Enum.take(4)
 
@@ -606,49 +599,33 @@ defmodule Chain.Block do
   # Hash of block 108
   # @anchor_hash <<0, 0, 98, 184, 252, 38, 6, 88, 88, 30, 209, 143, 24, 89, 71, 244, 92, 85, 98, 72,
   #                89, 223, 184, 74, 232, 251, 127, 33, 26, 134, 11, 117>>
-  @spec last_final(Chain.Block.t(), Chain.Block.t() | nil) :: Chain.Block.t()
-  def last_final(block, parent \\ nil)
-
-  def last_final(%Block{header: %Header{number: number}} = block, _) when number < 1 do
-    block
+  @spec last_final(Chain.Block.t()) :: Chain.Block.ref()
+  def last_final(%Block{header: %Header{number: number}} = block) when number < 1 do
+    Block.hash(block)
   end
 
-  def last_final(%Block{} = block, oparent) do
-    parent = parent(block, oparent)
-
-    if parent == nil do
-      Logger.error("Corrupt database block #{Block.printable(block)} has no parent!")
-      %Block{} = parent
-    end
-
-    prev_final = BlockCache.last_final(parent)
-    window = blockquick_scores(prev_final)
-
+  def last_final(%Block{} = block) do
+    prev_final_hash = with_parent(block, &BlockCache.last_final/1)
+    window = BlockProcess.with_block(prev_final_hash, &blockquick_scores/1)
     threshold = div(Chain.window_size(), 2)
-
-    gap = Block.number(block) - Block.number(prev_final)
+    gap = Block.number(block) - BlockProcess.with_block(prev_final_hash, &number/1)
 
     miners =
-      blockquick_window(block, parent)
+      blockquick_window(block)
       |> Enum.reverse()
       |> Enum.take(gap)
 
     # Iterating in reverse to find the most recent match
-    ret =
-      Enum.reduce_while(miners, %{}, fn miner, scores ->
-        if Map.values(scores) |> Enum.sum() > threshold do
-          {:halt, block}
-        else
-          {:cont, Map.put(scores, miner, Map.get(window, miner, 0))}
-        end
-      end)
-
-    case ret do
-      new_final = %Block{} ->
-        new_final
-
-      _too_low_scores ->
-        prev_final
+    Enum.reduce_while(miners, %{}, fn miner, scores ->
+      if Map.values(scores) |> Enum.sum() > threshold do
+        {:halt, true}
+      else
+        {:cont, Map.put(scores, miner, Map.get(window, miner, 0))}
+      end
+    end)
+    |> case do
+      true -> block
+      _too_low_scores -> prev_final_hash
     end
   end
 
@@ -697,5 +674,31 @@ defmodule Chain.Block do
   @spec receipts_root(Block.t()) :: <<_::528>>
   def receipts_root(%Block{} = _block) do
     "0x0000000000000000000000000000000000000000000000000000000000000000"
+  end
+
+  #
+  # Private functions
+  #
+
+  defp get_cached(block_ref, key, fun) do
+    key = {block_ref, key}
+
+    case Process.get(key) do
+      nil ->
+        BlockProcess.with_block(block_ref, fn _block ->
+          case Process.get(key) do
+            nil ->
+              value = fun.()
+              Process.put(key, value)
+              value
+
+            value ->
+              value
+          end
+        end)
+
+      value ->
+        value
+    end
   end
 end

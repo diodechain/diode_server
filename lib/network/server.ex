@@ -227,16 +227,16 @@ defmodule Network.Server do
 
       {:ok, newSocket} ->
         spawn_link(fn ->
-          {:ok, {address, port}} = :ssl.peername(newSocket)
+          peername = :ssl.peername(newSocket)
 
-          case :ssl.handshake(newSocket, 25000) do
-            {:ok, newSocket2} ->
-              worker = start_worker!(state, :init)
-              :ok = :ssl.controlling_process(newSocket2, worker)
-              send(worker, {:init, newSocket2})
-
+          with {:ok, {_address, _port}} <- peername,
+               {:ok, newSocket2} <- :ssl.handshake(newSocket, 25000) do
+            worker = start_worker!(state, :init)
+            :ok = :ssl.controlling_process(newSocket2, worker)
+            send(worker, {:init, newSocket2})
+          else
             {:error, error} ->
-              :io.format("~p Handshake error: ~0p ~0p~n", [state.protocol, error, {address, port}])
+              :io.format("~p Handshake error: ~0p ~0p~n", [state.protocol, error, peername])
           end
         end)
     end

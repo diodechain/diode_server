@@ -41,16 +41,15 @@ defmodule Network.PeerHandler do
         start_time: System.os_time(:second),
         server: nil,
         job: nil,
-        last_publish: nil
+        last_publish: nil,
+        last_send: nil
       })
     )
   end
 
   defp publish_peak(state = %{last_publish: last}) do
-    block = Chain.peak_block()
-
-    if Block.hash(block) != last do
-      GenServer.cast(self(), {:rpc, [@publish, Block.export(block)]})
+    if Chain.peak_hash() != last do
+      GenServer.cast(self(), {:rpc, [@publish, Chain.with_peak(&Block.export/1)]})
     end
 
     state
@@ -67,32 +66,33 @@ defmodule Network.PeerHandler do
         state = %{last_publish: last}
       ) do
     if Block.hash(block) != last do
-      send!(state, call)
       calls = :queue.in({call, nil}, state.calls)
-      {:noreply, %{state | calls: calls, last_publish: Block.hash(block)}}
+      ssl_send(%{state | calls: calls, last_publish: Block.hash(block)}, call)
     else
       {:noreply, state}
     end
   end
 
   def handle_cast({:rpc, call}, state) do
-    send!(state, call)
     calls = :queue.in({call, nil}, state.calls)
-    {:noreply, %{state | calls: calls}}
+    ssl_send(%{state | calls: calls}, call)
   end
 
   def handle_cast({:sync_done, ret}, state = %{blocks: blocks}) do
     state = %{state | job: nil}
 
     case ret do
-      %Chain.Block{} ->
-        if blocks == nil or Chain.Block.number(blocks.peak) <= Chain.Block.number(ret) do
+      <<block_hash::binary-size(32)>> ->
+        if blocks == nil or
+             Chain.Block.number(blocks.peak) <=
+               BlockProcess.with_block(block_hash, &Chain.Block.number/1) do
           # delete backup list on first successfull block
           {:noreply, %{state | blocks: nil, random_blocks: 0}}
         else
           # received a new block(s) in the meantime re-trigger sync
           handle_block(
-            Chain.Block.parent(blocks.peak),
+            # TODO: Check raw block handling here
+            Chain.Block.with_parent(blocks.peak, fn parent -> parent end),
             blocks.peak,
             state
           )
@@ -106,14 +106,14 @@ defmodule Network.PeerHandler do
         end
 
       err ->
-        {:stop, {:validation_error, err}, state}
+        log(state, "received invalid blocks: ~180p", [err])
+        {:noreply, %{state | blocks: nil, random_blocks: 0}}
     end
   end
 
   def handle_call({:rpc, call}, from, state) do
-    send!(state, call)
     calls = :queue.in({call, from}, state.calls)
-    {:noreply, %{state | calls: calls}}
+    ssl_send(%{state | calls: calls}, call)
   end
 
   defp encode(msg) do
@@ -128,24 +128,28 @@ defmodule Network.PeerHandler do
     {:ok, {addr, _port}} = :ssl.sockname(state.socket)
     hello = Diode.self(:erlang.list_to_binary(:inet.ntoa(addr)))
 
-    send!(state, [@hello, Object.encode!(hello), Chain.genesis_hash()])
+    case ssl_send(state, [@hello, Object.encode!(hello), Chain.genesis_hash()]) do
+      {:noreply, state} ->
+        receive do
+          {:ssl, _socket, msg} ->
+            msg = decode(msg)
 
-    receive do
-      {:ssl, _socket, msg} ->
-        msg = decode(msg)
+            case hd(msg) do
+              @hello ->
+                handle_msg(msg, state)
 
-        case hd(msg) do
-          @hello ->
-            handle_msg(msg, state)
-
-          _ ->
-            log(state, "expected hello message, but got ~p", [msg])
+              _ ->
+                log(state, "expected hello message, but got ~p", [msg])
+                {:stop, :normal, state}
+            end
+        after
+          3_000 ->
+            log(state, "expected hello message, timeout")
             {:stop, :normal, state}
         end
-    after
-      3_000 ->
-        log(state, "expected hello message, timeout")
-        {:stop, :normal, state}
+
+      other ->
+        other
     end
   end
 
@@ -169,8 +173,7 @@ defmodule Network.PeerHandler do
 
     case handle_msg(msg, state) do
       {reply, state} when not is_atom(reply) ->
-        send!(state, reply)
-        {:noreply, state}
+        ssl_send(state, reply)
 
       other ->
         other
@@ -321,7 +324,7 @@ defmodule Network.PeerHandler do
 
     case Chain.block_by_hash?(Chain.Block.hash(block)) do
       false ->
-        handle_block(Block.parent(block), block, state)
+        handle_block(Block.with_parent(block, fn parent -> parent end), block, state)
 
       true ->
         # log(state, "Chain.add_block: Skipping existing block #{Block.printable(block)}")
@@ -356,8 +359,7 @@ defmodule Network.PeerHandler do
         # retop the last call
         {{:value, call}, calls} = :queue.out(state.calls)
         calls = :queue.in(call, calls)
-        send!(state, [@publish, parents])
-        {:noreply, %{state | calls: calls}}
+        ssl_send(%{state | calls: calls}, [@publish, parents])
     end
   end
 
@@ -471,9 +473,17 @@ defmodule Network.PeerHandler do
     {:noreply, %{state | calls: calls}}
   end
 
-  defp send!(%{socket: socket}, data) do
+  defp ssl_send(state = %{socket: socket, last_send: prev}, data) do
     raw = encode(data)
-    :ok = :ssl.send(socket, raw)
+
+    case :ssl.send(socket, raw) do
+      :ok ->
+        {:noreply, %{state | last_send: data}}
+
+      {:error, reason} ->
+        :io.format("connection dropped for ~p last message I sent was: ~180p", [reason, prev])
+        {:stop, :normal, state}
+    end
   end
 
   def on_nodeid(nil) do

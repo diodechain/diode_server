@@ -80,10 +80,27 @@ defmodule Stats do
       case Process.get(:batch, :persistent_term.get(@key)) do
         0 ->
           :io.format(" Stats~n")
-          :io.format("====================================================================~n")
 
-          for {key, value} <- Enum.sort(state.done_counters) do
-            key = "#{key}"
+          :io.format(
+            "======================================================== MICROS ======= COUNT ===~n"
+          )
+
+          done_counters =
+            Enum.map(state.done_counters, fn {key, value} -> {"#{key}", value} end)
+            |> Map.new()
+
+          keys =
+            done_counters
+            |> Enum.filter(fn {key, _value} -> String.ends_with?(key, "_cnt") end)
+            |> Enum.map(fn {key, _value} ->
+              key = String.replace_suffix(key, "_cnt", "")
+              cnt = Map.get(done_counters, "#{key}_cnt", 0)
+              time = Map.get(done_counters, "#{key}_time", 0)
+              {key, cnt, time}
+            end)
+            |> Enum.sort(fn {_, _, a}, {_, _, b} -> a > b end)
+
+          for {key, cnt, time} <- keys do
             len = byte_size(key)
 
             key =
@@ -93,10 +110,13 @@ defmodule Stats do
                 String.pad_trailing(key, 48)
               end
 
-            :io.format("| ~s: ~14B |~n", [key, value])
+            :io.format("| ~s: ~14B | ~10B |~n", [key, time, cnt])
           end
 
-          :io.format("====================================================================~n~n")
+          :io.format(
+            "=================================================================================~n~n"
+          )
+
           Process.put(:batch, :persistent_term.get(@key))
           {:noreply, %{state | done_counters: state.counters, counters: %{}}}
 

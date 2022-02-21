@@ -255,6 +255,11 @@ defmodule Network.EdgeV2 do
     reason
   end
 
+  def terminate(reason, state) do
+    log(state, "Received terminate before init ~p ~p", [reason, state])
+    reason
+  end
+
   def handle_msg(msg, state) do
     case msg do
       ["hello", vsn | flags] when is_binary(vsn) ->
@@ -365,7 +370,7 @@ defmodule Network.EdgeV2 do
         response(Chain.peak())
 
       ["getblock", index] when is_binary(index) ->
-        response(Chain.block(to_num(index)) |> Chain.Block.export())
+        response(BlockProcess.with_block(to_num(index), &Chain.Block.export(&1)))
 
       ["getblockheader", index] when is_binary(index) ->
         response(block_header(to_num(index)))
@@ -398,47 +403,63 @@ defmodule Network.EdgeV2 do
         |> response()
 
       ["getstateroots", index] ->
-        merkel = Chain.State.tree(Chain.state(to_num(index)))
-        response(MerkleTree.root_hashes(merkel))
+        BlockProcess.with_block(to_num(index), fn block ->
+          Chain.Block.state_tree(block)
+          |> MerkleTree.root_hashes()
+        end)
+        |> response()
 
       ["getaccount", index, id] ->
-        mstate = Chain.state(to_num(index))
+        BlockProcess.with_block(to_num(index), fn block ->
+          Chain.Block.state(block)
+          |> Chain.State.account(id)
+          |> case do
+            nil ->
+              error("account does not exist")
 
-        case Chain.State.account(mstate, id) do
+            account = %Chain.Account{} ->
+              proof =
+                Chain.Block.state_tree(block)
+                |> MerkleTree.get_proofs(id)
+
+              response(
+                %{
+                  nonce: account.nonce,
+                  balance: account.balance,
+                  storage_root: Chain.Account.root_hash(account),
+                  code: Chain.Account.codehash(account)
+                },
+                proof
+              )
+          end
+        end)
+
+      ["getaccountroots", index, id] ->
+        BlockProcess.with_account(to_num(index), id, fn
+          nil -> error("account does not exist")
+          acc -> response(MerkleTree.root_hashes(Chain.Account.tree(acc)))
+        end)
+
+      ["getaccountvalue", index, id, key] ->
+        BlockProcess.with_account(to_num(index), id, fn
+          nil -> error("account does not exist")
+          acc -> response(MerkleTree.get_proofs(Chain.Account.tree(acc), key))
+        end)
+
+      ["getaccountvalues", index, id | keys] ->
+        BlockProcess.with_account(to_num(index), id, fn
           nil ->
             error("account does not exist")
 
-          account = %Chain.Account{} ->
-            proof =
-              Chain.State.tree(mstate)
-              |> MerkleTree.get_proofs(id)
+          acc ->
+            tree = MerkleTree.merkle(Chain.Account.tree(acc))
 
             response(
-              %{
-                nonce: account.nonce,
-                balance: account.balance,
-                storage_root: Chain.Account.root_hash(account),
-                code: Chain.Account.codehash(account)
-              },
-              proof
+              Enum.map(keys, fn key ->
+                MerkleTree.get_proofs(tree, key)
+              end)
             )
-        end
-
-      ["getaccountroots", index, id] ->
-        mstate = Chain.state(to_num(index))
-
-        case Chain.State.account(mstate, id) do
-          nil -> error("account does not exist")
-          acc -> response(MerkleTree.root_hashes(Chain.Account.tree(acc)))
-        end
-
-      ["getaccountvalue", index, id, key] ->
-        mstate = Chain.state(to_num(index))
-
-        case Chain.State.account(mstate, id) do
-          nil -> error("account does not exist")
-          acc -> response(MerkleTree.get_proofs(Chain.Account.tree(acc), key))
-        end
+        end)
 
       ["portopen", device_id, port, flags] ->
         portopen(state, device_id, to_num(port), flags)
@@ -490,16 +511,18 @@ defmodule Network.EdgeV2 do
       ["sendtransaction", tx] ->
         # Testing transaction
         tx = Chain.Transaction.from_rlp(tx)
-        block = Chain.peak_block()
-        state = Chain.Block.state(block)
 
         err =
-          case Chain.Transaction.apply(tx, block, state) do
-            {:ok, _state, %{msg: :ok}} -> nil
-            {:ok, _state, rcpt} -> "Transaction exception: #{rcpt.msg}"
-            {:error, :nonce_too_high} -> nil
-            {:error, reason} -> "Transaction failed: #{inspect(reason)}"
-          end
+          Chain.with_peak(fn peak ->
+            state = Chain.Block.state(peak)
+
+            case Chain.Transaction.apply(tx, peak, state) do
+              {:ok, _state, %{msg: :ok}} -> nil
+              {:ok, _state, rcpt} -> "Transaction exception: #{rcpt.msg}"
+              {:error, :nonce_too_high} -> nil
+              {:error, reason} -> "Transaction failed: #{inspect(reason)}"
+            end
+          end)
 
         # Adding transacton, even when :nonce_too_high
         if err == nil do
@@ -930,10 +953,6 @@ defmodule Network.EdgeV2 do
     |> Rlp.decode!()
   end
 
-  defp encode(nil) do
-    ""
-  end
-
   defp encode(msg) do
     Rlp.encode!(msg)
   end
@@ -1017,8 +1036,10 @@ defmodule Network.EdgeV2 do
     #   based on it's current last valid block number
     window =
       Enum.map(1..window_size, fn idx ->
-        Chain.Block.miner(Chain.block(last_block - idx))
-        |> Wallet.pubkey!()
+        BlockProcess.with_block(last_block - idx, fn block ->
+          Chain.Block.miner(block)
+          |> Wallet.pubkey!()
+        end)
       end)
 
     counts = Enum.reduce(window, %{}, fn miner, acc -> Map.update(acc, miner, 1, &(&1 + 1)) end)
@@ -1071,10 +1092,10 @@ defmodule Network.EdgeV2 do
   end
 
   defp block_header(n) do
-    case Chain.block(n) do
-      nil -> throw(:notfound)
+    BlockProcess.with_block(n, fn
+      nil -> nil
       block -> Chain.Header.strip_state(block.header)
-    end
+    end) || throw(:notfound)
   end
 
   defp to_num(bin) do

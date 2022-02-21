@@ -27,8 +27,8 @@ defmodule Chain.Worker do
           working: boolean()
         }
 
-  def candidate() do
-    GenServer.call(__MODULE__, :candidate)
+  def with_candidate(fun) do
+    GenServer.call(__MODULE__, {:with_candidate, fun})
   end
 
   def work() do
@@ -90,15 +90,16 @@ defmodule Chain.Worker do
   end
 
   defp update_parent(state = %Worker{parent_hash: hash, min_fee: fee}) do
-    parent = Chain.peak_block()
-    new_hash = Block.hash(parent)
+    [new_hash, parent_number] = BlockProcess.fetch(Chain.peak(), [:hash, :number])
 
     fee =
       if hash == new_hash do
         fee
       else
-        if ChainDefinition.min_transaction_fee(Block.number(parent) + 1) do
-          Contract.Registry.min_transaction_fee(parent)
+        if ChainDefinition.min_transaction_fee(parent_number + 1) do
+          BlockProcess.with_block(new_hash, fn parent ->
+            Contract.Registry.min_transaction_fee(parent)
+          end)
         else
           0
         end
@@ -108,15 +109,15 @@ defmodule Chain.Worker do
 
     %Worker{
       state
-      | parent_hash: Block.hash(parent),
+      | parent_hash: new_hash,
         proposal: txs,
         min_fee: fee
     }
   end
 
-  def handle_call(:candidate, _from, state) do
+  def handle_call({:with_candidate, fun}, _from, state) do
     state = generate_candidate(state)
-    {:reply, state.candidate, state}
+    {:reply, fun.(state.candidate), state}
   end
 
   def handle_call(:sync, _from, state) do
@@ -203,21 +204,20 @@ defmodule Chain.Worker do
     state = %{state | working: false, candidate: block}
 
     if hash < target do
-      if Block.valid?(block) do
-        case Chain.add_block(block) do
-          :added ->
-            do_update(state)
+      case Block.validate(block) do
+        <<block_hash::binary-size(32)>> ->
+          case Chain.add_block(block_hash) do
+            :added ->
+              do_update(state)
 
-          other ->
-            :io.format("Self generated block is valid but is not accepted: ~p~n", [other])
-            %{state | candidate: nil, parent_hash: nil}
-        end
-      else
-        :io.format("Self generated block is invalid: ~p~n", [
-          Block.validate(block, Block.parent(block))
-        ])
+            other ->
+              :io.format("Self generated block is valid but is not accepted: ~p~n", [other])
+              %{state | candidate: nil, parent_hash: nil}
+          end
 
-        %{state | candidate: nil, parent_hash: nil}
+        error ->
+          :io.format("Self generated block is invalid: ~p~n", [error])
+          %{state | candidate: nil, parent_hash: nil}
       end
     else
       state
@@ -240,8 +240,7 @@ defmodule Chain.Worker do
       state
     else
       prev_hash = parent_hash(state)
-      parent = %Chain.Block{} = Chain.block_by_hash(prev_hash)
-      block = build_block(parent, txs, creds, now)
+      block = build_block(prev_hash, txs, creds, now)
       target = Block.hash_target(block)
 
       %Worker{
@@ -253,9 +252,14 @@ defmodule Chain.Worker do
     end
   end
 
-  def build_block(parent, txs, creds, timestamp \\ System.os_time(:second)) do
+  def build_block(parent_ref, txs, creds, timestamp \\ System.os_time(:second)) do
     miner = Wallet.address!(creds)
-    block = Block.create_empty(parent, creds, timestamp)
+
+    block =
+      BlockProcess.with_block(parent_ref, fn parent ->
+        Block.create_empty(parent, creds, timestamp)
+      end)
+
     position = ChainDefinition.block_reward_position(Block.number(block))
 
     {:ok, block} =

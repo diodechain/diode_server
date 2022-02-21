@@ -78,9 +78,9 @@ defmodule Diode do
       supervisor(Channels),
       worker(PubSub, [args]),
       worker(Chain.BlockCache, [ets_extra]),
+      worker(BlockProcess, []),
       worker(Chain, [ets_extra]),
       worker(Chain.Pool, [args]),
-      worker(Chain.Worker, [worker_mode()]),
       worker(TicketStore, [ets_extra])
     ]
 
@@ -98,7 +98,9 @@ defmodule Diode do
         base_children ++ network_children
       end
 
-    Supervisor.start_link(children, strategy: :one_for_one, name: Diode.Supervisor)
+    children = children ++ [worker(Chain.Worker, [worker_mode()])]
+
+    Supervisor.start_link(children, strategy: :rest_for_one, name: Diode.Supervisor)
   end
 
   # To be started from the stage gen_server

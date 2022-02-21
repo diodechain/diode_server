@@ -39,10 +39,11 @@ defmodule Shell do
   end
 
   def call_tx(tx, blockRef) do
-    block = Network.Rpc.get_block(blockRef)
-    state = Chain.Block.state(block)
-
-    case Chain.Transaction.apply(tx, block, state, static: true) do
+    Network.Rpc.with_block(blockRef, fn block ->
+      state = Chain.Block.state(block)
+      Chain.Transaction.apply(tx, block, state, static: true)
+    end)
+    |> case do
       {:ok, _state, rcpt} ->
         ret =
           case rcpt.msg do
@@ -89,9 +90,10 @@ defmodule Shell do
   end
 
   def get_balance(address) do
-    Chain.peak_state()
-    |> Chain.State.ensure_account(address)
-    |> Chain.Account.balance()
+    Chain.with_peak_state(fn state ->
+      Chain.State.ensure_account(state, address)
+      |> Chain.Account.balance()
+    end)
   end
 
   @spec get_miner_stake(binary()) :: non_neg_integer()
@@ -103,15 +105,17 @@ defmodule Shell do
   end
 
   def get_slot(address, slot) do
-    Chain.peak_state()
-    |> Chain.State.ensure_account(address)
-    |> Chain.Account.storage_value(slot)
+    Chain.with_peak_state(fn state ->
+      Chain.State.ensure_account(state, address)
+      |> Chain.Account.storage_value(slot)
+    end)
   end
 
   def get_code(address) do
-    Chain.peak_state()
-    |> Chain.State.ensure_account(address)
-    |> Chain.Account.code()
+    Chain.with_peak_state(fn state ->
+      Chain.State.ensure_account(state, address)
+      |> Chain.Account.code()
+    end)
   end
 
   def profile_import() do
