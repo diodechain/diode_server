@@ -28,6 +28,6 @@ defmodule Random do
 
   @spec random(integer(), integer()) :: integer()
   def random(lo, hi) do
-    :crypto.rand_uniform(lo, hi)
+    :rand.uniform(hi - lo) + lo
   end
 end
