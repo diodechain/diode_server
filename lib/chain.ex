@@ -5,6 +5,7 @@ defmodule Chain do
   alias Chain.BlockCache, as: Block
   alias Chain.Transaction
   alias Model.ChainSql
+  require Logger
   use GenServer
   defstruct peak_hash: nil, peak_num: nil, by_hash: %{}, states: %{}
 
@@ -572,7 +573,7 @@ defmodule Chain do
         :ok
 
       other ->
-        IO.puts("ets_refetch(#{number}) -> #{inspect(other)}")
+        Logger.debug("ets_refetch(#{number}) -> #{inspect(other)}")
         ets_add_placeholder(block_hash, number)
         [parent_hash] = BlockProcess.fetch(block_hash, [:parent_hash])
         ets_refetch(parent_hash, number - 1)

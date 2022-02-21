@@ -6,6 +6,7 @@ defmodule Model.ChainSql do
   alias Model.Ets
   alias Chain.Transaction
   alias Chain.Block
+  require Logger
 
   import Model.Sql
   # esqlite doesn't support :infinity
@@ -102,7 +103,7 @@ defmodule Model.ChainSql do
         {Block.parent_hash(block), Block.hash(block), Block.number(block)}
       end)
 
-    IO.puts("set_normative: #{number}")
+    Logger.debug("set_normative: #{number}")
 
     case query!(db, "SELECT hash FROM blocks WHERE number = ?1", bind: [number]) do
       [[hash: ^hash]] ->

@@ -35,7 +35,7 @@ defmodule BlockProcess do
       Process.put(__MODULE__, hash)
 
       if block == nil do
-        Logger.warn("empty block #{Base16.encode(hash)} from #{inspect(Profiler.stacktrace())}")
+        Logger.debug("empty block #{Base16.encode(hash)} from #{inspect(Profiler.stacktrace())}")
       end
 
       state
