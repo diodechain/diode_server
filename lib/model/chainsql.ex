@@ -192,7 +192,6 @@ defmodule Model.ChainSql do
 
     with_transaction(fn db ->
       query!(db, "UPDATE blocks SET number = null WHERE number >= ?1", bind: [number])
-      put_block_number(db, block_hash)
       set_normative(db, block_hash)
     end)
   end
