@@ -130,7 +130,6 @@ defmodule Chain do
 
   def with_final(fun) do
     final = with_peak(&Block.last_final/1)
-    IO.puts("peak final: #{inspect(final)}")
     # Block.last_final(peak_hash())
     BlockProcess.with_block(final, fun)
   end
@@ -553,10 +552,18 @@ defmodule Chain do
     end)
 
     Diode.start_subwork("preloading hashes", fn ->
-      ChainSql.all_block_hashes()
-      |> Enum.each(fn [hash: hash, number: number] ->
-        ets_add_placeholder(hash, number)
-      end)
+      _ =
+        ChainSql.all_block_hashes()
+        |> Enum.reduce(nil, fn [parent: parent, hash: hash, number: number], prev ->
+          if prev != nil and prev != parent do
+            Diode.puts(
+              "inconsistent block #{number} #{Base16.encode(prev)} != #{Base16.encode(parent)} "
+            )
+          end
+
+          ets_add_placeholder(hash, number)
+          hash
+        end)
 
       :persistent_term.put(:placeholder_complete, true)
     end)

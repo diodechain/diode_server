@@ -313,7 +313,7 @@ defmodule Model.ChainSql do
     ret =
       Sql.query!(
         db,
-        "SELECT hash, number FROM blocks WHERE number >= ?1 AND number < ?2 ORDER BY number",
+        "SELECT parent, hash, number FROM blocks WHERE number >= ?1 AND number < ?2 ORDER BY number",
         bind: [from, to]
       )
 

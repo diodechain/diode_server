@@ -18,6 +18,7 @@ In case the node does not even startup, but instead bails out with database erro
 
 ```
 sqlite3 data_prod/blockchain.sq3 "DELETE FROM blocks WHERE number > (SELECT MAX(number) FROM blocks) - 5"
+rm data_prod/sync.*
 ```
 
 ## Delete the blockcache
