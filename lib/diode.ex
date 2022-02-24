@@ -114,6 +114,10 @@ defmodule Diode do
     Supervisor.start_child(Diode.Supervisor, Network.Server.child(edge2_port(), Network.EdgeV2))
   end
 
+  def stop_client_network() do
+    Supervisor.terminate_child(Diode.Supervisor, Network.EdgeV2)
+  end
+
   defp set_chaindefinition() do
     def =
       cond do
