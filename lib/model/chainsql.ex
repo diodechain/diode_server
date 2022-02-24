@@ -76,11 +76,8 @@ defmodule Model.ChainSql do
 
   def set_normative_all() do
     peak = peak_block()
-
-    with_transaction(fn db ->
-      query!(db, "UPDATE blocks SET number = null", [])
-      set_normative_all(db, peak)
-    end)
+    query!(__MODULE__, "UPDATE blocks SET number = null", [])
+    set_normative_all(__MODULE__, peak)
   end
 
   defp set_normative_all(_db, nil) do
@@ -189,11 +186,8 @@ defmodule Model.ChainSql do
 
   def put_peak(block_hash) do
     [number] = BlockProcess.fetch(block_hash, [:number])
-
-    with_transaction(fn db ->
-      query!(db, "UPDATE blocks SET number = null WHERE number >= ?1", bind: [number])
-      set_normative(db, block_hash)
-    end)
+    query!(__MODULE__, "DELETE FROM blocks WHERE number > ?1", bind: [number])
+    set_normative(__MODULE__, block_hash)
   end
 
   defp put_transactions(db, block) do

@@ -107,6 +107,7 @@ defmodule Chain do
       fn state, _from ->
         ChainSql.put_peak(block)
         ets_prefetch()
+        block = ChainSql.peak_block()
         {:reply, :ok, %{state | peak_hash: Block.hash(block), peak_num: Block.number(block)}}
       end,
       :infinity
@@ -212,8 +213,9 @@ defmodule Chain do
       nil ->
         genesis_state() |> seed()
 
-      block ->
+      _block ->
         ets_prefetch()
+        block = ChainSql.peak_block()
         %Chain{peak_hash: Block.hash(block), peak_num: Block.number(block), by_hash: nil}
     end
   end
@@ -554,15 +556,20 @@ defmodule Chain do
     Diode.start_subwork("preloading hashes", fn ->
       _ =
         ChainSql.all_block_hashes()
-        |> Enum.reduce(nil, fn [parent: parent, hash: hash, number: number], prev ->
+        |> Enum.reduce_while(nil, fn [parent: parent, hash: hash, number: number], prev ->
           if prev != nil and prev != parent do
             Diode.puts(
-              "inconsistent block #{number} #{Base16.encode(prev)} != #{Base16.encode(parent)} "
+              "fixing inconsistent block #{number} #{Base16.encode(prev)} != #{
+                Base16.encode(parent)
+              } "
             )
-          end
 
-          ets_add_placeholder(hash, number)
-          hash
+            ChainSql.put_peak(prev)
+            {:halt, prev}
+          else
+            ets_add_placeholder(hash, number)
+            {:cont, hash}
+          end
         end)
 
       :persistent_term.put(:placeholder_complete, true)
