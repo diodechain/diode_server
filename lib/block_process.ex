@@ -161,8 +161,12 @@ defmodule BlockProcess do
   end
 
   def with_block(<<block_hash::binary-size(32)>>, fun) do
-    GenServer.call(__MODULE__, {:get_proxy, block_hash})
-    |> do_with_block(fun)
+    if Chain.block_by_hash?(block_hash) do
+      GenServer.call(__MODULE__, {:get_proxy, block_hash})
+      |> do_with_block(fun)
+    else
+      with_block(nil, fun)
+    end
   end
 
   def with_block(%Block{} = block, fun), do: fun.(block)
