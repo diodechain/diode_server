@@ -211,7 +211,7 @@ defmodule Chain.BlockCache do
     hash = BlockProcess.with_block(block_ref, &Block.hash/1)
 
     do_get_cache(hash, :last_final, fn ->
-      BlockProcess.with_block(hash, &Block.last_final/1)
+      BlockProcess.with_block(hash, &Block.last_final_hash/1)
     end)
   end
 

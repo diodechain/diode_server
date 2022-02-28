@@ -596,6 +596,14 @@ defmodule Chain.Block do
     end
   end
 
+  def last_final_hash(%Block{} = block) do
+    case last_final(block) do
+      block = %Block{} -> Block.hash(block)
+      hash when is_binary(hash) -> hash
+      nil -> nil
+    end
+  end
+
   # Hash of block 108
   # @anchor_hash <<0, 0, 98, 184, 252, 38, 6, 88, 88, 30, 209, 143, 24, 89, 71, 244, 92, 85, 98, 72,
   #                89, 223, 184, 74, 232, 251, 127, 33, 26, 134, 11, 117>>
