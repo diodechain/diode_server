@@ -732,6 +732,7 @@ defmodule Network.EdgeV2 do
             Debouncer.immediate(
               key,
               fn ->
+                Model.KademliaSql.put_object(Kademlia.hash(key), Object.encode!(dl))
                 Kademlia.store(dl)
               end,
               15_000

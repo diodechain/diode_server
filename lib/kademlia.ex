@@ -101,7 +101,14 @@ defmodule Kademlia do
           {:reply, :ok, %Kademlia{state | network: network}}
         end)
 
-        nil
+        # We go nothing so far, trying local fallback
+        local_ret = KademliaSql.object(key)
+
+        if local_ret != nil and Enum.at(visited, 0) != nil do
+          rpcast(Enum.at(visited, 0), [Client.store(), key, local_ret])
+        end
+
+        local_ret
     end
   end
 
@@ -352,7 +359,7 @@ defmodule Kademlia do
 
   @impl true
   def init(:ok) do
-    EtsLru.new(__MODULE__, 2048)
+    EtsLru.new(__MODULE__, 2048, fn value -> value != nil end)
 
     kb =
       Chain.load_file(Diode.data_dir("kademlia.etf"), fn ->
@@ -418,7 +425,7 @@ defmodule Kademlia do
     end
   end
 
-  defp do_find_nodes(key, k, cmd) do
+  def do_find_nodes(key, k, cmd) do
     # :io.format("KademliaSearch.find_nodes(key=#{Base16.encode(key)}, nearest=~p, k=#{k}, cmd=#{cmd})~n", [Enum.map(nearest, &port/1)])
     get_cached(
       fn {cmd, key} ->
@@ -438,13 +445,13 @@ defmodule Kademlia do
 
     case EtsLru.get(__MODULE__, cache_key) do
       nil ->
-        EtsLru.put(__MODULE__, cache_key, fun.(key))
+        EtsLru.fetch(__MODULE__, cache_key, fn -> fun.(key) end)
 
       other ->
         Debouncer.immediate(
           cache_key,
           fn ->
-            EtsLru.put(__MODULE__, cache_key, fun.(key))
+            EtsLru.fetch(__MODULE__, cache_key, fn -> fun.(key) end)
           end,
           @cache_timeout
         )

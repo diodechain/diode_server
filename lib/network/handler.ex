@@ -179,6 +179,10 @@ defmodule Network.Handler do
         name({node_id, node_address})
       end
 
+      def name(%{server_pid: _pid}) do
+        "pre_connection_information"
+      end
+
       def name({node_id, node_address, _port}) do
         name({node_id, node_address})
       end
