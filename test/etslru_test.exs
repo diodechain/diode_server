@@ -5,7 +5,7 @@ defmodule EtsLruTest do
   use ExUnit.Case
 
   test "base" do
-    lru = EtsLru.new(10)
+    lru = EtsLru.new(nil, 10)
     assert EtsLru.size(lru) == 0
 
     EtsLru.put(lru, "key", "value")
@@ -20,7 +20,7 @@ defmodule EtsLruTest do
   end
 
   test "limit" do
-    lru = EtsLru.new(3)
+    lru = EtsLru.new(nil, 3)
     assert EtsLru.size(lru) == 0
 
     EtsLru.put(lru, "a", "avalue")
@@ -42,7 +42,7 @@ defmodule EtsLruTest do
   end
 
   test "repeat" do
-    lru = EtsLru.new(3)
+    lru = EtsLru.new(nil, 3)
     assert EtsLru.size(lru) == 0
 
     EtsLru.put(lru, "a", "avalue")

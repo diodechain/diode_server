@@ -98,7 +98,12 @@ defmodule KademliaSearch do
   end
 
   def worker_loop(node, key, father, cmd) do
-    ret = if node == nil, do: [], else: Kademlia.rpc(node, [cmd, key])
+    ret =
+      if node == nil,
+        do: [],
+        else:
+          Kademlia.rpc(node, [cmd, key])
+          |> import_network_items()
 
     # :io.format("Kademlia.rpc(#{Kademlia.port(node)}, #{cmd}, #{Base16.encode(key)}) -> ~1200p~n", [ret])
     send(father, {:kadret, ret, node, self()})
@@ -107,5 +112,16 @@ defmodule KademliaSearch do
       {:next, node} -> worker_loop(node, key, father, cmd)
       :done -> :ok
     end
+  end
+
+  defp import_network_items(items) do
+    Enum.map(items, &import_network_item/1)
+  end
+
+  defp import_network_item(%{node_id: node_id, object: object}) do
+    %KBuckets.Item{
+      node_id: node_id,
+      object: object
+    }
   end
 end

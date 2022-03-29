@@ -13,16 +13,16 @@ defmodule ChainTest do
 
   test "length" do
     peak = Chain.peak()
-    peak_block = Chain.peak_block()
-    other = Chain.block(peak)
+    peak_block = Chain.with_peak(fn block -> block end)
+    other = BlockProcess.with_block(peak, fn block -> block end)
     assert peak_block == other
 
     Chain.Worker.work()
 
     assert peak + 1 == Chain.peak()
     peak = Chain.peak()
-    peak_block = Chain.peak_block()
-    other = Chain.block(peak)
+    peak_block = Chain.with_peak(fn block -> block end)
+    other = BlockProcess.with_block(peak, fn block -> block end)
     assert peak_block == other
   end
 
@@ -140,7 +140,8 @@ defmodule ChainTest do
     hash = Block.hash(genesis)
 
     Chain.set_state(%Chain{
-      peak: genesis,
+      peak_num: Block.number(genesis),
+      peak_hash: hash,
       by_hash: %{hash => genesis},
       states: %{}
     })

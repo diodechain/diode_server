@@ -60,7 +60,7 @@ defmodule EtsLru do
   end
 
   def fetch(lru, key, fun) do
-    if :ets.whereis(lru) == :undefined do
+    if is_atom(lru) and :ets.whereis(lru) == :undefined do
       fun.()
     else
       case :ets.lookup(lru, {:key, key}) do

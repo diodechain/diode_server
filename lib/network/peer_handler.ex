@@ -224,6 +224,7 @@ defmodule Network.PeerHandler do
     nodes =
       Kademlia.find_node_lookup(id)
       |> Enum.filter(fn node -> not KBuckets.is_self(node) end)
+      |> map_network_items()
 
     {[@response, @find_node | nodes], state}
   end
@@ -235,6 +236,7 @@ defmodule Network.PeerHandler do
           nodes =
             Kademlia.find_node_lookup(id)
             |> Enum.filter(fn node -> not KBuckets.is_self(node) end)
+            |> map_network_items()
 
           [@response, @find_node | nodes]
 
@@ -495,5 +497,23 @@ defmodule Network.PeerHandler do
       :io.format("Node ~p down for: ~180p~n", [Wallet.printable(node), reason])
       GenServer.cast(Kademlia, {:failed_node, node})
     end)
+  end
+
+  defp map_network_items(items) do
+    Enum.map(items, &map_network_item/1)
+  end
+
+  defp map_network_item(%KBuckets.Item{
+         last_connected: last_seen,
+         node_id: node_id,
+         object: object
+       }) do
+    %{
+      __struct__: KBuckets.Item,
+      last_seen: last_seen,
+      node_id: node_id,
+      object: object,
+      retries: 0
+    }
   end
 end

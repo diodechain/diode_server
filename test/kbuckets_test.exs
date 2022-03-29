@@ -28,7 +28,7 @@ defmodule KBucketsTest do
   test "self duplicate bug" do
     kb =
       KBuckets.new(node_id("abcd"))
-      |> KBuckets.insert_item(%Item{node_id: node_id("abcd"), last_seen: 1, object: :fake})
+      |> KBuckets.insert_item(%Item{node_id: node_id("abcd"), last_connected: 1, object: :fake})
 
     assert KBuckets.size(kb) == 1
   end
@@ -107,16 +107,16 @@ defmodule KBucketsTest do
   test "no duplicate" do
     kb =
       KBuckets.new(node_id("abcd"))
-      |> KBuckets.insert_item(%Item{node_id: node_id([1]), last_seen: 1, object: :fake})
-      |> KBuckets.insert_item(%Item{node_id: node_id([1]), last_seen: 2, object: :fake})
+      |> KBuckets.insert_item(%Item{node_id: node_id([1]), last_connected: 1, object: :fake})
+      |> KBuckets.insert_item(%Item{node_id: node_id([1]), last_connected: 2, object: :fake})
 
     assert KBuckets.size(kb) == 2
   end
 
   test "unique()" do
     items = [
-      %Item{node_id: node_id([1]), last_seen: 1, object: :fake},
-      %Item{node_id: node_id([1]), last_seen: 2, object: :fake}
+      %Item{node_id: node_id([1]), last_connected: 1, object: :fake},
+      %Item{node_id: node_id([1]), last_connected: 2, object: :fake}
     ]
 
     unique = KBuckets.unique(items)
@@ -156,7 +156,7 @@ defmodule KBucketsTest do
 
   def nodes(num) do
     Enum.map(1..num, fn idx ->
-      %Item{node_id: node_id([idx]), last_seen: idx, object: :fake}
+      %Item{node_id: node_id([idx]), last_connected: idx, object: :fake}
     end)
   end
 

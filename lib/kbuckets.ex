@@ -9,17 +9,15 @@ defmodule KBuckets do
   import Wallet
 
   defmodule Item do
-    defstruct node_id: nil, last_seen: nil, object: nil, retries: 0
+    defstruct node_id: nil, last_connected: nil, last_error: nil, object: nil, retries: 0
 
     @type t :: %Item{
             node_id: Wallet.t(),
-            last_seen: integer,
-            object: Server.server() | :self,
-            retries: any()
+            last_connected: integer() | nil,
+            last_error: integer() | nil,
+            object: Server.server() | :self | nil,
+            retries: integer()
           }
-    def disabled?(item, now \\ System.os_time(:second)) do
-      item.last_seen > now
-    end
   end
 
   defimpl String.Chars, for: Item do
@@ -49,7 +47,7 @@ defmodule KBuckets do
 
   @spec self(kbuckets()) :: Item.t()
   def self({:kbucket, self_id, _tree}) do
-    %Item{node_id: self_id, last_seen: -1, object: :self}
+    %Item{node_id: self_id, last_connected: -1, object: :self}
   end
 
   def object(%Item{object: :self}) do
@@ -123,6 +121,14 @@ defmodule KBuckets do
   end
 
   @doc """
+    nearest finds the n nodes nearer or equal to the current node to the provided item.
+  """
+  def nearest(kb, item) do
+    to_list(kb)
+    |> Enum.sort(fn a, b -> distance(item, a) < distance(item, b) end)
+  end
+
+  @doc """
     nearest_n finds the n nodes nearer or equal to the current node to the provided item.
   """
   def nearest_n(kb, item, n) do
@@ -152,11 +158,26 @@ defmodule KBuckets do
   end
 
   @doc """
+    next returns the next nodes in clockwise order on the ring.
+  """
+  def next(kb, item \\ nil) do
+    to_ring_list(kb, item)
+  end
+
+  @doc """
     next_n returns the n next nodes in clockwise order on the ring.
   """
   def next_n(kb, item \\ nil, n) do
     to_ring_list(kb, item)
     |> Enum.take(n)
+  end
+
+  @doc """
+    prev returns the previous nodes in counter-clockwise order on the ring.
+  """
+  def prev(kb, item \\ nil) do
+    to_ring_list(kb, item)
+    |> Enum.reverse()
   end
 
   @doc """
@@ -212,13 +233,7 @@ defmodule KBuckets do
   end
 
   def do_nearest_n({:leaf, _prefix, bucket}, _key, _n) do
-    now = System.os_time(:second)
-
-    # Filtering items that had a connection failure through
-    # Kademlia.cast. 'last_seen' in the future means "should
-    # not be used again before"
     Map.values(bucket)
-    |> Enum.reject(fn item -> KBuckets.Item.disabled?(item, now) end)
   end
 
   def do_nearest_n({:node, prefix, zero, one}, key, n) do

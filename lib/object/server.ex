@@ -44,7 +44,7 @@ defmodule Object.Server do
       if key == "block" do
         value
       end
-    end)
+    end) || -1
   end
 
   @impl true

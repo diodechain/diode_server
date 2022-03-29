@@ -372,47 +372,47 @@ defmodule Edge2Test do
     assert rpc(:client_2, ["portsend", ref2, "ping from 2!"]) == ["ok"]
   end
 
-  test "channel-mailbox" do
-    ch =
-      channel(
-        server_id: Wallet.address!(Diode.miner()),
-        block_number: Chain.peak(),
-        fleet_contract: Diode.fleet_address(),
-        type: "mailbox",
-        name: "testchannel"
-      )
-      |> Channel.sign(clientkey(1))
+  # test "channel-mailbox" do
+  #   ch =
+  #     channel(
+  #       server_id: Wallet.address!(Diode.miner()),
+  #       block_number: Chain.peak(),
+  #       fleet_contract: Diode.fleet_address(),
+  #       type: "mailbox",
+  #       name: "testchannel"
+  #     )
+  #     |> Channel.sign(clientkey(1))
 
-    port = Object.Channel.key(ch)
+  #   port = Object.Channel.key(ch)
 
-    [channel] =
-      rpc(:client_1, [
-        "channel",
-        Channel.block_number(ch),
-        Channel.fleet_contract(ch),
-        Channel.type(ch),
-        Channel.name(ch),
-        Channel.params(ch),
-        Channel.signature(ch)
-      ])
+  #   [channel] =
+  #     rpc(:client_1, [
+  #       "channel",
+  #       Channel.block_number(ch),
+  #       Channel.fleet_contract(ch),
+  #       Channel.type(ch),
+  #       Channel.name(ch),
+  #       Channel.params(ch),
+  #       Channel.signature(ch)
+  #     ])
 
-    assert Object.decode_rlp_list!(channel) == ch
-    assert ["ok", ref1] = rpc(:client_1, ["portopen", port, @port])
+  #   assert Object.decode_rlp_list!(channel) == ch
+  #   assert ["ok", ref1] = rpc(:client_1, ["portopen", port, @port])
 
-    for n <- 1..50 do
-      assert rpc(:client_1, ["portsend", ref1, "ping #{n}"]) == ["ok"]
-    end
+  #   for n <- 1..50 do
+  #     assert rpc(:client_1, ["portsend", ref1, "ping #{n}"]) == ["ok"]
+  #   end
 
-    assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
-    assert ["ok", ref2] = rpc(:client_2, ["portopen", port, @port])
+  #   assert rpc(:client_1, ["portclose", ref1]) == ["ok"]
+  #   assert ["ok", ref2] = rpc(:client_2, ["portopen", port, @port])
 
-    for n <- 1..50 do
-      msg = "ping #{n}"
-      assert {:ok, [_req, ["portsend", ^ref2, ^msg]]} = crecv(:client_2)
-    end
+  #   for n <- 1..50 do
+  #     msg = "ping #{n}"
+  #     assert {:ok, [_req, ["portsend", ^ref2, ^msg]]} = crecv(:client_2)
+  #   end
 
-    assert rpc(:client_2, ["portclose", ref2]) == ["ok"]
-  end
+  #   assert rpc(:client_2, ["portclose", ref2]) == ["ok"]
+  # end
 
   test "porthalfopen_a" do
     # Connecting to "right" port id

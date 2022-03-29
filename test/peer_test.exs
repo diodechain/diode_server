@@ -3,7 +3,6 @@
 # Licensed under the Diode License, Version 1.1
 defmodule PeerTest do
   use ExUnit.Case, async: false
-  alias Chain.Block, as: Block
   alias Network.Server, as: Server
   alias Network.PeerHandler, as: PeerHandler
 
@@ -25,7 +24,7 @@ defmodule PeerTest do
     )
 
     # The Genesis Block should be the same
-    assert Block.hash(Chain.block(0)) == rpc(1, "eth_getBlockByNumber", "0,false")["hash"]
+    assert Chain.genesis_hash() == rpc(1, "eth_getBlockByNumber", "0,false")["hash"]
 
     # There should be no block on the new clone
     assert 0 == :binary.decode_unsigned(rpc(1, "eth_blockNumber"))
