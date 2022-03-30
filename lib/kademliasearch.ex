@@ -114,8 +114,12 @@ defmodule KademliaSearch do
     end
   end
 
-  defp import_network_items(items) do
+  defp import_network_items(items) when is_list(items) do
     Enum.map(items, &import_network_item/1)
+  end
+
+  defp import_network_items(result) when is_tuple(result) do
+    result
   end
 
   defp import_network_item(%{node_id: node_id, object: object}) do
