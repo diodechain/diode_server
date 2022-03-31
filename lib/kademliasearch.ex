@@ -7,8 +7,23 @@ defmodule KademliaSearch do
     and executed the specified cmd query in the network.
   """
   use GenServer
+
   @max_oid 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF + 1
   @alpha 3
+
+  @enforce_keys [:from, :key, :queryable, :k, :cmd]
+  defstruct tasks: [],
+            from: nil,
+            key: nil,
+            min_distance: @max_oid,
+            queryable: nil,
+            k: nil,
+            visited: [],
+            waiting: [],
+            queried: [],
+            cmd: nil,
+            best: nil,
+            finisher: nil
 
   def init(:ok) do
     :erlang.process_flag(:trap_exit, true)
@@ -21,16 +36,11 @@ defmodule KademliaSearch do
   end
 
   def handle_call({:find_nodes, key, nearest, k, cmd}, from, %{}) do
-    state = %{
-      tasks: [],
+    state = %KademliaSearch{
       from: from,
       key: key,
-      min_distance: @max_oid,
       queryable: nearest,
       k: k,
-      visited: [],
-      waiting: [],
-      queried: [],
       cmd: cmd
     }
 
@@ -38,34 +48,88 @@ defmodule KademliaSearch do
     {:noreply, %{state | tasks: tasks}}
   end
 
-  def handle_info({:EXIT, worker_pid, reason}, state) do
+  def handle_info({:EXIT, worker_pid, reason}, state = %KademliaSearch{tasks: tasks}) do
     :io.format("~p received :EXIT ~p~n", [__MODULE__, reason])
-    tasks = Enum.reject(state.tasks, fn pid -> pid == worker_pid end)
+    tasks = Enum.reject(tasks, fn pid -> pid == worker_pid end)
     tasks = [start_worker(state) | tasks]
-    {:noreply, %{state | tasks: tasks}}
+    {:noreply, %KademliaSearch{state | tasks: tasks}}
   end
 
-  def handle_info({:kadret, {:value, value}, _node, _task}, state) do
-    # :io.format("Found ~p on node ~p~n", [value, node])
-    ret = KBuckets.unique(state.visited ++ state.queried)
-    GenServer.reply(state.from, {:value, value, ret})
-    Enum.each(state.tasks, fn task -> send(task, :done) end)
+  def handle_info(:finish, %KademliaSearch{
+        visited: visited,
+        queried: queried,
+        from: from,
+        best: value,
+        tasks: tasks
+      }) do
+    ret = KBuckets.unique(visited ++ queried)
+
+    if value != nil do
+      GenServer.reply(from, {:value, value, ret})
+    else
+      GenServer.reply(from, ret)
+    end
+
+    Enum.each(tasks, fn task -> send(task, :done) end)
     {:stop, :normal, nil}
   end
 
-  def handle_info({:kadret, nodes, node, task}, state) do
-    waiting = [task | state.waiting]
-    visited = KBuckets.unique(state.visited ++ nodes)
+  def handle_info(
+        {:kadret, {:value, value}, node, task},
+        state = %KademliaSearch{best: best, finisher: fin}
+      ) do
+    # :io.format("Found ~p on node ~p~n", [value, node])
 
-    distance = if node == nil, do: @max_oid, else: KBuckets.distance(node, state.key)
-    min_distance = min(distance, state.min_distance)
+    fin =
+      with nil <- fin do
+        :timer.send_after(100, :finish)
+      end
+
+    best =
+      with best when best != nil <- best,
+           best_obj <- Object.decode!(best),
+           obj <- Object.decode!(value),
+           true <-
+             Object.block_number(best_obj) >
+               Object.block_number(obj) do
+        best
+      else
+        _ -> value
+      end
+
+    handle_info({:kadret, [], node, task}, %KademliaSearch{state | best: best, finisher: fin})
+  end
+
+  def handle_info(
+        {:kadret, nodes, node, task},
+        state = %KademliaSearch{
+          min_distance: min_distance,
+          visited: visited,
+          waiting: waiting,
+          key: key,
+          queried: queried,
+          queryable: queryable,
+          finisher: finisher
+        }
+      ) do
+    waiting = [task | waiting]
+    # not sure
+    visited =
+      if node == nil do
+        visited
+      else
+        KBuckets.unique(visited ++ [node])
+      end
+
+    distance = if node == nil, do: @max_oid, else: KBuckets.distance(node, key)
+    min_distance = min(distance, min_distance)
 
     # only those that are nearer
     queryable =
-      KBuckets.unique(state.queryable ++ nodes)
+      KBuckets.unique(queryable ++ nodes)
       |> Enum.filter(fn node ->
-        KBuckets.distance(state.key, node) < min_distance and
-          KBuckets.member?(state.queried, node) == false
+        KBuckets.distance(key, node) < min_distance and
+          KBuckets.member?(queried, node) == false
       end)
       |> KBuckets.nearest_n(state.key, state.k)
 
@@ -73,28 +137,26 @@ defmodule KademliaSearch do
     {nexts, queryable} = Enum.split(queryable, sends)
     {pids, waiting} = Enum.split(waiting, sends)
     Enum.zip(nexts, pids) |> Enum.each(fn {next, pid} -> send(pid, {:next, next}) end)
-    queried = state.queried ++ nexts
+    queried = queried ++ nexts
 
-    if queryable == [] and length(waiting) == @alpha do
-      ret = KBuckets.unique(visited ++ queried)
-      GenServer.reply(state.from, ret)
-      Enum.each(state.tasks, fn task -> send(task, :done) end)
-      {:stop, :normal, nil}
+    state = %KademliaSearch{
+      state
+      | min_distance: min_distance,
+        queryable: queryable,
+        visited: visited,
+        waiting: waiting,
+        queried: queried
+    }
+
+    if queryable == [] and length(waiting) == @alpha and finisher == nil do
+      handle_info(:finish, state)
     else
-      {:noreply,
-       %{
-         state
-         | min_distance: min_distance,
-           queryable: queryable,
-           visited: visited,
-           waiting: waiting,
-           queried: queried
-       }}
+      {:noreply, state}
     end
   end
 
-  defp start_worker(state) do
-    spawn_link(__MODULE__, :worker_loop, [nil, state.key, self(), state.cmd])
+  defp start_worker(%KademliaSearch{key: key, cmd: cmd}) do
+    spawn_link(__MODULE__, :worker_loop, [nil, key, self(), cmd])
   end
 
   def worker_loop(node, key, father, cmd) do

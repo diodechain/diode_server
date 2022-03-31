@@ -36,6 +36,10 @@ defmodule Model.KademliaSql do
     query!("REPLACE INTO p2p_objects (key, object) VALUES(?1, ?2)", bind: [key, object])
   end
 
+  def delete_object(key) do
+    query!("DELETE FROM p2p_objects WHERE key = ?1", bind: [key])
+  end
+
   def object(key) do
     Sql.fetch!(__MODULE__, "SELECT object FROM p2p_objects WHERE key = ?1", key)
   end

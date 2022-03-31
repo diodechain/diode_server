@@ -64,12 +64,12 @@ defmodule Kademlia do
   """
   @spec store(binary(), binary()) :: any()
   def store(key, value) when is_binary(value) do
-    nodes = find_nodes(key)
-    key = hash(key)
-    nearest = KBuckets.nearest_n(nodes, key, @k)
+    nodes =
+      find_nodes(key)
+      |> Enum.take(@k)
 
     # :io.format("Storing #{value} at ~p as #{Base16.encode(key)}~n", [Enum.map(nearest, &port/1)])
-    rpc(nearest, [Client.store(), key, value])
+    rpc(nodes, [Client.store(), hash(key), value])
   end
 
   @doc """
@@ -92,12 +92,20 @@ defmodule Kademlia do
           second_nearest -> rpcast(second_nearest, [Client.store(), key, value])
         end
 
+        # Ensuring local database doesn't have anything older
+        with local_ret when local_ret != nil <- KademliaSql.object(key),
+             local_block <- Object.block_number(Object.decode!(local_ret)),
+             value_block <- Object.block_number(Object.decode!(value)),
+             true <- local_block < value_block do
+          KademliaSql.delete_object(key)
+        end
+
         value
 
       visited ->
         insert_nodes(visited)
 
-        # We go nothing so far, trying local fallback
+        # We got nothing so far, trying local fallback
         local_ret = KademliaSql.object(key)
 
         if local_ret != nil and Enum.at(visited, 0) != nil do
@@ -127,7 +135,7 @@ defmodule Kademlia do
     key = hash(key)
     visited = do_find_nodes(key, KBuckets.k(), Client.find_node())
     insert_nodes(visited)
-    KBuckets.nearest_n(visited, key, KBuckets.k())
+    nearest_n(key, visited)
   end
 
   defp insert_nodes(visited) do
