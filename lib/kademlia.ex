@@ -86,18 +86,31 @@ defmodule Kademlia do
         result = KBuckets.nearest_n(visited, key, KBuckets.k())
         insert_nodes(visited)
 
-        # Kademlia logic: Writing found result to second nearest node
-        case Enum.at(result, 1) do
-          nil -> :nothing
-          second_nearest -> rpcast(second_nearest, [Client.store(), key, value])
-        end
+        # Ensuring local database doesn't have anything older or newer
+        value =
+          with local_ret when local_ret != nil <- KademliaSql.object(key),
+               local_block <- Object.block_number(Object.decode!(local_ret)),
+               value_block <- Object.block_number(Object.decode!(value)) do
+            if local_block < value_block do
+              KademliaSql.delete_object(key)
+              value
+            else
+              with true <- local_block > value_block,
+                   nearest when nearest != nil <- Enum.at(result, 0) do
+                # IO.puts("updating a #{Wallet.printable(nearest.node_id)}")
+                rpcast(nearest, [Client.store(), key, local_ret])
+              end
 
-        # Ensuring local database doesn't have anything older
-        with local_ret when local_ret != nil <- KademliaSql.object(key),
-             local_block <- Object.block_number(Object.decode!(local_ret)),
-             value_block <- Object.block_number(Object.decode!(value)),
-             true <- local_block < value_block do
-          KademliaSql.delete_object(key)
+              local_ret
+            end
+          else
+            _ -> value
+          end
+
+        # Kademlia logic: Writing found result to second nearest node
+        with second_nearest when second_nearest != nil <- Enum.at(result, 1) do
+          # IO.puts("updating b #{Wallet.printable(second_nearest.node_id)}")
+          rpcast(second_nearest, [Client.store(), key, value])
         end
 
         value
@@ -108,8 +121,11 @@ defmodule Kademlia do
         # We got nothing so far, trying local fallback
         local_ret = KademliaSql.object(key)
 
-        if local_ret != nil and Enum.at(visited, 0) != nil do
-          rpcast(Enum.at(visited, 0), [Client.store(), key, local_ret])
+        if local_ret != nil do
+          for node <- Enum.take(visited, 2) do
+            # IO.puts("updating c #{Wallet.printable(node.node_id)}")
+            rpcast(node, [Client.store(), key, local_ret])
+          end
         end
 
         local_ret
@@ -478,9 +494,7 @@ defmodule Kademlia do
       other ->
         Debouncer.immediate(
           cache_key,
-          fn ->
-            EtsLru.fetch(__MODULE__, cache_key, fn -> fun.(key) end)
-          end,
+          fn -> EtsLru.put(__MODULE__, cache_key, fun.(key)) end,
           @cache_timeout
         )
 

@@ -78,23 +78,26 @@ defmodule KademliaSearch do
         {:kadret, {:value, value}, node, task},
         state = %KademliaSearch{best: best, finisher: fin}
       ) do
-    # :io.format("Found ~p on node ~p~n", [value, node])
+    # IO.puts("Found #{inspect(value)} on node #{inspect (node)}")
+
+    obj_block_num =
+      Object.decode!(value)
+      |> Object.block_number()
+
+    # IO.puts("Found #{Chain.peak() - obj_block_num} on node #{Wallet.printable(node.node_id)}")
 
     fin =
       with nil <- fin do
-        :timer.send_after(100, :finish)
+        :timer.send_after(200, :finish)
       end
 
     best =
-      with best when best != nil <- best,
-           best_obj <- Object.decode!(best),
-           obj <- Object.decode!(value),
-           true <-
-             Object.block_number(best_obj) >
-               Object.block_number(obj) do
+      if best != nil and
+           Object.block_number(Object.decode!(best)) >
+             obj_block_num do
         best
       else
-        _ -> value
+        value
       end
 
     handle_info({:kadret, [], node, task}, %KademliaSearch{state | best: best, finisher: fin})
