@@ -34,6 +34,29 @@ TCP port bindings can be controlled through environment variables. The default b
 
 RPCS_PORT is only used & needed for access from Web2 services such as the blockchain explorer at https://diode.io/prenet/ - the port can be ignored in most deployments.
 
+# Defining the Wallet to be used
+
+By default the miner will autogenerate a Wallet on startup. This wallet can be inspected on the remote shell:
+
+```
+> ./remsh
+iex> Wallet.printable(Diode.miner())
+```
+
+And it's private key can be printed and saved for backup using:
+
+```
+> ./remsh
+iex> Base16.encode(Wallet.privkey!(Diode.miner()))
+```
+
+To inject a stored Wallet into the server the enviornment variable `PRIVATE` can be setup, before starting the miner.
+
+```
+export PRIVATE=0xXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+supervise .
+```
+
 # Pre-Requisites
 
 * Elixir 1.10.4
