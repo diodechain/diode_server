@@ -31,6 +31,31 @@ defmodule Model.KademliaSql do
     throw(:not_implemented)
   end
 
+  def maybe_update_object(key, encoded_object) when is_binary(encoded_object) do
+    object = Object.decode!(encoded_object)
+    maybe_update_object(key, object)
+  end
+
+  def maybe_update_object(key, object) when is_tuple(object) do
+    hkey = Kademlia.hash(Object.key(object))
+    # Checking that we got a valid object
+    if key == nil or key == hkey do
+      case object(hkey) do
+        nil ->
+          put_object(hkey, Object.encode!(object))
+
+        existing ->
+          existing_object = Object.decode!(existing)
+
+          if Object.block_number(existing_object) < Object.block_number(object) do
+            put_object(hkey, Object.encode!(object))
+          end
+      end
+    end
+
+    hkey
+  end
+
   def put_object(key, object) do
     object = BertInt.encode!(object)
     query!("REPLACE INTO p2p_objects (key, object) VALUES(?1, ?2)", bind: [key, object])

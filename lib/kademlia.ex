@@ -92,7 +92,7 @@ defmodule Kademlia do
                local_block <- Object.block_number(Object.decode!(local_ret)),
                value_block <- Object.block_number(Object.decode!(value)) do
             if local_block < value_block do
-              KademliaSql.delete_object(key)
+              KademliaSql.put_object(key, value)
               value
             else
               with true <- local_block > value_block,
@@ -287,9 +287,10 @@ defmodule Kademlia do
   end
 
   defp register_node(state = %Kademlia{network: network}, node_id, server) do
+    KademliaSql.maybe_update_object(nil, server)
+
     node = %KBuckets.Item{
       node_id: node_id,
-      object: server,
       last_connected: System.os_time(:second)
     }
 
@@ -393,14 +394,6 @@ defmodule Kademlia do
   # -------------------------------------------------------------------------------------
   # Helpers calls
   # -------------------------------------------------------------------------------------
-  def port(nil) do
-    nil
-  end
-
-  def port(node) do
-    if is_atom(node.object), do: node.object, else: Object.Server.edge_port(node.object)
-  end
-
   @impl true
   def init(:ok) do
     EtsLru.new(__MODULE__, 2048, fn value ->
@@ -413,8 +406,14 @@ defmodule Kademlia do
 
     kb =
       Chain.load_file(Diode.data_dir(@storage_file), fn ->
-        %Kademlia{network: KBuckets.new(Diode.miner())}
+        %Kademlia{network: KBuckets.new()}
       end)
+
+    for node <- KBuckets.to_list(kb.network) do
+      if Map.has_key?(node, :object) and is_tuple(node.object) do
+        KademliaSql.maybe_update_object(nil, node.object)
+      end
+    end
 
     {:ok, kb, {:continue, :seed}}
   end
@@ -422,7 +421,7 @@ defmodule Kademlia do
   @doc "Method used for testing"
   def reset() do
     call(fn _from, _state ->
-      {:reply, :ok, %Kademlia{network: KBuckets.new(Diode.miner())}}
+      {:reply, :ok, %Kademlia{network: KBuckets.new()}}
     end)
   end
 
@@ -434,31 +433,32 @@ defmodule Kademlia do
   # Private calls
   # -------------------------------------------------------------------------------------
 
-  defp ensure_node_connection(%KBuckets.Item{node_id: node_id, object: :self}) do
-    Network.Server.ensure_node_connection(
-      Network.PeerHandler,
-      node_id,
-      "localhost",
-      Diode.peer_port()
-    )
-  end
-
-  defp ensure_node_connection(%KBuckets.Item{node_id: node_id, object: server}) do
-    host = Server.host(server)
-    port = Server.peer_port(server)
-    Network.Server.ensure_node_connection(Network.PeerHandler, node_id, host, port)
-  end
-
-  defp do_failed_node(%KBuckets.Item{object: :self}, network) do
-    network
+  defp ensure_node_connection(item = %KBuckets.Item{node_id: node_id}) do
+    if KBuckets.is_self(item) do
+      Network.Server.ensure_node_connection(
+        Network.PeerHandler,
+        node_id,
+        "localhost",
+        Diode.peer_port()
+      )
+    else
+      server = KBuckets.object(item)
+      host = Server.host(server)
+      port = Server.peer_port(server)
+      Network.Server.ensure_node_connection(Network.PeerHandler, node_id, host, port)
+    end
   end
 
   defp do_failed_node(item = %KBuckets.Item{retries: retries}, network) do
-    KBuckets.update_item(network, %KBuckets.Item{
-      item
-      | retries: retries + 1,
-        last_error: System.os_time(:second)
-    })
+    if KBuckets.is_self(item) do
+      network
+    else
+      KBuckets.update_item(network, %KBuckets.Item{
+        item
+        | retries: retries + 1,
+          last_error: System.os_time(:second)
+      })
+    end
   end
 
   def do_find_nodes(key, k, cmd) do

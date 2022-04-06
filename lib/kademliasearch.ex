@@ -170,7 +170,7 @@ defmodule KademliaSearch do
           Kademlia.rpc(node, [cmd, key])
           |> import_network_items()
 
-    # :io.format("Kademlia.rpc(#{Kademlia.port(node)}, #{cmd}, #{Base16.encode(key)}) -> ~1200p~n", [ret])
+    # :io.format("Kademlia.rpc(#{inspect node}, #{cmd}, #{Base16.encode(key)}) -> ~1200p~n", [ret])
     send(father, {:kadret, ret, node, self()})
 
     receive do
@@ -188,9 +188,10 @@ defmodule KademliaSearch do
   end
 
   defp import_network_item(%{node_id: node_id, object: object}) do
+    Model.KademliaSql.maybe_update_object(nil, object)
+
     %KBuckets.Item{
-      node_id: node_id,
-      object: object
+      node_id: node_id
     }
   end
 end

@@ -7,14 +7,20 @@ defmodule KBucketsTest do
 
   alias KBuckets.Item
 
+  setup do
+    # Setting
+    # before = Diode.miner()
+    Model.CredSql.set_wallet(node_id("abcd"))
+  end
+
   test "initialize" do
-    kb = KBuckets.new(node_id("abcd"))
+    kb = KBuckets.new()
     assert KBuckets.size(kb) == 1
     assert KBuckets.bucket_count(kb) == 1
   end
 
   test "k inserts" do
-    kb = KBuckets.new(node_id("abcd"))
+    kb = KBuckets.new()
 
     kb =
       Enum.reduce(nodes(20), kb, fn node, acc ->
@@ -27,15 +33,15 @@ defmodule KBucketsTest do
 
   test "self duplicate bug" do
     kb =
-      KBuckets.new(node_id("abcd"))
-      |> KBuckets.insert_item(%Item{node_id: node_id("abcd"), last_connected: 1, object: :fake})
+      KBuckets.new()
+      |> KBuckets.insert_item(%Item{node_id: node_id("abcd"), last_connected: 1})
 
     assert KBuckets.size(kb) == 1
   end
 
   test "conflict" do
     conflicts = conflicts()
-    kb = KBuckets.new(node_id("abcd"))
+    kb = KBuckets.new()
 
     kb =
       Enum.reduce(nodes(100), kb, fn node, acc ->
@@ -58,7 +64,7 @@ defmodule KBucketsTest do
   end
 
   test "nearest" do
-    kb = KBuckets.new(node_id("abcd"))
+    kb = KBuckets.new()
 
     kb =
       Enum.reduce(nodes(100), kb, fn node, acc ->
@@ -106,17 +112,17 @@ defmodule KBucketsTest do
 
   test "no duplicate" do
     kb =
-      KBuckets.new(node_id("abcd"))
-      |> KBuckets.insert_item(%Item{node_id: node_id([1]), last_connected: 1, object: :fake})
-      |> KBuckets.insert_item(%Item{node_id: node_id([1]), last_connected: 2, object: :fake})
+      KBuckets.new()
+      |> KBuckets.insert_item(%Item{node_id: node_id([1]), last_connected: 1})
+      |> KBuckets.insert_item(%Item{node_id: node_id([1]), last_connected: 2})
 
     assert KBuckets.size(kb) == 2
   end
 
   test "unique()" do
     items = [
-      %Item{node_id: node_id([1]), last_connected: 1, object: :fake},
-      %Item{node_id: node_id([1]), last_connected: 2, object: :fake}
+      %Item{node_id: node_id([1]), last_connected: 1},
+      %Item{node_id: node_id([1]), last_connected: 2}
     ]
 
     unique = KBuckets.unique(items)
@@ -126,7 +132,7 @@ defmodule KBucketsTest do
   end
 
   test "deletes" do
-    kb = KBuckets.new(node_id("abcd"))
+    kb = KBuckets.new()
 
     kb =
       Enum.reduce(nodes(20), kb, fn node, acc ->
@@ -156,7 +162,7 @@ defmodule KBucketsTest do
 
   def nodes(num) do
     Enum.map(1..num, fn idx ->
-      %Item{node_id: node_id([idx]), last_connected: idx, object: :fake}
+      %Item{node_id: node_id([idx]), last_connected: idx}
     end)
   end
 

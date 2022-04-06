@@ -548,7 +548,7 @@ defmodule Network.Rpc do
             last_seen: item.last_connected,
             last_error: item.last_error,
             node_id: address,
-            node: item.object,
+            node: KBuckets.object(item),
             retries: item.retries
           }
         end)

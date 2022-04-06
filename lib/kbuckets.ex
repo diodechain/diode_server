@@ -9,13 +9,12 @@ defmodule KBuckets do
   import Wallet
 
   defmodule Item do
-    defstruct node_id: nil, last_connected: nil, last_error: nil, object: nil, retries: 0
+    defstruct node_id: nil, last_connected: nil, last_error: nil, retries: 0
 
     @type t :: %Item{
             node_id: Wallet.t(),
             last_connected: integer() | nil,
             last_error: integer() | nil,
-            object: Server.server() | :self | nil,
             retries: integer()
           }
   end
@@ -36,8 +35,10 @@ defmodule KBuckets do
   @zero <<0::size(1)>>
   @one <<1::size(1)>>
 
-  @spec new(node_id()) :: kbuckets()
-  def new(self_id = wallet()) do
+  @spec new() :: kbuckets()
+  def new() do
+    self_id = Diode.miner()
+
     {:kbucket, self_id,
      {:leaf, "",
       %{
@@ -47,15 +48,12 @@ defmodule KBuckets do
 
   @spec self(kbuckets()) :: Item.t()
   def self({:kbucket, self_id, _tree}) do
-    %Item{node_id: self_id, last_connected: -1, object: :self}
+    %Item{node_id: self_id, last_connected: -1}
   end
 
-  def object(%Item{object: :self}) do
-    Diode.self()
-  end
-
-  def object(%Item{object: server}) do
-    server
+  def object(item = %Item{}) do
+    Model.KademliaSql.object(key(item))
+    |> Object.decode!()
   end
 
   @spec to_uri(Item.t()) :: binary()
@@ -368,10 +366,6 @@ defmodule KBuckets do
   @spec k() :: integer()
   def k() do
     @k
-  end
-
-  def is_self(%Item{object: :self}) do
-    true
   end
 
   def is_self(%Item{node_id: node_id}) do

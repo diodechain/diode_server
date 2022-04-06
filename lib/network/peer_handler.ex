@@ -248,22 +248,8 @@ defmodule Network.PeerHandler do
   end
 
   defp handle_msg([@store, key, value], state) do
-    object = Object.decode!(value)
-    # Checking that we got a valid object
-    if key == Kademlia.hash(Object.key(object)) do
-      case KademliaSql.object(key) do
-        nil ->
-          KademliaSql.put_object(key, value)
-
-        existing ->
-          existing_object = Object.decode!(existing)
-
-          if Object.block_number(existing_object) < Object.block_number(object) do
-            KademliaSql.put_object(key, value)
-          end
-      end
-    end
-
+    # Checks are made within KademliaSql
+    KademliaSql.maybe_update_object(key, value)
     {[@response, @store, "ok"], state}
   end
 
@@ -503,16 +489,17 @@ defmodule Network.PeerHandler do
     Enum.map(items, &map_network_item/1)
   end
 
-  defp map_network_item(%KBuckets.Item{
-         last_connected: last_seen,
-         node_id: node_id,
-         object: object
-       }) do
+  defp map_network_item(
+         item = %KBuckets.Item{
+           last_connected: last_seen,
+           node_id: node_id
+         }
+       ) do
     %{
       __struct__: KBuckets.Item,
       last_seen: last_seen,
       node_id: node_id,
-      object: object,
+      object: KBuckets.object(item),
       retries: 0
     }
   end
