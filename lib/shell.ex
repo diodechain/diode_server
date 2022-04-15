@@ -64,6 +64,12 @@ defmodule Shell do
     Chain.Pool.add_transaction(tx)
   end
 
+  def transfer_from(wallet, address, opts \\ []) do
+    opts = Keyword.put(opts, :to, address)
+    tx = raw(wallet, "", opts)
+    Chain.Pool.add_transaction(tx)
+  end
+
   def transaction(wallet, address, name, types, values, opts \\ [], sign \\ true)
       when is_list(types) and is_list(values) do
     # https://solidity.readthedocs.io/en/v0.4.24/abi-spec.html

@@ -31,9 +31,13 @@ defmodule ABI do
   end
 
   def encode_call(name, types \\ [], values \\ []) do
-    fun = ABI.encode_spec(name, types)
-    args = ABI.encode_args(types, values)
-    fun <> args
+    if name == nil do
+      ""
+    else
+      fun = ABI.encode_spec(name, types)
+      args = ABI.encode_args(types, values)
+      fun <> args
+    end
   end
 
   def do_encode_data(type, value) do
