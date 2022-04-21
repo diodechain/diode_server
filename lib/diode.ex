@@ -115,6 +115,8 @@ defmodule Diode do
   end
 
   def stop_client_network() do
+    Plug.Cowboy.shutdown(Network.RpcHttp.HTTP)
+    Plug.Cowboy.shutdown(Network.RpcHttp.HTTPS)
     Supervisor.terminate_child(Diode.Supervisor, Network.EdgeV2)
   end
 
