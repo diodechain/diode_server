@@ -202,6 +202,8 @@ defmodule Network.Server do
           "~p Handshake anomaly(~p): #{Wallet.printable(node_id)} is already connected: ~180p~n",
           [state.protocol, pid, {other_pid, Process.alive?(other_pid)}]
         )
+
+        if Process.alive?(other_pid), do: GenServer.stop(other_pid)
     end
 
     clients =
