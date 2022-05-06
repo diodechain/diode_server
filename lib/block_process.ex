@@ -9,7 +9,7 @@ defmodule BlockProcess do
   """
 
   defmodule Worker do
-    defstruct [:hash, :block, :timeout]
+    defstruct [:hash, :timeout]
 
     def init(hash) when is_binary(hash) do
       block =
@@ -17,38 +17,76 @@ defmodule BlockProcess do
           Model.ChainSql.block_by_hash(hash)
         end)
 
-      %Worker{hash: hash, block: block, timeout: 10_000}
-      |> do_init()
+      # IO.puts("block: #{Block.number(block)}")
+
+      %Worker{hash: hash, timeout: 10_000}
+      |> do_init(block)
       |> work()
     end
 
     def init(%Block{} = block) do
       state =
-        %Worker{hash: Block.hash(block), block: block, timeout: 60_000}
-        |> do_init()
+        %Worker{hash: Block.hash(block), timeout: 60_000}
+        |> do_init(block)
 
       Chain.Block.state_tree(block)
       work(state)
     end
 
-    defp do_init(state = %Worker{hash: hash, block: block}) do
+    defp do_init(state = %Worker{hash: hash}, block) do
       Process.put(__MODULE__, hash)
+      Process.put({__MODULE__, :block, hash}, block)
 
       if block == nil do
         Logger.debug("empty block #{Base16.encode(hash)}")
       end
 
+      # IO.puts("starting block: #{Block.number(block)}")
+
       state
     end
 
     def is_worker(hash) when is_binary(hash) do
-      Process.get(__MODULE__, nil) == hash
+      hash() == hash
     end
 
-    defp work(state = %Worker{hash: hash, block: block, timeout: timeout}) do
+    def is_worker() do
+      hash() != nil
+    end
+
+    def hash() do
+      Process.get(__MODULE__, nil)
+    end
+
+    def block() do
+      Process.get({__MODULE__, :block, hash()}, nil)
+    end
+
+    def with_block(block_hash, fun) do
+      key = {__MODULE__, :block, block_hash}
+
+      # IO.inspect(Profiler.stacktrace())
+      case Process.get(key, nil) do
+        nil ->
+          block =
+            Stats.tc(:sql_block_by_hash, fn ->
+              Model.ChainSql.block_by_hash(block_hash)
+            end)
+
+          Process.put(key, block)
+          fun.(block)
+
+        block ->
+          fun.(block)
+      end
+    end
+
+    defp work(state = %Worker{hash: hash, timeout: timeout}) do
       receive do
         # IO.puts("stopped worker #{Block.number(block)}")
         {:with_block, _block_num, fun, pid} ->
+          block = block()
+
           ret =
             try do
               {:ok, fun.(block)}
@@ -56,26 +94,40 @@ defmodule BlockProcess do
               e -> {:error, e, __STACKTRACE__}
             end
 
-          send(pid, {fun, ret})
+          case block do
+            nil ->
+              send(pid, {fun, ret})
 
-          if block != nil do
-            GenServer.cast(BlockProcess, {:i_am_ready, hash, self()})
-            work(state)
+            _block ->
+              # Order is important we want to ensure the ready signal
+              # arrives at the BlockProcess before the next `get_worker` call
+              GenServer.cast(BlockProcess, {:i_am_ready, hash, self()})
+              send(pid, {fun, ret})
+              work(state)
           end
+
+        :stop ->
+          # IO.puts("stopping block: #{Block.number(block)}")
+          :ok
       after
         timeout ->
           if not GenServer.call(BlockProcess, {:can_i_stop?, hash, self()}) do
             work(state)
+          else
+            # IO.puts("stopping block: #{Block.number(block)}")
+            :ok
           end
       end
     end
   end
 
   use GenServer
-  defstruct [:ready, :mons]
+  defstruct [:ready, :mons, :queue]
 
   def start_link() do
-    GenServer.start_link(__MODULE__, %BlockProcess{ready: %{}, mons: %{}}, name: __MODULE__)
+    GenServer.start_link(__MODULE__, %BlockProcess{ready: %{}, mons: %{}, queue: []},
+      name: __MODULE__
+    )
   end
 
   @impl true
@@ -85,9 +137,9 @@ defmodule BlockProcess do
 
   @impl true
   def handle_call(
-        {:get_proxy, block_hash},
+        {:get_worker, block_hash},
         _from,
-        state = %BlockProcess{ready: ready, mons: mons}
+        state = %BlockProcess{ready: ready, mons: mons, queue: queue}
       ) do
     case Map.get(ready, block_hash, []) do
       [] ->
@@ -96,46 +148,61 @@ defmodule BlockProcess do
 
       [pid | rest] ->
         ready = Map.put(ready, block_hash, rest)
-        {:reply, pid, %BlockProcess{state | ready: ready}}
+        queue = List.delete(queue, pid)
+        {:reply, pid, %BlockProcess{state | ready: ready, queue: queue}}
     end
   end
 
   def handle_call(
-        {:add_proxy, block_pid, block_hash},
+        {:add_worker, block_pid, block_hash},
         _from,
         state = %BlockProcess{mons: mons, ready: ready}
       ) do
     mon = Process.monitor(block_pid)
-    ready = Map.put(ready, block_hash, [block_pid | Map.get(ready, block_hash, [])])
-    {:reply, block_pid, %BlockProcess{state | mons: Map.put(mons, mon, block_hash), ready: ready}}
+    ready = Map.update(ready, block_hash, [block_pid], fn rest -> [block_pid | rest] end)
+
+    state =
+      %BlockProcess{state | mons: Map.put(mons, mon, block_hash), ready: ready}
+      |> queue_add(block_pid)
+
+    {:reply, block_pid, state}
   end
 
-  def handle_call({:can_i_stop?, block_hash, pid}, _from, state = %BlockProcess{ready: ready}) do
+  def handle_call(
+        {:can_i_stop?, block_hash, pid},
+        _from,
+        state = %BlockProcess{ready: ready, queue: queue}
+      ) do
     workers = Map.get(ready, block_hash, [])
 
     if pid in workers do
       rest = List.delete(workers, pid)
+      queue = List.delete(queue, pid)
       ready = Map.put(ready, block_hash, rest)
-      {:reply, true, %BlockProcess{state | ready: ready}}
+      {:reply, true, %BlockProcess{state | ready: ready, queue: queue}}
     else
       {:reply, false, state}
     end
   end
 
   @impl true
-  def handle_cast({:i_am_ready, block_hash, pid}, state = %BlockProcess{ready: ready}) do
+  def handle_cast(
+        {:i_am_ready, block_hash, pid},
+        state = %BlockProcess{ready: ready}
+      ) do
     workers = [pid | Map.get(ready, block_hash, [])]
     ready = Map.put(ready, block_hash, workers)
-    {:noreply, %BlockProcess{state | ready: ready}}
+    {:noreply, queue_add(%BlockProcess{state | ready: ready}, pid)}
   end
 
   @impl true
   def handle_info(
         {:DOWN, ref, :process, pid, reason},
-        state = %BlockProcess{ready: ready, mons: mons}
+        state = %BlockProcess{ready: ready, mons: mons, queue: queue}
       ) do
     block_hash = Map.get(mons, ref)
     workers = List.delete(Map.get(ready, block_hash, []), pid)
+    queue = List.delete(queue, pid)
     ready = Map.put(ready, block_hash, workers)
     mons = Map.delete(mons, ref)
 
@@ -143,7 +210,30 @@ defmodule BlockProcess do
       Logger.warn("block_proxy #{Base16.encode(block_hash)} crashed for #{inspect(reason)}")
     end
 
-    {:noreply, %BlockProcess{state | mons: mons, ready: ready}}
+    {:noreply, %BlockProcess{state | mons: mons, ready: ready, queue: queue}}
+  end
+
+  @queue_limit 100
+  defp queue_add(state = %BlockProcess{queue: queue, ready: ready}, pid) do
+    if length(queue) > @queue_limit do
+      # remove =
+      #   case Enum.max_by(ready, fn {_, workers} -> length(workers) end) do
+      #     {_, workers} when length(workers) > 2 -> List.last(workers)
+      #     _ -> List.last(queue)
+      #   end
+      remove = List.last(queue)
+
+      send(remove, :stop)
+      queue = List.delete(queue, remove)
+
+      ready =
+        Enum.map(ready, fn {block_hash, workers} -> {block_hash, List.delete(workers, remove)} end)
+        |> Map.new()
+
+      %BlockProcess{state | ready: ready, queue: [pid | queue]}
+    else
+      %BlockProcess{state | queue: [pid | queue]}
+    end
   end
 
   def fetch(block_ref, methods) when is_list(methods) do
@@ -162,8 +252,12 @@ defmodule BlockProcess do
 
   def with_block(<<block_hash::binary-size(32)>>, fun) do
     if Chain.block_by_hash?(block_hash) do
-      GenServer.call(__MODULE__, {:get_proxy, block_hash})
-      |> do_with_block(fun)
+      if Worker.is_worker() and Worker.hash() == block_hash do
+        fun.(Worker.block())
+      else
+        get_worker(block_hash)
+        |> do_with_block(fun)
+      end
     else
       with_block(nil, fun)
     end
@@ -204,9 +298,16 @@ defmodule BlockProcess do
     end
   end
 
+  defp get_worker(block_hash) do
+    case GenServer.call(__MODULE__, {:get_worker, block_hash}) do
+      pid when is_pid(pid) ->
+        pid
+    end
+  end
+
   def start_block(%Block{} = block) do
     pid = spawn(fn -> Worker.init(block) end)
-    ^pid = GenServer.call(__MODULE__, {:add_proxy, pid, Block.hash(block)})
+    ^pid = GenServer.call(__MODULE__, {:add_worker, pid, Block.hash(block)})
     Block.hash(block)
   end
 

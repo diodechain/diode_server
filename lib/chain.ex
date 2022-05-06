@@ -170,10 +170,17 @@ defmodule Chain do
   end
 
   def block_by_hash?(hash) do
-    case ets_lookup(hash, fn -> true end) do
+    case ets_lookup(hash) do
       nil -> false
-      true -> true
-      %Chain.Block{} -> true
+      _ -> true
+    end
+  end
+
+  def blocknumber(hash) do
+    case ets_lookup(hash) do
+      nil -> nil
+      true -> BlockProcess.with_block(hash, &Block.number/1)
+      nr when is_integer(nr) -> nr
     end
   end
 
@@ -600,11 +607,11 @@ defmodule Chain do
   end
 
   defp ets_add_placeholder(hash, number) do
-    _insert(hash, true)
+    _insert(hash, number)
     _insert(number, hash)
   end
 
-  defp placeholder_complete() do
+  def placeholder_complete() do
     :persistent_term.get(:placeholder_complete, false)
   end
 
@@ -615,11 +622,10 @@ defmodule Chain do
     end
   end
 
-  defp ets_lookup(hash, default) when is_binary(hash) do
+  defp ets_lookup(hash) when is_binary(hash) do
     case do_ets_lookup(hash) do
-      [] -> if placeholder_complete(), do: nil, else: default.()
-      [{^hash, true}] -> default.()
-      [{^hash, block}] -> block
+      [] -> nil
+      [{^hash, num_or_true}] -> num_or_true
     end
   end
 

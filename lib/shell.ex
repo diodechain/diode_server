@@ -39,9 +39,14 @@ defmodule Shell do
   end
 
   def call_tx(tx, blockRef) do
-    Network.Rpc.with_block(blockRef, fn block ->
-      state = Chain.Block.state(block)
-      Chain.Transaction.apply(tx, block, state, static: true)
+    Stats.tc(:call_tx, fn ->
+      Network.Rpc.with_block(blockRef, fn block ->
+        state = Chain.Block.state(block)
+
+        Stats.tc(:apply, fn ->
+          Chain.Transaction.apply(tx, block, state, static: true)
+        end)
+      end)
     end)
     |> case do
       {:ok, _state, rcpt} ->

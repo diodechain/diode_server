@@ -54,7 +54,7 @@ defmodule Model.Sql do
         %{id: name, start: {__MODULE__, :start_database, [name, name]}}
       end)
 
-    children = children ++ [Model.CredSql, Model.SyncSql]
+    children = children ++ [Model.CredSql, Model.SyncSql, Model.ChainSql.Writer]
     Supervisor.init(children, strategy: :one_for_one)
   end
 

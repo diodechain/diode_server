@@ -29,4 +29,8 @@ defmodule Model.Ets do
       [{^idx, item}] -> item
     end
   end
+
+  def size(name) do
+    :ets.info(name, :size)
+  end
 end

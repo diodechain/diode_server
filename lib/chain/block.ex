@@ -555,13 +555,17 @@ defmodule Chain.Block do
   def blockquick_window(%Block{} = block) do
     parent_hash = parent_hash(block)
 
-    [_ | window] =
-      get_cached(parent_hash, :blockquick_window, fn -> blockquick_window(parent_hash) end)
-
+    # [_ | window] = get_cached(parent_hash, :blockquick_window, fn -> blockquick_window(parent_hash) end)
+    [_ | window] = blockquick_window(parent_hash)
     window ++ [coinbase(block)]
   end
 
   def blockquick_window(block_hash) when is_binary(block_hash) do
+    ChainSql.blockquick_window(block_hash)
+  end
+
+  def query_blockquick_window(block_hash) when is_binary(block_hash) do
+    #    May 6th -- takes 120ms
     {_, window} =
       Enum.reduce(0..99, {block_hash, []}, fn _, {parent_hash, window} ->
         BlockProcess.with_block(parent_hash, fn block ->
@@ -682,31 +686,5 @@ defmodule Chain.Block do
   @spec receipts_root(Block.t()) :: <<_::528>>
   def receipts_root(%Block{} = _block) do
     "0x0000000000000000000000000000000000000000000000000000000000000000"
-  end
-
-  #
-  # Private functions
-  #
-
-  defp get_cached(block_ref, key, fun) do
-    key = {block_ref, key}
-
-    case Process.get(key) do
-      nil ->
-        BlockProcess.with_block(block_ref, fn _block ->
-          case Process.get(key) do
-            nil ->
-              value = fun.()
-              Process.put(key, value)
-              value
-
-            value ->
-              value
-          end
-        end)
-
-      value ->
-        value
-    end
   end
 end

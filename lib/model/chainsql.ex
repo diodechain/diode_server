@@ -2,28 +2,114 @@
 # Copyright 2021 Diode
 # Licensed under the Diode License, Version 1.1
 defmodule Model.ChainSql do
-  alias Model.Sql
-  alias Model.Ets
-  alias Chain.Transaction
-  alias Chain.Block
+  alias Model.{Ets, Sql, ChainSql.Writer}
+  alias Chain.{Block, Transaction}
   require Logger
 
   import Model.Sql
   # esqlite doesn't support :infinity
   @infinity 300_000_000
 
+  defmodule Writer do
+    @moduledoc """
+      Asynchonsouly writes new blocks
+    """
+
+    use GenServer
+    alias Model.ChainSql
+    alias Model.ChainSql.Writer
+    defstruct blocks: [], db: nil
+
+    def start_link([]) do
+      GenServer.start_link(__MODULE__, %Writer{}, name: __MODULE__, hibernate_after: 5_000)
+    end
+
+    def submit_block_number(block_ref) do
+      GenServer.cast(__MODULE__, {:submit, {:num, block_ref}})
+    end
+
+    def submit_new_block(block) do
+      Ets.put(__MODULE__, Block.hash(block), block)
+
+      if Ets.size(__MODULE__) > 24 do
+        IO.puts("block write buffer pause")
+        GenServer.call(__MODULE__, {:submit, {:hash, Block.hash(block)}}, :infinity)
+      else
+        GenServer.cast(__MODULE__, {:submit, {:hash, Block.hash(block)}})
+      end
+    end
+
+    def query(hash) do
+      Ets.lookup(__MODULE__, hash, fn -> ChainSql.query_block_by_hash(hash) end)
+    end
+
+    def peek(hash) do
+      Ets.lookup(__MODULE__, hash)
+    end
+
+    def wait_for_flush(hash, from \\ "") do
+      if Ets.lookup(__MODULE__, hash) != nil do
+        Process.sleep(100)
+        if from != nil, do: IO.puts("wait_for_flush #{from}")
+        wait_for_flush(hash, nil)
+      end
+    end
+
+    @impl true
+    def init(state = %Writer{}) do
+      Ets.init(__MODULE__)
+      {:ok, db} = Sql.start_database(Db.Default)
+      {:ok, %Writer{state | db: db}}
+    end
+
+    @impl true
+    def handle_call({:submit, block}, _from, state = %Writer{blocks: blocks}) do
+      {:reply, :ok, write(%Writer{state | blocks: blocks ++ [block]})}
+    end
+
+    @impl true
+    def handle_cast({:submit, block}, state = %Writer{blocks: blocks}) do
+      {:noreply, write(%Writer{state | blocks: blocks ++ [block]})}
+    end
+
+    def handle_cast(:write, state) do
+      {:noreply, write(state)}
+    end
+
+    defp write(state = %Writer{blocks: []}) do
+      state
+    end
+
+    defp write(state = %Writer{blocks: [{:num, block_ref} | rest], db: db}) do
+      ChainSql.do_put_block_number(db, block_ref)
+      GenServer.cast(self(), :write)
+      %Writer{state | blocks: rest}
+    end
+
+    defp write(state = %Writer{blocks: [{:block, block} | rest], db: db}) do
+      ChainSql.do_put_new_block(db, block)
+      Ets.remove(__MODULE__, Block.hash(block))
+      GenServer.cast(self(), :write)
+      %Writer{state | blocks: rest}
+    end
+
+    defp write(state = %Writer{blocks: [{:hash, hash} | rest], db: db}) do
+      block = peek(hash)
+      ChainSql.do_put_new_block(db, block)
+      Ets.remove(__MODULE__, Block.hash(block))
+      GenServer.cast(self(), :write)
+      %Writer{state | blocks: rest}
+    end
+  end
+
   defp fetch!(sql, param1 \\ nil) do
     fetch!(__MODULE__, sql, param1)
   end
 
-  defp with_transaction(fun) do
-    Sql.with_transaction(__MODULE__, fun)
-  end
-
   def init() do
-    Ets.init(__MODULE__)
+    EtsLru.new(__MODULE__, 1024)
 
-    with_transaction(fn db ->
+    with_transaction(__MODULE__, fn db ->
       query!(db, """
           CREATE TABLE IF NOT EXISTS blocks (
             hash BLOB PRIMARY KEY,
@@ -69,7 +155,7 @@ defmodule Model.ChainSql do
   end
 
   def set_final(block) do
-    with_transaction(fn db ->
+    with_transaction(__MODULE__, fn db ->
       query!(db, "UPDATE blocks SET final = true WHERE hash = ?1", bind: [Block.hash(block)])
     end)
   end
@@ -85,9 +171,12 @@ defmodule Model.ChainSql do
   end
 
   defp set_normative_all(db, block_ref) do
+    hash = BlockProcess.with_block(block_ref, &Block.number/1)
+    Writer.wait_for_flush(hash, "set_normative_all")
+
     parent_hash =
       BlockProcess.with_block(block_ref, fn block ->
-        put_block_number(db, block)
+        do_put_block_number(db, block)
         Block.parent_hash(block)
       end)
 
@@ -101,40 +190,88 @@ defmodule Model.ChainSql do
       end)
 
     Logger.debug("set_normative: #{number}")
+    Writer.wait_for_flush(hash, "set_normative")
 
     case query!(db, "SELECT hash FROM blocks WHERE number = ?1", bind: [number]) do
       [[hash: ^hash]] ->
         :done
 
       [] ->
-        BlockProcess.with_block(block_ref, fn block -> put_block_number(db, block) end)
+        BlockProcess.with_block(block_ref, fn block -> do_put_block_number(db, block) end)
         set_normative(db, parent_hash)
 
       _others ->
         query!(db, "UPDATE blocks SET number = null WHERE number = ?1", bind: [number])
-        BlockProcess.with_block(block_ref, fn block -> put_block_number(db, block) end)
+        BlockProcess.with_block(block_ref, fn block -> do_put_block_number(db, block) end)
         set_normative(db, parent_hash)
     end
   end
 
-  def put_block_number(db \\ __MODULE__, block_ref) do
+  def put_block_number(block_ref) do
+    Writer.submit_block_number(block_ref)
+  end
+
+  # public because the writer needs to call it
+  def do_put_block_number(db, block_ref) do
     [hash, number] = BlockProcess.fetch(block_ref, [:hash, :number])
     # IO.puts("put_block_number(#{number})")
     query!(db, "UPDATE blocks SET number = ?2 WHERE hash = ?1", bind: [hash, number])
   end
 
   def put_new_block(block) do
+    Writer.submit_new_block(block)
+    true
+  end
+
+  def do_put_new_block(db, block) do
     {state, encoded_state} = prepare_state(block)
 
     ret =
-      with_transaction(fn db ->
+      with_transaction(
+        db,
+        fn db ->
+          query(
+            db,
+            "INSERT OR FAIL INTO blocks (hash, parent, miner, data, state) VALUES(?1, ?2, ?3, ?4, ?5)",
+            bind: [
+              Block.hash(block),
+              Block.parent_hash(block),
+              Block.miner(block) |> Wallet.pubkey!(),
+              Block.strip_state(block) |> BertInt.encode!(),
+              encoded_state
+            ]
+          )
+          |> case do
+            {:ok, _some} ->
+              put_transactions(db, block)
+              true
+
+            {:error, _some} ->
+              false
+          end
+        end
+      )
+
+    if ret, do: compress_state(db, block, state)
+    ret
+  end
+
+  @spec put_block(Chain.Block.t()) :: Chain.Block.t()
+  def put_block(block) do
+    {state, encoded_state} = prepare_state(block)
+    Writer.wait_for_flush(Block.hash(block), "put_block")
+
+    with_transaction(
+      __MODULE__,
+      fn db ->
         query(
           db,
-          "INSERT OR FAIL INTO blocks (hash, parent, miner, data, state) VALUES(?1, ?2, ?3, ?4, ?5)",
+          "REPLACE INTO blocks (hash, parent, miner, number, data, state) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
           bind: [
             Block.hash(block),
             Block.parent_hash(block),
             Block.miner(block) |> Wallet.pubkey!(),
+            Block.number(block),
             Block.strip_state(block) |> BertInt.encode!(),
             encoded_state
           ]
@@ -147,40 +284,10 @@ defmodule Model.ChainSql do
           {:error, _some} ->
             false
         end
-      end)
-
-    if ret, do: compress_state(block, state)
-    ret
-  end
-
-  @spec put_block(Chain.Block.t()) :: Chain.Block.t()
-  def put_block(block) do
-    {state, encoded_state} = prepare_state(block)
-
-    with_transaction(fn db ->
-      query(
-        db,
-        "REPLACE INTO blocks (hash, parent, miner, number, data, state) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-        bind: [
-          Block.hash(block),
-          Block.parent_hash(block),
-          Block.miner(block) |> Wallet.pubkey!(),
-          Block.number(block),
-          Block.strip_state(block) |> BertInt.encode!(),
-          encoded_state
-        ]
-      )
-      |> case do
-        {:ok, _some} ->
-          put_transactions(db, block)
-          true
-
-        {:error, _some} ->
-          false
       end
-    end)
+    )
 
-    compress_state(block, state)
+    compress_state(__MODULE__, block, state)
     block
   end
 
@@ -213,6 +320,10 @@ defmodule Model.ChainSql do
   end
 
   def block_by_hash(hash) do
+    Writer.query(hash)
+  end
+
+  def query_block_by_hash(hash) do
     fetch!("SELECT data FROM blocks WHERE hash = ?1", hash)
   end
 
@@ -233,7 +344,23 @@ defmodule Model.ChainSql do
   end
 
   def blockquick_window(hash) do
-    # 25/05/2020: 5ms per execution
+    EtsLru.fetch(__MODULE__, {:blockquick_window, hash}, fn -> query_blockquick_window(hash) end)
+  end
+
+  def query_blockquick_window(hash) do
+    case Writer.peek(hash) do
+      nil ->
+        do_query_blockquick_window(hash)
+
+      block ->
+        [_ | window] = blockquick_window(Block.parent_hash(block))
+        window ++ [Block.coinbase(block)]
+    end
+  end
+
+  defp do_query_blockquick_window(hash) do
+    # 25/05/2020: 5ms per exec
+    # IO.puts("do_query_blockquick_window: #{Base16.encode(hash)}")
     query!(
       __MODULE__,
       """
@@ -269,7 +396,7 @@ defmodule Model.ChainSql do
 
   def truncate_blocks() do
     # Delete in this order to avoid cascading
-    with_transaction(fn db ->
+    with_transaction(__MODULE__, fn db ->
       query!(db, "DELETE FROM transactions")
       query!(db, "DELETE FROM blocks")
     end)
@@ -345,7 +472,7 @@ defmodule Model.ChainSql do
     {state, BertInt.encode!(state)}
   end
 
-  defp compress_state(block, state) do
+  defp compress_state(db, block, state) do
     nr = Block.number(block)
 
     if nr > 0 and rem(nr, 100) == 1 do
@@ -354,9 +481,7 @@ defmodule Model.ChainSql do
       spawn_link(fn ->
         prev = nr - rem(nr, 100) + 1
 
-        case Sql.query!(__MODULE__, "SELECT hash, state FROM blocks WHERE number = ?1",
-               bind: [prev]
-             ) do
+        case Sql.query!(db, "SELECT hash, state FROM blocks WHERE number = ?1", bind: [prev]) do
           [[hash: hash, state: bin]] ->
             prev_state = %Chain.State{} = BertInt.decode!(bin)
 
@@ -364,7 +489,7 @@ defmodule Model.ChainSql do
               {hash, Chain.State.difference(prev_state, state)}
               |> BertInt.encode!()
 
-            Sql.query_async!(__MODULE__, "UPDATE blocks SET state = ?2 WHERE hash = ?1",
+            Sql.query_async!(db, "UPDATE blocks SET state = ?2 WHERE hash = ?1",
               bind: [Block.hash(block), compressed_state]
             )
 
