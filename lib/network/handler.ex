@@ -83,39 +83,35 @@ defmodule Network.Handler do
       end
 
       defp enter_loop(state = %{socket: socket, server_pid: server}) do
-        case :ssl.connection_information(socket) do
+        with {:ok, info} <- :ssl.connection_information(socket),
+             {:ok, {address, port}} <- :ssl.peername(socket),
+             {:ok, cert} <- :ssl.peercert(socket),
+             remote_id <- Wallet.from_pubkey(Certs.id_from_der(cert)),
+             state <-
+               Map.merge(state, %{
+                 socket: socket,
+                 node_id: remote_id,
+                 node_address: address,
+                 node_port: port,
+                 server_port: nil
+               }),
+
+             # register ensure this process is stored under the correct remote_id
+             # and also ensure setops(active:true) is not sent before server.ex
+             # finished the handshake
+             {:ok, server_port} <- GenServer.call(server, {:register, remote_id}),
+             :ok <- set_keepalive(:os.type(), socket),
+             :ok <- :ssl.setopts(socket, active: true) do
+          state = Map.put(state, :server_port, server_port)
+          do_init(state)
+        else
+          {:deny, _server_port} ->
+            log(state, "Server: Rejecting double-connection~n")
+            {:stop, :normal, state}
+
           {:error, reason} ->
             log(nil, "Connection gone away ~p", [reason])
             {:stop, :normal, state}
-
-          {:ok, info} ->
-            {:ok, {address, port}} = :ssl.peername(socket)
-            remote_id = Wallet.from_pubkey(Certs.extract(socket))
-
-            state =
-              Map.merge(state, %{
-                socket: socket,
-                node_id: remote_id,
-                node_address: address,
-                node_port: port,
-                server_port: nil
-              })
-
-            # register ensure this process is stored under the correct remote_id
-            # and also ensure setops(active:true) is not sent before server.ex
-            # finished the handshake
-            case GenServer.call(server, {:register, remote_id}) do
-              {:deny, _server_port} ->
-                log(state, "Server: Rejecting double-connection~n")
-                {:stop, :normal, state}
-
-              {:ok, server_port} ->
-                set_keepalive(:os.type(), socket)
-                :ssl.setopts(socket, active: true)
-
-                state = Map.put(state, :server_port, server_port)
-                do_init(state)
-            end
         end
       end
 
@@ -154,16 +150,16 @@ defmodule Network.Handler do
         tcp_keepidle = 4
         tcp_keepintvl = 5
 
-        :ok = set_tcpopt(socket, sol_socket, so_keepalive, 1)
-        :ok = set_tcpopt(socket, ipproto_tcp, tcp_keepcnt, 5)
-        :ok = set_tcpopt(socket, ipproto_tcp, tcp_keepidle, 60)
-        :ok = set_tcpopt(socket, ipproto_tcp, tcp_keepintvl, 60)
-        :ok
+        with :ok <- set_tcpopt(socket, sol_socket, so_keepalive, 1),
+             :ok <- set_tcpopt(socket, ipproto_tcp, tcp_keepcnt, 5),
+             :ok <- set_tcpopt(socket, ipproto_tcp, tcp_keepidle, 60),
+             :ok <- set_tcpopt(socket, ipproto_tcp, tcp_keepintvl, 60) do
+          :ok
+        end
       end
 
       defp set_keepalive(_other, socket) do
-        :ok = :ssl.setopts(socket, [{:keepalive, true}])
-        :ok
+        :ssl.setopts(socket, [{:keepalive, true}])
       end
 
       defp set_tcpopt(socket, level, opt, value) do
