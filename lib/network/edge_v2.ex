@@ -245,6 +245,11 @@ defmodule Network.EdgeV2 do
     {:noreply, portclose(state, ref)}
   end
 
+  def handle_cast(:stop, state) do
+    log(state, "connection closed because of handshake anomaly.")
+    {:stop, :normal, state}
+  end
+
   @impl true
   def terminate(reason, %{sender: sender}) do
     # log(state, "Received terminate ~p ~p", [reason, state])

@@ -111,6 +111,11 @@ defmodule Network.PeerHandler do
     end
   end
 
+  def handle_cast(:stop, state) do
+    log(state, "connection closed because of handshake anomaly.")
+    {:stop, :normal, state}
+  end
+
   def handle_call({:rpc, call}, from, state) do
     calls = :queue.in({call, from}, state.calls)
     ssl_send(%{state | calls: calls}, call)

@@ -203,7 +203,7 @@ defmodule Network.Server do
           [state.protocol, pid, {other_pid, Process.alive?(other_pid)}]
         )
 
-        if Process.alive?(other_pid), do: GenServer.stop(other_pid)
+        GenServer.cast(other_pid, :stop)
     end
 
     clients =
