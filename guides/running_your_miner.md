@@ -61,3 +61,12 @@ To submit the transaction to stake 5 dio:
 Shell.submit_from(Diode.miner, Diode.registry_address, "MinerStake", [], [], value: Shell.ether(5))
 ```
 
+### Flushing the transaction pool
+
+All transactions that are received as "to be processed" are stored in the transaction pool. This pool can be flushed, if for example too many future nonce transactions (`nonce too high`) occur.
+
+To flush the pool:
+
+```
+Chain.Pool.flush()
+```
