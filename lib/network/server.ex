@@ -111,7 +111,7 @@ defmodule Network.Server do
           Enum.find(clients, nil, fn {_pid, key0} -> key0 == key end)
           |> case do
             nil -> clients
-            {pid0, key0} -> Map.put(clients, key0, pid0)
+            {pid0, key0} -> Map.put(clients, key0, {pid0, System.os_time(:millisecond)})
           end
 
         {:noreply, %{state | clients: clients}}
@@ -134,8 +134,12 @@ defmodule Network.Server do
   def handle_call(:get_connections, _from, state) do
     result =
       Enum.filter(state.clients, fn {_key, value} ->
-        is_pid(value)
+        case value do
+          {pid, _timestamp} -> is_pid(pid)
+          _ -> false
+        end
       end)
+      |> Enum.map(fn {key, {pid, _timestamp}} -> {key, pid} end)
       |> Map.new()
 
     {:reply, result, state}
@@ -154,18 +158,18 @@ defmodule Network.Server do
     else
       key = to_key(node_id)
 
-      client = Map.get(state.clients, key)
+      case Map.get(state.clients, key) do
+        {pid, _timestamp} ->
+          {:reply, pid, state}
 
-      if client != nil and Process.alive?(client) do
-        {:reply, client, state}
-      else
-        worker = start_worker!(state, [:connect, node_id, address, port])
+        _ ->
+          worker = start_worker!(state, [:connect, node_id, address, port])
 
-        clients =
-          Map.put(state.clients, key, worker)
-          |> Map.put(worker, key)
+          clients =
+            Map.put(state.clients, key, {worker, System.os_time(:millisecond)})
+            |> Map.put(worker, key)
 
-        {:reply, worker, %{state | clients: clients}}
+          {:reply, worker, %{state | clients: clients}}
       end
     end
   end
@@ -180,37 +184,51 @@ defmodule Network.Server do
   end
 
   defp register_node(node_id, pid, state) do
-    # Checking whether pid is already registered and needs an update
-    clients =
-      case Map.get(state.clients, pid) do
-        nil -> state.clients
-        key -> Map.delete(state.clients, key)
-      end
-
+    # Checking whether pid is already registered and remove for the update
+    clients = Map.delete(state.clients, Map.get(state.clients, pid))
     key = to_key(node_id)
+    now = System.os_time(:millisecond)
 
     # Checking whether node_id is already registered
     case Map.get(clients, key) do
       nil ->
-        :ok
+        # best case this is a new connection.
+        clients =
+          Map.put(clients, key, {pid, now})
+          |> Map.put(pid, key)
 
-      ^pid ->
-        :ok
+        {:reply, {:ok, state.port}, %{state | clients: clients}}
 
-      other_pid ->
-        :io.format(
-          "~p Handshake anomaly(~p): #{Wallet.printable(node_id)} is already connected: ~180p~n",
-          [state.protocol, pid, {other_pid, Process.alive?(other_pid)}]
-        )
+      {^pid, timestamp} ->
+        # also ok, this pid is already registered to this node_id
+        clients =
+          Map.put(clients, key, {pid, timestamp})
+          |> Map.put(pid, key)
 
-        GenServer.cast(other_pid, :stop)
+        {:reply, {:ok, state.port}, %{state | clients: clients}}
+
+      {other_pid, timestamp} ->
+        # hm, another pid is given for the node_id logging this
+
+        if now - timestamp > 5000 do
+          :io.format(
+            "~p Handshake anomaly(~p): #{Wallet.printable(node_id)} is already connected: ~180p~n",
+            [state.protocol, pid, {other_pid, Process.alive?(other_pid)}]
+          )
+
+          GenServer.cast(other_pid, :stop)
+
+          clients =
+            Map.put(clients, key, {pid, now})
+            |> Map.put(pid, key)
+
+          {:reply, {:ok, state.port}, %{state | clients: clients}}
+        else
+          # the existing connection is fresh (younger than 5000ms) so we keep the old connection
+          # and deny for now
+          {:reply, {:deny, state.port}, %{state | clients: clients}}
+        end
     end
-
-    clients =
-      Map.put(clients, key, pid)
-      |> Map.put(pid, key)
-
-    {:reply, {:ok, state.port}, %{state | clients: clients}}
   end
 
   def handle_continue(:accept, state) do

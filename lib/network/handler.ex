@@ -106,7 +106,9 @@ defmodule Network.Handler do
           do_init(state)
         else
           {:deny, _server_port} ->
-            log(state, "Server: Rejecting double-connection~n")
+            delay = Random.random(2500, 7500)
+            log(state, "Server: Rejecting double-connection (delay #{delay})")
+            Process.sleep(delay)
             {:stop, :normal, state}
 
           {:error, reason} ->
