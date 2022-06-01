@@ -1037,48 +1037,68 @@ defmodule Network.EdgeV2 do
     :ok
   end
 
-  defp get_blockquick_seq(last_block, window_size) do
+  def get_blockquick_window(last_block, window_size) do
+    hash = Chain.blockhash(last_block)
+
+    window =
+      Chain.Block.blockquick_window(hash)
+      |> Enum.reverse()
+      |> Enum.take(window_size)
+
+    len = length(window)
+
+    if len < window_size do
+      next_block = last_block - len
+      window ++ get_blockquick_window(next_block, window_size - len)
+    else
+      window
+    end
+  end
+
+  def find_sequence(last_block, counts, score, threshold) do
+    window =
+      Chain.Block.blockquick_window(Chain.blockhash(last_block))
+      |> Enum.reverse()
+
+    Enum.reduce_while(window, {counts, score, last_block}, fn miner,
+                                                              {counts, score, last_block} ->
+      {score_value, counts} = Map.pop(counts, miner, 0)
+      score = score + score_value
+
+      if score > threshold do
+        {:halt, {:ok, last_block}}
+      else
+        {:cont, {counts, score, last_block - 1}}
+      end
+    end)
+    |> case do
+      {:ok, last_block} ->
+        {:ok, last_block}
+
+      {counts, score, last_block} ->
+        find_sequence(last_block, counts, score, threshold)
+    end
+  end
+
+  def get_blockquick_seq(last_block, window_size) do
     # Step 1: Identifying current view the device has
     #   based on it's current last valid block number
-    window =
-      Enum.map(1..window_size, fn idx ->
-        BlockProcess.with_block(last_block - idx, fn block ->
-          Chain.Block.miner(block)
-          |> Wallet.pubkey!()
-        end)
-      end)
-
+    window = get_blockquick_window(last_block, window_size)
     counts = Enum.reduce(window, %{}, fn miner, acc -> Map.update(acc, miner, 1, &(&1 + 1)) end)
-
     threshold = div(window_size, 2)
 
     # Step 2: Findind a provable sequence
     #    Iterating from peak backwards until the block score is over 50% of the window_size
-    {:ok, heads} =
-      Enum.reduce_while(Chain.blocks(), {counts, 0, []}, fn block, {counts, score, heads} ->
-        miner = Chain.Block.miner(block) |> Wallet.pubkey!()
-        {value, counts} = Map.pop(counts, miner, 0)
-        score = score + value
-        heads = [Chain.Block.number(block) | heads]
-
-        if score > threshold do
-          {:halt, {:ok, heads}}
-        else
-          {:cont, {counts, score, heads}}
-        end
-      end)
+    peak = Chain.peak()
+    {:ok, provable_block} = find_sequence(peak, counts, 0, threshold)
 
     # Step 3: Filling gap between 'last_block' and provable sequence, but not
     # by more than 'window_size' block heads before the provable sequence
-    begin = hd(heads)
-    size = min(window_size, begin - last_block) - 1
+    begin = provable_block
+    size = max(min(window_size, begin - last_block) - 1, 1)
 
-    gap_fill =
-      Enum.map((begin - size)..(begin - 1), fn block_number ->
-        block_number
-      end)
-
-    gap_fill ++ heads
+    gap_fill = Enum.to_list((begin - size)..(begin - 1))
+    gap_fill ++ Enum.to_list(begin..peak)
 
     # # Step 4: Checking whether the the provable sequence can be shortened
     # # TODO
