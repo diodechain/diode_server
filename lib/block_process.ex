@@ -111,11 +111,20 @@ defmodule BlockProcess do
           :ok
       after
         timeout ->
-          if not GenServer.call(BlockProcess, {:can_i_stop?, hash, self()}) do
-            work(state)
-          else
-            # IO.puts("stopping block: #{Block.number(block)}")
-            :ok
+          nr = Chain.blocknumber(hash)
+          peak = Chain.peak()
+
+          cond do
+            # keep the top 10 blocks always online...
+            BlockProcess.has_cache() and nr > peak - 10 ->
+              work(state)
+
+            not GenServer.call(BlockProcess, {:can_i_stop?, hash, self()}) ->
+              work(state)
+
+            true ->
+              # IO.puts("stopping block: #{Chain.blocknumber(hash)} peak: #{Chain.peak()}")
+              :ok
           end
       end
     end
@@ -325,5 +334,9 @@ defmodule BlockProcess do
     else
       fun.()
     end
+  end
+
+  def has_cache() do
+    [:state] in Process.get_keys()
   end
 end
