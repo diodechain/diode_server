@@ -36,6 +36,7 @@ defmodule Chain do
   @spec init(any()) :: {:ok, Chain.t()}
   def init(ets_extra) do
     _create(ets_extra)
+    BlockProcess.start_link()
     {:ok, load_blocks()}
   end
 

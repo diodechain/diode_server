@@ -119,7 +119,7 @@ defmodule BlockProcess do
             BlockProcess.has_cache() and nr > peak - 10 ->
               work(state)
 
-            not GenServer.call(BlockProcess, {:can_i_stop?, hash, self()}) ->
+            not GenServer.call(BlockProcess, {:can_i_stop?, hash, self()}, :infinity) ->
               work(state)
 
             true ->
@@ -308,7 +308,7 @@ defmodule BlockProcess do
   end
 
   defp get_worker(block_hash) do
-    case GenServer.call(__MODULE__, {:get_worker, block_hash}) do
+    case GenServer.call(__MODULE__, {:get_worker, block_hash}, :infinity) do
       pid when is_pid(pid) ->
         pid
     end
@@ -316,7 +316,7 @@ defmodule BlockProcess do
 
   def start_block(%Block{} = block) do
     pid = spawn(fn -> Worker.init(block) end)
-    ^pid = GenServer.call(__MODULE__, {:add_worker, pid, Block.hash(block)})
+    ^pid = GenServer.call(__MODULE__, {:add_worker, pid, Block.hash(block)}, :infinity)
     Block.hash(block)
   end
 

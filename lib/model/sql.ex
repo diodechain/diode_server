@@ -27,21 +27,30 @@ defmodule Model.Sql do
 
   def start_link() do
     Application.put_env(:sqlitex, :call_timeout, 300_000)
-    {:ok, pid} = Supervisor.start_link(__MODULE__, [], name: __MODULE__)
-
-    Model.MerkleSql.init()
-    Model.ChainSql.init()
-    Model.StateSql.init()
-    Model.TicketSql.init()
-    Model.KademliaSql.init()
-
-    {:ok, pid}
+    Supervisor.start_link(__MODULE__, [], name: __MODULE__)
   end
 
   defp init_connection(conn) do
     query!(conn, "PRAGMA journal_mode = WAL")
     query!(conn, "PRAGMA synchronous = NORMAL")
     # query!(conn, "PRAGMA OPTIMIZE", call_timeout: @infinity)
+  end
+
+  defmodule Init do
+    use GenServer
+
+    def start_link(_args) do
+      GenServer.start_link(__MODULE__, [], name: __MODULE__)
+    end
+
+    @impl true
+    def init(_args) do
+      Model.ChainSql.init()
+      Model.StateSql.init()
+      Model.TicketSql.init()
+      Model.KademliaSql.init()
+      {:ok, :done}
+    end
   end
 
   def init(_args) do
@@ -54,7 +63,7 @@ defmodule Model.Sql do
         %{id: name, start: {__MODULE__, :start_database, [name, name]}}
       end)
 
-    children = children ++ [Model.CredSql, Model.SyncSql, Model.ChainSql.Writer]
+    children = children ++ [Model.CredSql, Model.SyncSql, Init, Model.ChainSql.Writer]
     Supervisor.init(children, strategy: :one_for_one)
   end
 

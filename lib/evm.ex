@@ -501,7 +501,7 @@ defmodule Evm do
     true = Port.command(port, cache)
   end
 
-  @timeout 5_000
+  @timeout 15_000
   defp loop({:cont, evm}) do
     receive do
       {_port, {:data, data}} ->

@@ -57,7 +57,12 @@ defmodule Model.ChainSql do
 
     @impl true
     def init(state = %Writer{}) do
-      Ets.init(__MODULE__)
+      # ensuring after a writer crash that all pending blocks are still
+      # written
+      for hash <- Ets.keys(__MODULE__) do
+        GenServer.cast(__MODULE__, {:submit, {:hash, hash}})
+      end
+
       {:ok, db} = Sql.start_database(Db.Default)
       {:ok, %Writer{state | db: db}}
     end
@@ -107,6 +112,7 @@ defmodule Model.ChainSql do
   end
 
   def init() do
+    Ets.init(Model.ChainSql.Writer)
     EtsLru.new(__MODULE__, 1024)
 
     with_transaction(__MODULE__, fn db ->

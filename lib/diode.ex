@@ -78,7 +78,6 @@ defmodule Diode do
       supervisor(Channels),
       worker(PubSub, [args]),
       worker(Chain.BlockCache, [ets_extra]),
-      worker(BlockProcess, []),
       worker(Chain, [ets_extra]),
       worker(Chain.Pool, [args]),
       worker(TicketStore, [ets_extra])

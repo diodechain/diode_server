@@ -23,6 +23,10 @@ defmodule Model.Ets do
     |> Enum.map(fn {_key, value} -> value end)
   end
 
+  def keys(name) do
+    :ets.select(name, [{{:"$1", :"$2"}, [], [:"$1"]}])
+  end
+
   def lookup(name, idx, default \\ fn -> nil end) do
     case :ets.lookup(name, idx) do
       [] -> default.()
