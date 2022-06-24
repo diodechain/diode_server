@@ -417,35 +417,61 @@ defmodule Model.ChainSql do
     |> Enum.map(fn [data: data] -> BertInt.decode!(data) end)
   end
 
-  @splits 3
+  @split_size 500_000
   def all_block_hashes() do
-    case Sql.query!(__MODULE__, "SELECT MAX(number) as number FROM blocks") do
+    case query!("SELECT MAX(number) as number FROM blocks") do
       [] ->
         []
 
       [[number: num]] ->
-        size = ceil((num + 1) / @splits)
+        partitions = floor(num / @split_size)
 
-        Enum.map(0..(@splits - 1), fn n ->
-          Task.async(fn -> select_hashes(n * size, (n + 1) * size) end)
+        Enum.map(0..partitions, fn n ->
+          from = n * @split_size
+          to = (n + 1) * @split_size
+          Task.async(fn -> select_hashes(from, to) end)
         end)
-        |> Task.await_many(:infinity)
+        |> Stream.map(fn task -> Task.await(task, :infinity) end)
         |> Stream.concat()
     end
   end
 
+  def prefetch_name(number, hash) do
+    Diode.data_dir("prefetch_cache_#{number}_#{Base.encode16(hash, case: :lower)}")
+  end
+
   def select_hashes(from, to) do
-    {:ok, db} = Sql.start_database(Db.Default)
+    with [[hash: hash]] <-
+           query!(__MODULE__, "SELECT hash FROM blocks WHERE number = ?1", bind: [to - 1]),
+         {:ok, binary} <- File.read(prefetch_name(to, hash)) do
+      [:erlang.binary_to_term(binary)]
+    else
+      _ ->
+        {:ok, db} = Sql.start_database(Db.Default)
 
-    ret =
-      Sql.query!(
-        db,
-        "SELECT parent, hash, number FROM blocks WHERE number >= ?1 AND number < ?2 ORDER BY number",
-        bind: [from, to]
-      )
+        ret =
+          Sql.query!(
+            db,
+            "SELECT parent, hash, number FROM blocks WHERE number >= ?1 AND number < ?2 ORDER BY number",
+            bind: [from, to]
+          )
 
-    Sqlitex.Server.stop(db)
-    ret
+        Sqlitex.Server.stop(db)
+
+        if length(ret) == @split_size do
+          [parent: _, hash: hash, number: _] = List.last(ret)
+
+          prefetch =
+            {:prefetch,
+             Enum.flat_map(ret, fn [parent: _, hash: hash, number: number] ->
+               [{hash, number}, {number, hash}]
+             end)}
+
+          File.write!(prefetch_name(to, hash), :erlang.term_to_binary(prefetch, [:compressed]))
+        end
+
+        ret
+    end
   end
 
   def query!(sql) do

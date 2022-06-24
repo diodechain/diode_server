@@ -564,20 +564,25 @@ defmodule Chain do
     Diode.start_subwork("preloading hashes", fn ->
       _ =
         ChainSql.all_block_hashes()
-        |> Enum.reduce_while(nil, fn [parent: parent, hash: hash, number: number], prev ->
-          if prev != nil and prev != parent do
-            Diode.puts(
-              "fixing inconsistent block #{number} #{Base16.encode(prev)} != #{
-                Base16.encode(parent)
-              } "
-            )
+        |> Enum.reduce_while(nil, fn
+          {:prefetch, prefetch}, _prev ->
+            :ets.insert(__MODULE__, prefetch)
+            {:cont, nil}
 
-            ChainSql.put_peak(prev)
-            {:halt, prev}
-          else
-            ets_add_placeholder(hash, number)
-            {:cont, hash}
-          end
+          [parent: parent, hash: hash, number: number], prev ->
+            if prev != nil and prev != parent do
+              Diode.puts(
+                "fixing inconsistent block #{number} #{Base16.encode(prev)} != #{
+                  Base16.encode(parent)
+                } "
+              )
+
+              ChainSql.put_peak(prev)
+              {:halt, prev}
+            else
+              ets_add_placeholder(hash, number)
+              {:cont, hash}
+            end
         end)
 
       :persistent_term.put(:placeholder_complete, true)
@@ -608,8 +613,7 @@ defmodule Chain do
   end
 
   defp ets_add_placeholder(hash, number) do
-    _insert(hash, number)
-    _insert(number, hash)
+    _insert2(hash, number)
   end
 
   def placeholder_complete() do
@@ -652,5 +656,6 @@ defmodule Chain do
 
   defp _lookup(number), do: :ets.lookup(__MODULE__, number)
   defp _insert(key, value), do: :ets.insert(__MODULE__, {key, value})
+  defp _insert2(key, value), do: :ets.insert(__MODULE__, [{key, value}, {value, key}])
   defp _clear(), do: :ets.delete_all_objects(__MODULE__)
 end
