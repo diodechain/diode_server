@@ -48,7 +48,7 @@ defmodule Model.ChainSql do
     end
 
     def wait_for_flush(hash, from \\ "") do
-      if Ets.lookup(__MODULE__, hash) != nil do
+      if peek(hash) != nil do
         Process.sleep(100)
         if from != nil, do: IO.puts("wait_for_flush #{from}")
         wait_for_flush(hash, nil)

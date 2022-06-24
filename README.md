@@ -23,16 +23,18 @@ System.put_env("WORKER_MODE", "50")
 
 # Default Ports
 
-TCP port bindings can be controlled through environment variables. The default bindings are:  
+TCP port bindings can be controlled through environment variables. The default bindings are:
 
-| Variable     | Description                       | Default Port |
+| Variable     | Description                       | Default Port(s) |
 | --------     | -----------                       | ---- |
 | `RPC_PORT`   | Ethereum JSON API endpoint        | 8545
-| `RPCS_PORT`  | SSL version of `RPC_PORT`*        |  8443
-| `EDGE2_PORT` | Client Communication Port         | 41046
+| `RPCS_PORT`  | SSL version of `RPC_PORT`*        | 8443
+| `EDGE2_PORT` | Client Communication Port         | 41046,443,993,1723,10000
 | `PEER_PORT`  | Miner-To-Miner Communication Port | 51054
 
-RPCS_PORT is only used & needed for access from Web2 services such as the blockchain explorer at https://diode.io/prenet/ - the port can be ignored in most deployments.
+`RPCS_PORT` is only used & needed for access from Web2 services such as the blockchain explorer at https://diode.io/prenet/ - the port can be ignored in most deployments.
+
+`EDGE2_PORT` and `PEER_PORT` support multiple port numbers given by a comma separated list.
 
 # Defining the Wallet to be used
 

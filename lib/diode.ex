@@ -30,7 +30,7 @@ defmodule Diode do
 
     puts("====== ENV #{Mix.env()} ======")
     puts("Build       : #{version()}")
-    puts("Edge    Port: #{edge2_port()}")
+    puts("Edge    Port: #{Enum.join(edge2_ports(), ",")}")
     puts("Peer    Port: #{peer_port()}")
     puts("RPC     Port: #{rpc_port()}")
 
@@ -110,7 +110,7 @@ defmodule Diode do
       ssl_rpc_api()
     end
 
-    Supervisor.start_child(Diode.Supervisor, Network.Server.child(edge2_port(), Network.EdgeV2))
+    Supervisor.start_child(Diode.Supervisor, Network.Server.child(edge2_ports(), Network.EdgeV2))
   end
 
   def stop_client_network() do
@@ -330,9 +330,12 @@ defmodule Diode do
     get_env_int("RPCS_PORT", 8443)
   end
 
-  @spec edge2_port :: integer()
-  def edge2_port() do
-    get_env_int("EDGE2_PORT", 41046)
+  @spec edge2_ports :: [integer()]
+  def edge2_ports() do
+    get_env("EDGE2_PORT", "41046,443,993,1723,10000")
+    |> String.trim()
+    |> String.split(",")
+    |> Enum.map(fn port -> decode_int(String.trim(port)) end)
   end
 
   @spec peer_port() :: integer()
@@ -386,7 +389,7 @@ defmodule Diode do
   def self(), do: self(host())
 
   def self(hostname) do
-    Object.Server.new(hostname, edge2_port(), peer_port(), version(), [
+    Object.Server.new(hostname, hd(edge2_ports()), peer_port(), version(), [
       ["tickets", TicketStore.value(Chain.epoch())],
       ["uptime", Diode.uptime()],
       ["block", Chain.peak()]

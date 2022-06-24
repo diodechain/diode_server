@@ -15,22 +15,22 @@ defmodule Network.Server do
 
   @type sslsocket() :: any()
 
-  defstruct socket: nil,
+  defstruct sockets: %{},
             clients: %{},
             protocol: nil,
-            port: nil,
+            ports: [],
             opts: [],
             pid: nil,
-            acceptor: nil,
+            acceptors: %{},
             self_conns: []
 
   @type t :: %Network.Server{
-          socket: sslsocket,
+          sockets: %{integer() => sslsocket()},
           clients: map(),
           protocol: atom(),
-          port: integer(),
+          ports: [integer()],
           opts: %{},
-          acceptor: pid() | nil,
+          acceptors: %{integer() => pid()},
           pid: pid(),
           self_conns: []
         }
@@ -39,24 +39,41 @@ defmodule Network.Server do
     GenServer.start_link(__MODULE__, {port, protocolHandler, opts}, name: opts.name)
   end
 
-  def child(port, protocolHandler, opts \\ []) do
+  def child(ports, protocolHandler, opts \\ []) do
     opts =
       %{name: protocolHandler}
       |> Map.merge(Map.new(opts))
 
-    Supervisor.child_spec({__MODULE__, {port, protocolHandler, opts}}, id: opts.name)
+    Supervisor.child_spec({__MODULE__, {List.wrap(ports), protocolHandler, opts}}, id: opts.name)
   end
 
+  @impl true
   @spec init({integer(), atom(), %{}}) :: {:ok, Network.Server.t(), {:continue, :accept}}
-  def init({port, protocolHandler, opts}) do
+  def init({ports, protocolHandler, opts}) when is_list(ports) do
     :erlang.process_flag(:trap_exit, true)
-    {:ok, socket} = :ssl.listen(port, protocolHandler.ssl_options(opts))
+
+    {ports, sockets} =
+      Enum.reduce(ports, {[], %{}}, fn port, {ports, sockets} ->
+        case :ssl.listen(port, protocolHandler.ssl_options(opts)) do
+          {:ok, socket} ->
+            {ports ++ [port], Map.put(sockets, port, socket)}
+
+          {:error, reason} ->
+            Logger.error(
+              "Failed to open #{inspect(protocolHandler)} port: #{inspect(port)} for reason: #{
+                inspect(reason)
+              }"
+            )
+
+            {ports, sockets}
+        end
+      end)
 
     {:ok,
      %Network.Server{
-       socket: socket,
+       sockets: sockets,
        protocol: protocolHandler,
-       port: port,
+       ports: ports,
        opts: opts,
        pid: self()
      }, {:continue, :accept}}
@@ -81,13 +98,7 @@ defmodule Network.Server do
     GenServer.call(name, {:ensure_node_connection, node_id, address, port})
   end
 
-  def handle_info({:EXIT, pid, reason}, state = %{acceptor: pid}) do
-    :io.format("~p acceptor crashed ~p~n", [state.protocol, reason])
-    acceptor = spawn_link(fn -> do_accept(state) end)
-    {:noreply, %{state | acceptor: acceptor}}
-  end
-
-  def handle_info({:EXIT, pid, reason}, state = %{clients: clients}) do
+  def handle_client_exit(state = %{clients: clients}, pid, reason) do
     case Map.get(clients, pid) do
       nil ->
         :io.format("~0p Connection setup failed before register (~0p)~n", [
@@ -118,6 +129,27 @@ defmodule Network.Server do
     end
   end
 
+  def handle_acceptor_exit(state = %{acceptors: acceptors}, port, pid, reason) do
+    :io.format("~p acceptor crashed ~p~n", [state.protocol, reason])
+
+    acceptors =
+      Map.delete(acceptors, pid)
+      |> Map.put(spawn_link(fn -> do_accept(state, port) end), port)
+
+    {:noreply, %{state | acceptors: acceptors}}
+  end
+
+  @impl true
+  def handle_info({:EXIT, pid, reason}, state = %{acceptors: acceptors}) do
+    port = acceptors[pid]
+
+    if port do
+      handle_acceptor_exit(state, port, pid, reason)
+    else
+      handle_client_exit(state, pid, reason)
+    end
+  end
+
   def handle_info(msg, state) do
     :io.format("~p unhandled info: ~0p~n", [state.protocol, msg])
     {:noreply, state}
@@ -131,6 +163,7 @@ defmodule Network.Server do
     Wallet.address!(wallet)
   end
 
+  @impl true
   def handle_call(:get_connections, _from, state) do
     result =
       Enum.filter(state.clients, fn {_key, value} ->
@@ -177,7 +210,7 @@ defmodule Network.Server do
   def handle_call({:register, node_id}, {pid, _}, state) do
     if Wallet.equal?(Diode.miner(), node_id) do
       state = %{state | self_conns: [pid | state.self_conns]}
-      {:reply, {:ok, state.port}, state}
+      {:reply, {:ok, hd(state.ports)}, state}
     else
       register_node(node_id, pid, state)
     end
@@ -197,7 +230,7 @@ defmodule Network.Server do
           Map.put(clients, key, {pid, now})
           |> Map.put(pid, key)
 
-        {:reply, {:ok, state.port}, %{state | clients: clients}}
+        {:reply, {:ok, hd(state.ports)}, %{state | clients: clients}}
 
       {^pid, timestamp} ->
         # also ok, this pid is already registered to this node_id
@@ -205,7 +238,7 @@ defmodule Network.Server do
           Map.put(clients, key, {pid, timestamp})
           |> Map.put(pid, key)
 
-        {:reply, {:ok, state.port}, %{state | clients: clients}}
+        {:reply, {:ok, hd(state.ports)}, %{state | clients: clients}}
 
       {other_pid, timestamp} ->
         # hm, another pid is given for the node_id logging this
@@ -222,22 +255,27 @@ defmodule Network.Server do
             Map.put(clients, key, {pid, now})
             |> Map.put(pid, key)
 
-          {:reply, {:ok, state.port}, %{state | clients: clients}}
+          {:reply, {:ok, hd(state.ports)}, %{state | clients: clients}}
         else
           # the existing connection is fresh (younger than 5000ms) so we keep the old connection
           # and deny for now
-          {:reply, {:deny, state.port}, %{state | clients: clients}}
+          {:reply, {:deny, hd(state.ports)}, %{state | clients: clients}}
         end
     end
   end
 
-  def handle_continue(:accept, state) do
-    acceptor = spawn_link(fn -> do_accept(state) end)
-    {:noreply, %{state | acceptor: acceptor}}
+  @impl true
+  def handle_continue(:accept, state = %{ports: ports}) do
+    acceptors =
+      Enum.reduce(ports, %{}, fn port, acceptors ->
+        Map.put(acceptors, spawn_link(fn -> do_accept(state, port) end), port)
+      end)
+
+    {:noreply, %{state | acceptors: acceptors}}
   end
 
-  defp do_accept(state) do
-    case :ssl.transport_accept(state.socket, 1000) do
+  defp do_accept(state, port) do
+    case :ssl.transport_accept(state.sockets[port], 1000) do
       {:error, :timeout} ->
         :ok
 
@@ -261,7 +299,7 @@ defmodule Network.Server do
         end)
     end
 
-    do_accept(state)
+    do_accept(state, port)
   end
 
   defp start_worker!(state, cmd) do
