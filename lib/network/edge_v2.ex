@@ -3,6 +3,7 @@
 # Licensed under the Diode License, Version 1.1
 defmodule Network.EdgeV2 do
   use Network.Handler
+  require Logger
   alias Object.Ticket
   alias Object.Channel
   import Ticket, only: :macros
@@ -1121,7 +1122,21 @@ defmodule Network.EdgeV2 do
     BlockProcess.with_block(n, fn
       nil -> nil
       block -> Chain.Header.strip_state(block.header)
-    end) || throw(:notfound)
+    end) || check_block(n)
+  end
+
+  defp check_block(n) do
+    if is_integer(n) and n < Chain.peak() do
+      # we had some cases of missing blocks
+      # this means the async blockwriter did somehow? skip
+      # putting this block on disk. If this happens (which is a bug)
+      # the only course for recovery is to restart the node, which
+      # triggers an integrity check
+      Logger.error("missing block #{n}")
+      System.halt(1)
+    else
+      throw(:notfound)
+    end
   end
 
   defp to_num(bin) do
