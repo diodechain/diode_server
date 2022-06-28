@@ -31,9 +31,10 @@ defmodule Certs do
     |> Secp256k1.compress_public()
   end
 
+  @record_defs Record.extract_all(from_lib: "public_key/include/public_key.hrl")
   @spec getfield(any(), atom(), atom()) :: any()
-  def getfield(record, type, fieldname) do
-    record_def = Record.extract(type, from_lib: "public_key/include/public_key.hrl")
+  defp getfield(record, type, fieldname) do
+    record_def = @record_defs[type]
     Keyword.get(keywords(record_def, record), fieldname)
   end
 
