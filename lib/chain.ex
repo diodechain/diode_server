@@ -37,6 +37,12 @@ defmodule Chain do
   def init(ets_extra) do
     _create(ets_extra)
     BlockProcess.start_link()
+
+    OnCrash.call(fn reason ->
+      Logger.error("Chain exited with reason #{inspect(reason)}. Halting system")
+      System.halt(1)
+    end)
+
     {:ok, load_blocks()}
   end
 
