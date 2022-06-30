@@ -39,6 +39,19 @@ defmodule Model.ChainSql do
       end
     end
 
+    def wait_for_done() do
+      if Ets.size(__MODULE__) > 0 do
+        IO.puts("waiting for write buffer to clean")
+        Process.sleep(1000)
+        wait_for_done()
+      else
+        case GenServer.call(__MODULE__, :wait_for_done, :infinity) do
+          :ok -> :ok
+          :more -> wait_for_done()
+        end
+      end
+    end
+
     def query(hash) do
       Ets.lookup(__MODULE__, hash, fn -> ChainSql.query_block_by_hash(hash) end)
     end
@@ -70,6 +83,14 @@ defmodule Model.ChainSql do
     @impl true
     def handle_call({:submit, block}, _from, state = %Writer{blocks: blocks}) do
       {:reply, :ok, write(%Writer{state | blocks: blocks ++ [block]})}
+    end
+
+    def handle_call(:wait_for_done, _from, state = %Writer{blocks: []}) do
+      {:reply, :ok, state}
+    end
+
+    def handle_call(:wait_for_done, _from, state = %Writer{}) do
+      {:reply, :more, write(state)}
     end
 
     @impl true
@@ -298,6 +319,7 @@ defmodule Model.ChainSql do
   end
 
   def put_peak(block_hash) do
+    Writer.wait_for_done()
     [number] = BlockProcess.fetch(block_hash, [:number])
     query!(__MODULE__, "DELETE FROM blocks WHERE number > ?1", bind: [number])
     set_normative(__MODULE__, block_hash)
