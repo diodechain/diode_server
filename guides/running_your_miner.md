@@ -16,9 +16,10 @@ Dockerization will allow to run it in background and restart it when it crashes.
 
 This dataset contains the first 3 million validated blocks and will speed up your initial sync a lot:
 
-1. Download the pre-validate file `wget http://eu2.prenet.diode.io:8000/blockchain.sq3`
-1. Check the md5-checksum to be `168ae1f9d4128d025d03afb1e58854a0`
-1. Move the file to `prod_data/blockchain.sq3`
+1. Download the pre-validate file `wget http://eu2.prenet.diode.io:8000/blockchain.sq3.xz`
+1. Check the md5-checksum to be `f5285a5827611e159073985ebefc47d2`
+1. Move the file to `prod_data/blockchain.sq3.xz`
+1. Extra the file using xz `xz -d blockchain.sq3.xz`
 
 ## Managing Stake
 
