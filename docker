@@ -6,12 +6,20 @@ mkdir -p data_prod
 if [ -f "$HOME/.erlang.cookie" ]; then
     COOKIE=`cat $HOME/.erlang.cookie`
 else
+    if [[ "$OSTYPE" == "darwin"* ]]
+    then
+        MD5=md5
+    else
+        MD5=md5sum
+    fi
     COOKIE=`echo $RANDOM | md5sum | head -c 20`
     echo $COOKIE > "$HOME/.erlang.cookie"
 fi
 
 docker build . -t diode && \
     exec docker run \
+        -d \
+        --restart unless-stopped \
         --mount type=bind,source="$(pwd)/data_prod",target=/app/data_prod \
         --name diode --rm --network=host -ti \
         -e ELIXIR_ERL_OPTIONS="+sbwt none -noinput -noshell -sname diode +A 8 -setcookie $COOKIE" \
