@@ -3,17 +3,24 @@
 # Copyright 2021 Diode
 # Licensed under the Diode License, Version 1.1
 mkdir -p data_prod
+MD5=md5sum
 if [ -f "$HOME/.erlang.cookie" ]; then
     COOKIE=`cat $HOME/.erlang.cookie`
 else
-    COOKIE=`echo $RANDOM | md5sum | head -c 20`
+    if [[ "$OSTYPE" == "darwin"* ]]
+    then
+        MD5=md5
+    fi
+    COOKIE=`echo $RANDOM | $MD5 | head -c 20`
     echo $COOKIE > "$HOME/.erlang.cookie"
 fi
 
 docker build . -t diode && \
     exec docker run \
+        -d \
+        --restart unless-stopped \
         --mount type=bind,source="$(pwd)/data_prod",target=/app/data_prod \
-        --name diode --rm --network=host -ti \
+        --name diode --network=host -ti \
         -e ELIXIR_ERL_OPTIONS="+sbwt none -noinput -noshell -sname diode +A 8 -setcookie $COOKIE" \
         -e MIX_ENV=prod \
         -e PORT=8080 \
