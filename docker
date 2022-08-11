@@ -3,16 +3,15 @@
 # Copyright 2021 Diode
 # Licensed under the Diode License, Version 1.1
 mkdir -p data_prod
+MD5=md5sum
 if [ -f "$HOME/.erlang.cookie" ]; then
     COOKIE=`cat $HOME/.erlang.cookie`
 else
     if [[ "$OSTYPE" == "darwin"* ]]
     then
         MD5=md5
-    else
-        MD5=md5sum
     fi
-    COOKIE=`echo $RANDOM | md5sum | head -c 20`
+    COOKIE=`echo $RANDOM | $MD5 | head -c 20`
     echo $COOKIE > "$HOME/.erlang.cookie"
 fi
 
