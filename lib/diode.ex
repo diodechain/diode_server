@@ -398,7 +398,7 @@ defmodule Diode do
     |> Object.Server.sign(Wallet.privkey!(Diode.miner()))
   end
 
-  defp get_env(name, default \\ nil) do
+  def get_env(name, default \\ nil) do
     case System.get_env(name) do
       nil when is_function(default) -> default.()
       nil -> default

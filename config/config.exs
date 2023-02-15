@@ -31,6 +31,10 @@ case Mix.env() do
     System.put_env("WORKER_MODE", "poll")
     System.put_env("SEED", "none")
 
+  # :prod ->
+  #   Manually input your public IP address here if behind NAT
+  #   System.put_env("HOST", "<host-ip-address>")
+
   _env ->
     :ok
 end

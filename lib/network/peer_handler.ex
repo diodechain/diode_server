@@ -130,8 +130,13 @@ defmodule Network.PeerHandler do
   end
 
   defp send_hello(state) do
-    {:ok, {addr, _port}} = :ssl.sockname(state.socket)
-    hello = Diode.self(:erlang.list_to_binary(:inet.ntoa(addr)))
+    hostname =
+      Diode.get_env("HOST", fn ->
+        {:ok, {addr, _port}} = :ssl.sockname(state.socket)
+        :erlang.list_to_binary(:inet.ntoa(addr))
+      end)
+
+    hello = Diode.self(hostname)
 
     case ssl_send(state, [@hello, Object.encode!(hello), Chain.genesis_hash()]) do
       {:noreply, state} ->
