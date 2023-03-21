@@ -325,6 +325,7 @@ defmodule Chain do
             ets_add_placeholder(block_hash, number)
           else
             IO.puts("Chain.add_block: Replacing main #{info}")
+            IO.puts("Old Peak: #{peak_info}: #{total_difficulty} > #{peak_total_difficulty}")
 
             # Recursively makes a new branch normative
             ChainSql.put_peak(block_hash)
@@ -578,9 +579,7 @@ defmodule Chain do
           [parent: parent, hash: hash, number: number], prev ->
             if prev != nil and prev != parent do
               Diode.puts(
-                "fixing inconsistent block #{number} #{Base16.encode(prev)} != #{
-                  Base16.encode(parent)
-                } "
+                "fixing inconsistent block #{number} #{Base16.encode(prev)} != #{Base16.encode(parent)} "
               )
 
               ChainSql.put_peak(prev)

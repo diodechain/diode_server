@@ -204,9 +204,7 @@ defmodule ChainTest do
         # assert Block.gas_used(head) == Rlpx.bin2num(block["blockHeader"]["gasUsed"])
         if Block.gas_used(head) != Rlpx.bin2num(block["blockHeader"]["gasUsed"]) do
           IO.puts(
-            "\tGas difference! #{Block.gas_used(head)} != #{
-              Rlpx.bin2num(block["blockHeader"]["gasUsed"])
-            }"
+            "\tGas difference! #{Block.gas_used(head)} != #{Rlpx.bin2num(block["blockHeader"]["gasUsed"])}"
           )
         else
           IO.puts("\tequal")
@@ -248,9 +246,7 @@ defmodule ChainTest do
       else
         if Account.balance(result) != Account.balance(account) do
           IO.puts(
-            "\tBalance mismatch in #{Wallet.printable(wallet)} #{Account.balance(result)} < #{
-              Account.balance(account)
-            }"
+            "\tBalance mismatch in #{Wallet.printable(wallet)} #{Account.balance(result)} < #{Account.balance(account)}"
           )
         end
 

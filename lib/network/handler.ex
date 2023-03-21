@@ -59,9 +59,7 @@ defmodule Network.Handler do
             if node_id != nil and not Wallet.equal?(node_id, remote_id) do
               log(
                 {node_id, address, port},
-                "Expected #{Wallet.printable(node_id)} different from found #{
-                  Wallet.printable(remote_id)
-                }"
+                "Expected #{Wallet.printable(node_id)} different from found #{Wallet.printable(remote_id)}"
               )
             end
 

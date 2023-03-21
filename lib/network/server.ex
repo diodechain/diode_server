@@ -60,9 +60,7 @@ defmodule Network.Server do
 
           {:error, reason} ->
             Logger.error(
-              "Failed to open #{inspect(protocolHandler)} port: #{inspect(port)} for reason: #{
-                inspect(reason)
-              }"
+              "Failed to open #{inspect(protocolHandler)} port: #{inspect(port)} for reason: #{inspect(reason)}"
             )
 
             {ports, sockets}

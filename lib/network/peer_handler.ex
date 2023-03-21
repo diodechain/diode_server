@@ -289,9 +289,7 @@ defmodule Network.PeerHandler do
 
       Chain.throttle_sync(
         len > 10,
-        "Downloading block #{Block.number(oldest)}/#{Block.number(peak)} (#{
-          Chain.peak() - Block.number(oldest)
-        }) from #{name(state)}"
+        "Downloading block #{Block.number(oldest)}/#{Block.number(peak)} (#{Chain.peak() - Block.number(oldest)}) from #{name(state)}"
       )
     end
 

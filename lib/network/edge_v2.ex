@@ -1135,6 +1135,7 @@ defmodule Network.EdgeV2 do
       Logger.error("missing block #{n}")
       System.halt(1)
     else
+      Logger.info("block #{inspect(n)} not found")
       throw(:notfound)
     end
   end

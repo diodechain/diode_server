@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <unordered_map>
 #include <utility>
+#include <cstdio>
 #include <byteswap.h>
 #include <vector>
 
