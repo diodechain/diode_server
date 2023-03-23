@@ -59,6 +59,7 @@ defmodule Chain.Transaction do
     type = Atom.to_string(type(tx))
     value = value(tx)
     code = Base16.encode(payload(tx))
+    nonce = nonce(tx)
 
     code =
       if byte_size(code) > 40 do
@@ -67,7 +68,7 @@ defmodule Chain.Transaction do
 
     IO.puts("")
     IO.puts("\tTransaction: #{hash} Type: #{type}")
-    IO.puts("\tFrom:        #{from} To: #{to}")
+    IO.puts("\tFrom:        #{from} (#{nonce}) To: #{to}")
     IO.puts("\tValue:       #{value} Code: #{code}")
 
     # rlp = to_rlp(tx) |> Rlp.encode!()
