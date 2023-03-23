@@ -22,10 +22,9 @@ defmodule Network.Handler do
         {:ok, state, {:continue, [:connect, node_id, address, port]}}
       end
 
-      @word_size 8
       defp setup_process(state) do
         Process.link(state.server_pid)
-        Process.flag(:max_heap_size, div(100_000_000, @word_size))
+        Process.flag(:max_heap_size, 25_000_000)
       end
 
       def handle_continue(:init, state) do
