@@ -407,7 +407,11 @@ defmodule Chain.Block do
   def total_difficulty(%Block{} = block) do
     # Explicit usage of Block and BlockCache cause otherwise cache filling
     # becomes self-recursive problem
-    Block.difficulty(block) + BlockCache.total_difficulty(parent_hash(block))
+    if number(block) > 0 do
+      Block.difficulty(block) + BlockCache.total_difficulty(parent_hash(block))
+    else
+      Block.difficulty(block)
+    end
   end
 
   @spec number(Block.t()) :: non_neg_integer()

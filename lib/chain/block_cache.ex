@@ -120,10 +120,6 @@ defmodule Chain.BlockCache do
     end
   end
 
-  def create_cache(nil) do
-    nil
-  end
-
   def create_cache(block) do
     %BlockCache{
       difficulty: Block.difficulty(block),
@@ -217,7 +213,6 @@ defmodule Chain.BlockCache do
 
   def total_difficulty(hash) do
     case cache(hash) do
-      nil -> 0
       %{total_difficulty: total_difficulty} -> total_difficulty
     end
   end
