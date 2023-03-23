@@ -37,4 +37,8 @@ defmodule Model.Ets do
   def size(name) do
     :ets.info(name, :size)
   end
+
+  def member?(name, idx) do
+    :ets.member(name, idx)
+  end
 end

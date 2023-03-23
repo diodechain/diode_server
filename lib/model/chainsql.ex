@@ -95,7 +95,8 @@ defmodule Model.ChainSql do
 
     @impl true
     def handle_cast({:submit, block}, state = %Writer{blocks: blocks}) do
-      {:noreply, write(%Writer{state | blocks: blocks ++ [block]})}
+      GenServer.cast(self(), :write)
+      {:noreply, %Writer{state | blocks: blocks ++ [block]}}
     end
 
     def handle_cast(:write, state) do
@@ -106,25 +107,27 @@ defmodule Model.ChainSql do
       state
     end
 
-    defp write(state = %Writer{blocks: [{:num, block_ref} | rest], db: db}) do
+    defp write(state = %Writer{blocks: [a | rest], db: db}) do
+      do_write({db, a})
+      GenServer.cast(self(), :write)
+      %Writer{state | blocks: rest}
+    end
+
+    defp do_write({db, {:num, block_ref}}) do
       ChainSql.do_put_block_number(db, block_ref)
-      GenServer.cast(self(), :write)
-      %Writer{state | blocks: rest}
     end
 
-    defp write(state = %Writer{blocks: [{:block, block} | rest], db: db}) do
-      ChainSql.do_put_new_block(db, block)
-      Ets.remove(__MODULE__, Block.hash(block))
-      GenServer.cast(self(), :write)
-      %Writer{state | blocks: rest}
-    end
+    defp do_write({db, {:hash, hash}}) do
+      case peek(hash) do
+        nil ->
+          IO.puts("skipping re-write of block #{Base16.encode(hash)}")
 
-    defp write(state = %Writer{blocks: [{:hash, hash} | rest], db: db}) do
-      block = peek(hash)
-      ChainSql.do_put_new_block(db, block)
-      Ets.remove(__MODULE__, Block.hash(block))
-      GenServer.cast(self(), :write)
-      %Writer{state | blocks: rest}
+        block ->
+          IO.puts("writing block #{Base16.encode(hash)}")
+          ChainSql.do_put_new_block(db, block)
+          Ets.remove(__MODULE__, Block.hash(block))
+          GenServer.cast(self(), :write)
+      end
     end
   end
 
@@ -241,7 +244,6 @@ defmodule Model.ChainSql do
   # public because the writer needs to call it
   def do_put_block_number(db, block_ref) do
     [hash, number] = BlockProcess.fetch(block_ref, [:hash, :number])
-    # IO.puts("put_block_number(#{number})")
     query!(db, "UPDATE blocks SET number = ?2 WHERE hash = ?1", bind: [hash, number])
   end
 
@@ -321,7 +323,8 @@ defmodule Model.ChainSql do
   def put_peak(block_hash) do
     Writer.wait_for_done()
     [number] = BlockProcess.fetch(block_hash, [:number])
-    query!(__MODULE__, "DELETE FROM blocks WHERE number > ?1", bind: [number])
+    # query!(__MODULE__, "DELETE FROM blocks WHERE number > ?1", bind: [number])
+    query!(__MODULE__, "UPDATE blocks SET number = NULL WHERE number > ?1", bind: [number])
     set_normative(__MODULE__, block_hash)
   end
 
@@ -506,8 +509,9 @@ defmodule Model.ChainSql do
   end
 
   def clear_alt_blocks() do
-    Sql.query!(__MODULE__, "DELETE FROM blocks WHERE number IS NULL", call_timeout: @infinity)
-    Sql.query!(__MODULE__, "PRAGMA OPTIMIZE", call_timeout: @infinity)
+    # Sql.query!(__MODULE__, "DELETE FROM blocks WHERE number IS NULL", call_timeout: @infinity)
+    # Sql.query!(__MODULE__, "PRAGMA OPTIMIZE", call_timeout: @infinity)
+    :ok
   end
 
   def transaction(txhash) do
