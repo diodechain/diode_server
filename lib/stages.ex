@@ -15,7 +15,7 @@ defmodule Stages do
       if Diode.dev_mode?() do
         %{stage: 0, ticks: 0, min_conns: 0, min_ticks: 0}
       else
-        %{stage: 0, ticks: 0, min_conns: 2, min_ticks: 10}
+        %{stage: 0, ticks: 0, min_conns: 2, min_ticks: 30}
       end
 
     {:ok, state}
