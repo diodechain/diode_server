@@ -131,7 +131,7 @@ defmodule Model.ChainSql do
     end
   end
 
-  defp fetch!(sql, param1 \\ nil) do
+  def fetch!(sql, param1 \\ nil) do
     fetch!(__MODULE__, sql, param1)
   end
 
@@ -530,31 +530,69 @@ defmodule Model.ChainSql do
     {state, BertInt.encode!(state)}
   end
 
-  defp compress_state(db, block, state) do
+  @jump_size 500
+  defp compress_state(db, block, state, async \\ true) do
     nr = Block.number(block)
 
-    if nr > 0 and rem(nr, 100) == 1 do
+    if nr <= 1 or rem(nr, @jump_size) == 1 do
       :nop
     else
-      spawn_link(fn ->
-        prev = nr - rem(nr, 100) + 1
+      if async do
+        spawn(fn -> do_compress_state(db, block, state) end)
+      else
+        do_compress_state(db, block, state)
+      end
+    end
+  end
 
-        case Sql.query!(db, "SELECT hash, state FROM blocks WHERE number = ?1", bind: [prev]) do
-          [[hash: hash, state: bin]] ->
-            prev_state = %Chain.State{} = BertInt.decode!(bin)
+  defp do_compress_state(db, block, state) do
+    nr = Block.number(block)
 
-            compressed_state =
-              {hash, Chain.State.difference(prev_state, state)}
-              |> BertInt.encode!()
+    prev =
+      case rem(nr, @jump_size) do
+        0 -> nr - (@jump_size - 1)
+        x -> nr - x + 1
+      end
 
-            Sql.query_async!(db, "UPDATE blocks SET state = ?2 WHERE hash = ?1",
-              bind: [Block.hash(block), compressed_state]
-            )
+    case Sql.query!(db, "SELECT hash, state FROM blocks WHERE number = ?1", bind: [prev]) do
+      [[hash: hash, state: bin]] ->
+        with prev_state = %Chain.State{} <- BertInt.decode!(bin) do
+          compressed_state =
+            {hash, Chain.State.difference(prev_state, state)}
+            |> BertInt.encode!()
 
-          [] ->
-            :nop
+          Sql.query_async!(db, "UPDATE blocks SET state = ?2 WHERE hash = ?1",
+            bind: [Block.hash(block), compressed_state]
+          )
         end
+    end
+  end
+
+  def state_size(db \\ Db.Default, block_number) do
+    [[size: size]] =
+      Sql.query!(db, "SELECT length(hex(state))/2 AS size FROM blocks WHERE number = ?1",
+        bind: [block_number]
+      )
+
+    size
+  end
+
+  def recompress_block(db \\ Db.Default, block_number) do
+    {block_number, pre, aft} =
+      BlockProcess.with_block(block_number, fn block ->
+        pre = state_size(block_number)
+        compress_state(db, block, Block.state(block), false)
+        aft = state_size(block_number)
+        {block_number, pre, aft}
       end)
+
+    IO.puts("recompress #{block_number} = #{pre} => #{aft}")
+  end
+
+  def recompress_blocks() do
+    for nr <- Range.new(4_900_000, Chain.peak(), 100) do
+      recompress_block(nr)
+      recompress_block(nr + 1)
     end
   end
 end
