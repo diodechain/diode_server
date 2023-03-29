@@ -51,7 +51,7 @@ defmodule Network.Handler do
             tup when is_tuple(tup) -> tup
           end
 
-        case :ssl.connect(address, port, ssl_options(state.ssl_opts), 5000) do
+        case :ssl.connect(address, port, ssl_options(role: :client), 5000) do
           {:ok, socket} ->
             remote_id = Wallet.from_pubkey(Certs.extract(socket))
 

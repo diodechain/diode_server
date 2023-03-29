@@ -279,7 +279,7 @@ defmodule BlockProcess do
   def with_block(nil, fun), do: fun.(nil)
   def with_block(num, fun) when is_integer(num), do: with_block(Chain.blockhash(num), fun)
 
-  def with_block(<<"0x", _rest::binary()>> = ref, fun) do
+  def with_block(<<"0x", _rest::binary>> = ref, fun) do
     if byte_size(ref) >= 66 do
       # assuming it's a block hash
       with_block(Base16.decode(ref), fun)

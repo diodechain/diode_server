@@ -19,7 +19,7 @@ defmodule Network.Server do
             clients: %{},
             protocol: nil,
             ports: [],
-            opts: [],
+            opts: %{},
             pid: nil,
             acceptors: %{},
             self_conns: []
@@ -54,7 +54,7 @@ defmodule Network.Server do
 
     {ports, sockets} =
       Enum.reduce(ports, {[], %{}}, fn port, {ports, sockets} ->
-        case :ssl.listen(port, protocolHandler.ssl_options(opts)) do
+        case :ssl.listen(port, protocolHandler.ssl_options([])) do
           {:ok, socket} ->
             {ports ++ [port], Map.put(sockets, port, socket)}
 
@@ -302,8 +302,7 @@ defmodule Network.Server do
 
   defp start_worker!(state, cmd) do
     worker_state = %{
-      server_pid: state.pid,
-      ssl_opts: state.opts
+      server_pid: state.pid
     }
 
     {:ok, worker} =
@@ -315,7 +314,10 @@ defmodule Network.Server do
     worker
   end
 
-  def default_ssl_options(_opts) do
+  def default_ssl_options(opts) do
+    # Can be :server or :client
+    role = Keyword.get(opts, :role, :server)
+
     w = Diode.miner()
     public = Wallet.pubkey_long!(w)
     private = Wallet.privkey!(w)
@@ -329,7 +331,6 @@ defmodule Network.Server do
       versions: [:"tlsv1.2"],
       verify: :verify_peer,
       verify_fun: {&check/3, nil},
-      fail_if_no_peer_cert: true,
       # Requires client to advertise the same
       # openssl s_client -curves secp256k1 -connect localhost:41045 -showcerts -msg -servername local -tls1_2 -tlsextdebug
       eccs: [:secp256k1],
@@ -339,6 +340,11 @@ defmodule Network.Server do
       show_econnreset: true,
       nodelay: false,
       delay_send: true
-    ]
+    ] ++
+      if role == :server do
+        [fail_if_no_peer_cert: true]
+      else
+        []
+      end
   end
 end

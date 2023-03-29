@@ -123,7 +123,7 @@ defmodule Model.ChainSql do
           IO.puts("skipping re-write of block #{Base16.encode(hash)}")
 
         block ->
-          IO.puts("writing block #{Base16.encode(hash)}")
+          # IO.puts("writing block #{Base16.encode(hash)}")
           ChainSql.do_put_new_block(db, block)
           Ets.remove(__MODULE__, Block.hash(block))
           GenServer.cast(self(), :write)
