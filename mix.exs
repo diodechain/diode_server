@@ -11,7 +11,7 @@ defmodule Diode.Mixfile do
   def project do
     [
       app: Diode,
-      elixir: "~> 1.11",
+      elixir: "~> 1.12",
       version: :persistent_term.get(:vsn, @vsn),
       full_version: :persistent_term.get(:full_vsn, @full_vsn),
       source_url: @url,
