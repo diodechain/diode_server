@@ -588,7 +588,8 @@ defmodule Model.ChainSql do
   end
 
   def recompress_blocks() do
-    for nr <- Range.new(4_900_000, Chain.peak(), 100) do
+    for nr <- 0..div(Chain.peak(), 100) do
+      nr = nr * 100
       recompress_block(nr)
       recompress_block(nr + 1)
     end
