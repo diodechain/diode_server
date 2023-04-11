@@ -112,6 +112,10 @@ defmodule Diode do
     end
 
     Supervisor.start_child(Diode.Supervisor, Network.Server.child(edge2_ports(), Network.EdgeV2))
+    |> case do
+      {:error, :already} -> Supervisor.restart_child(Diode.Supervisor, Network.EdgeV2)
+      other -> other
+    end
   end
 
   def stop_client_network() do
