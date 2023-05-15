@@ -51,7 +51,10 @@ defmodule Json do
   end
 
   defp do_encode(int, conv) when is_integer(int) and int >= 0 do
-    Base16.encode(int, conv[:big_x])
+    case Base16.encode(int, conv[:big_x]) do
+      "0x0" <> rest -> "0x" <> rest
+      other -> other
+    end
   end
 
   defp do_encode("", _conv) do
