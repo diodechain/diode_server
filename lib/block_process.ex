@@ -134,7 +134,7 @@ defmodule BlockProcess do
   defstruct [:ready, :mons, :queue]
 
   def start_link() do
-    GenServer.start_link(__MODULE__, %BlockProcess{ready: %{}, mons: %{}, queue: []},
+    GenServer.start_link(__MODULE__, %BlockProcess{ready: %{}, mons: %{}, queue: :queue.new()},
       name: __MODULE__
     )
   end
@@ -157,7 +157,7 @@ defmodule BlockProcess do
 
       [pid | rest] ->
         ready = Map.put(ready, block_hash, rest)
-        queue = List.delete(queue, pid)
+        queue = queue_delete(queue, pid)
         {:reply, pid, %BlockProcess{state | ready: ready, queue: queue}}
     end
   end
@@ -172,7 +172,7 @@ defmodule BlockProcess do
 
     state =
       %BlockProcess{state | mons: Map.put(mons, mon, block_hash), ready: ready}
-      |> queue_add(block_pid)
+      |> queue_add(block_pid, block_hash)
 
     {:reply, block_pid, state}
   end
@@ -186,8 +186,15 @@ defmodule BlockProcess do
 
     if pid in workers do
       rest = List.delete(workers, pid)
-      queue = List.delete(queue, pid)
-      ready = Map.put(ready, block_hash, rest)
+      queue = queue_delete(queue, pid)
+
+      ready =
+        if rest == [] do
+          Map.delete(ready, block_hash)
+        else
+          Map.put(ready, block_hash, rest)
+        end
+
       {:reply, true, %BlockProcess{state | ready: ready, queue: queue}}
     else
       {:reply, false, state}
@@ -201,48 +208,54 @@ defmodule BlockProcess do
       ) do
     workers = [pid | Map.get(ready, block_hash, [])]
     ready = Map.put(ready, block_hash, workers)
-    {:noreply, queue_add(%BlockProcess{state | ready: ready}, pid)}
+    {:noreply, queue_add(%BlockProcess{state | ready: ready}, pid, block_hash)}
   end
 
   @impl true
   def handle_info(
-        {:DOWN, ref, :process, pid, reason},
+        {:DOWN, ref, :process, remove_pid, reason},
         state = %BlockProcess{ready: ready, mons: mons, queue: queue}
       ) do
-    block_hash = Map.get(mons, ref)
-    workers = List.delete(Map.get(ready, block_hash, []), pid)
-    queue = List.delete(queue, pid)
-    ready = Map.put(ready, block_hash, workers)
+    remove_hash = Map.get(mons, ref)
+    queue = queue_delete(queue, remove_pid)
+
+    ready =
+      case Map.get(ready, remove_hash) do
+        nil -> ready
+        [^remove_pid] -> Map.delete(ready, remove_hash)
+        workers -> Map.put(ready, remove_hash, List.delete(workers, remove_pid))
+      end
+
     mons = Map.delete(mons, ref)
 
     if reason != :normal do
-      Logger.warn("block_proxy #{Base16.encode(block_hash)} crashed for #{inspect(reason)}")
+      Logger.warn("block_proxy #{Base16.encode(remove_hash)} crashed for #{inspect(reason)}")
     end
 
     {:noreply, %BlockProcess{state | mons: mons, ready: ready, queue: queue}}
   end
 
   @queue_limit 100
-  defp queue_add(state = %BlockProcess{queue: queue, ready: ready}, pid) do
-    if length(queue) > @queue_limit do
-      # remove =
-      #   case Enum.max_by(ready, fn {_, workers} -> length(workers) end) do
-      #     {_, workers} when length(workers) > 2 -> List.last(workers)
-      #     _ -> List.last(queue)
-      #   end
-      remove = List.last(queue)
-
-      send(remove, :stop)
-      queue = List.delete(queue, remove)
+  defp queue_add(state = %BlockProcess{queue: queue, ready: ready}, pid, hash) do
+    if :queue.len(queue) > @queue_limit do
+      {{:value, {remove_pid, remove_hash}}, queue} = :queue.out_r(queue)
+      send(remove_pid, :stop)
 
       ready =
-        Enum.map(ready, fn {block_hash, workers} -> {block_hash, List.delete(workers, remove)} end)
-        |> Map.new()
+        case Map.get(ready, remove_hash) do
+          nil -> ready
+          [^remove_pid] -> Map.delete(ready, remove_hash)
+          workers -> Map.put(ready, remove_hash, List.delete(workers, remove_pid))
+        end
 
-      %BlockProcess{state | ready: ready, queue: [pid | queue]}
+      %BlockProcess{state | ready: ready, queue: :queue.in_r({pid, hash}, queue)}
     else
-      %BlockProcess{state | queue: [pid | queue]}
+      %BlockProcess{state | queue: :queue.in_r({pid, hash}, queue)}
     end
+  end
+
+  defp queue_delete(queue, pid) do
+    :queue.delete_with(fn {tpid, _} -> tpid == pid end, queue)
   end
 
   def fetch(block_ref, methods) when is_list(methods) do
