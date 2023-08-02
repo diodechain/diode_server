@@ -17,6 +17,10 @@ defmodule Network.RpcWs do
     {:reply, {:pong, message}, state}
   end
 
+  def websocket_handle(:ping, state) do
+    {:reply, :pong, state}
+  end
+
   def websocket_handle({:binary, message}, state) do
     websocket_handle({:text, message}, state)
   end
