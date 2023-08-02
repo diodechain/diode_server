@@ -338,7 +338,7 @@ defmodule Edge2Client do
   def client(n) do
     # :io.format("client(~p)~n", [n])
     cert = "./test/pems/device#{n}_certificate.pem"
-    {:ok, socket} = :ssl.connect('localhost', Diode.edge2_port(), options(cert), 5000)
+    {:ok, socket} = :ssl.connect('localhost', hd(Diode.edge2_ports()), options(cert), 5000)
     wallet = clientid(n)
     key = Wallet.privkey!(wallet)
     fleet = Diode.fleet_address()

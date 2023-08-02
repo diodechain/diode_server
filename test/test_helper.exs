@@ -152,14 +152,23 @@ defmodule TestHelper do
     )
   end
 
+  def is_macos() do
+    :os.type() == {:unix, :darwin}
+  end
+
   def count_clones() do
-    {ret, _} = System.cmd("pgrep", ["-fc", @cookie])
-    {count, _} = Integer.parse(ret)
-    count
+    if is_macos() do
+      {ret, _} = System.cmd("pgrep", ["-f", @cookie])
+      String.split(ret, "\n", trim: true) |> Enum.count()
+    else
+      {ret, _} = System.cmd("pgrep", ["-fc", @cookie])
+      {count, _} = Integer.parse(ret)
+      count
+    end
   end
 
   def kill_clones() do
-    System.cmd("pkill", ["-fc", "-9", @cookie])
+    System.cmd("pkill", ["-9", "-f", @cookie])
     :ok = wait_clones(0, 60)
   end
 

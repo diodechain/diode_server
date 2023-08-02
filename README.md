@@ -72,6 +72,13 @@ mix deps.get
 mix compile
 ```
 
+## erl_nif.h not found
+
+In case you receive the `erl_nif.h` not found error add this:
+```bash
+export CFLAGS=-I`erl -eval 'io:format("~s", [lists:concat([code:root_dir(), "/erts-", erlang:system_info(version), "/include"])])' -s init stop -noshell`
+```
+
 ## Building on macOS
 
 On macOS after installing boost with brew you might need to add it to the environment variables, so the compiler can find it:

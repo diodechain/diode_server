@@ -85,7 +85,7 @@ defmodule RpcTest do
               "id" => 1,
               "jsonrpc" => "2.0",
               "result" => %{
-                "blockNumber" => "0x03",
+                "blockNumber" => "0x3",
                 "contractAddress" => nil,
                 "cumulativeGasUsed" => _variable,
                 "from" => ^from,
@@ -93,10 +93,10 @@ defmodule RpcTest do
                 "logs" => [],
                 "logsBloom" =>
                   "0x0000000000000000000000000000000000000000000000000000000000000000",
-                "status" => "0x01",
+                "status" => "0x1",
                 "to" => ^to,
                 "transactionHash" => ^hash,
-                "transactionIndex" => "0x00"
+                "transactionIndex" => "0x0"
               }
             }} = ret
   end
