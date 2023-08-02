@@ -72,6 +72,16 @@ mix deps.get
 mix compile
 ```
 
+## Building on macOS
+
+On macOS after installing boost with brew you might need to add it to the environment variables, so the compiler can find it:
+
+```bash
+brew install boost
+export CFLAGS=-I`brew --prefix boost`/include 
+export LDFLAGS=-L`brew --prefix boost`/lib
+```
+
 # Running tests
 
 ```bash

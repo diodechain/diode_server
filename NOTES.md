@@ -37,4 +37,9 @@ slot4 = <<27, 241, 228, 27, 25, 19, 64, 172, 238, 203, 185, 176, 129, 254, 154, 
 end) |> elem(0)
 4000
 
+## 2nd Aug 2023 BNS 
+
+bns = Hash.to_address(0xAF60FAA5CD840B724742F1AF116168276112D6A6)
+rpc.("getaccountroots", [bns]) |> elem(0)
+
 ```

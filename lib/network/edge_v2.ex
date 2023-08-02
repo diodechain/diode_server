@@ -441,25 +441,23 @@ defmodule Network.EdgeV2 do
         end)
 
       ["getaccountroots", index, id] ->
-        BlockProcess.with_account(to_num(index), id, fn
+        BlockProcess.with_account_tree(to_num(index), id, fn
           nil -> error("account does not exist")
-          acc -> response(MerkleTree.root_hashes(Chain.Account.tree(acc)))
+          tree -> response(MerkleTree.root_hashes(tree))
         end)
 
       ["getaccountvalue", index, id, key] ->
-        BlockProcess.with_account(to_num(index), id, fn
+        BlockProcess.with_account_tree(to_num(index), id, fn
           nil -> error("account does not exist")
-          acc -> response(MerkleTree.get_proofs(Chain.Account.tree(acc), key))
+          tree -> response(MerkleTree.get_proofs(tree, key))
         end)
 
       ["getaccountvalues", index, id | keys] ->
-        BlockProcess.with_account(to_num(index), id, fn
+        BlockProcess.with_account_tree(to_num(index), id, fn
           nil ->
             error("account does not exist")
 
-          acc ->
-            tree = MerkleTree.merkle(Chain.Account.tree(acc))
-
+          tree ->
             response(
               Enum.map(keys, fn key ->
                 MerkleTree.get_proofs(tree, key)

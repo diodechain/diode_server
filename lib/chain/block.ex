@@ -50,6 +50,22 @@ defmodule Chain.Block do
     BlockProcess.maybe_cache(hash(block), :state_tree, fn -> Chain.State.tree(state(block)) end)
   end
 
+  def account_tree(%Block{} = block, account_id) do
+    BlockProcess.maybe_cache(hash(block), {:account_tree, account_id}, fn ->
+      state(block)
+      |> Chain.State.account(account_id)
+      |> case do
+        nil ->
+          nil
+
+        acc ->
+          acc
+          |> Chain.Account.tree()
+          |> MerkleTree.merkle()
+      end
+    end)
+  end
+
   @doc "For snapshot exporting ensure the block has a full state object"
   @spec ensure_state(Chain.Block.t()) :: Chain.Block.t()
   def ensure_state(block = %Block{header: %{state_hash: %Chain.State{}}}) do
