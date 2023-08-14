@@ -358,6 +358,10 @@ defmodule Network.EdgeV2 do
             |> response()
         end
 
+      ["isonline", key] ->
+        online = Map.get(Network.Server.get_connections(Network.EdgeV2), key) != nil
+        response(online)
+
       ["getobject", key] ->
         case Kademlia.find_value(key) do
           nil -> nil
