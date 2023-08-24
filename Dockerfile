@@ -1,7 +1,7 @@
 # Diode Server
 # Copyright 2021 Diode
 # Licensed under the Diode License, Version 1.1
-FROM elixir:1.11.4
+FROM elixir:1.14.4
 
 RUN apt-get update && apt-get install -y libboost-dev libboost-system-dev
 

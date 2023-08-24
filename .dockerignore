@@ -6,7 +6,7 @@
 /doc
 
 *.pem
-*.o
+**.o
 *.pyc
 *.fprof
 *.cprof
