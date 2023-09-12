@@ -18,13 +18,16 @@ def install():
     #put(".inputrc", "~")
 
   # Elixir + Base System
-  if not exists("/usr/bin/elixir"):
-    run("wget https://packages.erlang-solutions.com/erlang-solutions_1.0_all.deb")
-    run("dpkg -i erlang-solutions_1.0_all.deb")
+  if not exists("~/.asdf/asdf.sh"):
     run("apt update")
     run("apt upgrade -y")
-    run("apt install -y screen git snap g++ make autoconf esl-erlang elixir libtool libgmp-dev daemontools libboost-system-dev libsqlite3-dev")
+    run("apt install -y libncurses-dev screen git snap g++ make unzip autoconf libtool libgmp-dev daemontools libboost-system-dev libsqlite3-dev")
     run("apt autoremove")
+
+    run("git clone https://github.com/asdf-vm/asdf.git ~/.asdf")
+    run("echo '. ~/.asdf/asdf.sh' >> ~/.bashrc")
+    run(". ~/.asdf/asdf.sh && asdf plugin add erlang")
+    run(". ~/.asdf/asdf.sh && asdf plugin add elixir")
 
   # Application
   run("mkdir -p {}".format(env.diode))
@@ -33,6 +36,9 @@ def install():
     run("git config receive.denyCurrentBranch ignore")
     local("git push -f ssh://{user}@{host}{path} master".format(user=env.user, host=env.host, path=env.diode))
     run("git checkout master")
+    #run("echo 'elixir 1.14' > .tool-versions")
+    #run("echo 'erlang 24.0.4' >> .tool-versions")
+    #run("export KERL_CONFIGURE_OPTIONS=--without-wx && . ~/.asdf/asdf.sh && asdf install")
     run("cp githooks/post-receive .git/hooks/")
     run("cp deployment/diode.service /etc/systemd/system/diode.service")
     run("HOME=`pwd` mix local.hex --force")
