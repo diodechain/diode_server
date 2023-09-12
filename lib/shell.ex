@@ -131,7 +131,7 @@ defmodule Shell do
 
   def profile_import() do
     Stats.toggle_print()
-    :observer.start()
+    # :observer.start()
     spawn(fn -> Chain.import_blocks("blocks.dat") end)
   end
 
