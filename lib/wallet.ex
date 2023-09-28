@@ -141,6 +141,11 @@ defmodule Wallet do
   def sign!(wallet() = w, msg, algo \\ :kec) do
     Secp256k1.sign(privkey!(w), msg, algo)
   end
+
+  def eth_sign!(wallet() = w, msg, chain_id \\ nil, algo \\ :kec) do
+    [v, r, s] = sign!(w, msg, algo) |> Secp256k1.bitcoin_to_rlp(chain_id)
+    <<r::big-unsigned-size(256), s::big-unsigned-size(256), v>>
+  end
 end
 
 defimpl Inspect, for: Wallet do

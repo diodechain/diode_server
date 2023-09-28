@@ -78,8 +78,6 @@ defmodule Diode do
       supervisor(Model.Sql),
       supervisor(Channels),
       worker(PubSub, [args]),
-      worker(Chain.BlockCache, [ets_extra]),
-      worker(Chain, [ets_extra]),
       worker(Chain.Pool, [args]),
       worker(TicketStore, [ets_extra])
     ]
@@ -395,9 +393,9 @@ defmodule Diode do
 
   def self(hostname) do
     Object.Server.new(hostname, hd(edge2_ports()), peer_port(), version(), [
-      ["tickets", TicketStore.value(Chain.epoch())],
+      ["tickets", TicketStore.value(ChainWrap.epoch())],
       ["uptime", Diode.uptime()],
-      ["block", Chain.peak()]
+      ["block", ChainWrap.peak()]
     ])
     |> Object.Server.sign(Wallet.privkey!(Diode.miner()))
   end

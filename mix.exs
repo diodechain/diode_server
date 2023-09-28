@@ -94,6 +94,7 @@ defmodule Diode.Mixfile do
       {:sqlitex, github: "diodechain/sqlitex"},
       {:niffler, "~> 0.1"},
       {:while, "~> 0.2"},
+      {:httpoison, "~> 2.0"},
 
       # linting
       {:dialyxir, "~> 1.1", only: [:dev], runtime: false},
