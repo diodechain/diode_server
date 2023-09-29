@@ -1,8 +1,4 @@
 defmodule CallPermit do
-  # https://github.com/moonbeam-foundation/moonbeam/blob/master/precompiles/call-permit/CallPermit.sol
-  @address Base16.decode("0x000000000000000000000000000000000000080A")
-  # Moonbase Alpha (0x507)
-  # @chain_id 1287
   @domain_separator Base16.decode(
                       "0x2d44830364594de15bf34f87ca86da8d1967e5bc7d64b301864028acb9120412"
                     )
@@ -58,57 +54,23 @@ defmodule CallPermit do
     ABI.encode_call("DOMAIN_SEPARATOR", [], [])
   end
 
-  @endpoint "https://moonbeam-alpha.api.onfinality.io/public"
-  # @endpoint "https://rpc.api.moonbase.moonbeam.network"
-  def call(data) do
-    rpc("eth_call", [
-      %{
-        to: Base16.encode(@address),
-        data: Base16.encode(data)
-      },
-      "latest"
-    ])
-  end
-
-  def blockNumber() do
-    rpc("eth_blockNumber")
-  end
-
-  def rpc(method, params \\ []) do
-    request = %{
-      jsonrpc: "2.0",
-      method: method,
-      params: params,
-      id: 1
-    }
-
-    {:ok, %{body: body}} =
-      HTTPoison.post(@endpoint, Jason.encode!(request), [{"Content-Type", "application/json"}])
-
-    case Jason.decode!(body) do
-      %{"result" => result} ->
-        result
-
-      %{"error" => error} ->
-        raise "RPC error: #{inspect(error)}"
-    end
-  end
-
-  def call_permit(from, to, value, data, gaslimit, deadline) do
-    nonce = call(nonces(from)) |> Base16.decode_int()
+  def call_permit(from_wallet, to, value, data, gaslimit, deadline) do
+    from = Wallet.address!(from_wallet)
+    nonce = Moonbeam.call!(nonces(from)) |> Base16.decode_int()
 
     signature =
       EIP712.encode(@domain_separator, "CallPermit", [
-        {"from", :address, from},
-        {"to", :address, to},
-        {"value", :uint256, value},
-        {"data", :bytes, data},
-        {"gaslimit", :uint64, gaslimit},
-        {"nonce", :uint256, nonce}
+        {"from", "address", from},
+        {"to", "address", to},
+        {"value", "uint256", value},
+        {"data", "bytes", data},
+        {"gaslimit", "uint64", gaslimit},
+        {"nonce", "uint256", nonce},
+        {"deadline", "uint256", deadline}
       ])
 
     [v, r, s] =
-      Wallet.sign!(wallet(), signature)
+      Wallet.sign!(from_wallet, signature, :none)
       |> Secp256k1.bitcoin_to_rlp()
 
     dispatch(from, to, value, data, gaslimit, deadline, v, r, s)
@@ -116,7 +78,7 @@ defmodule CallPermit do
 
   # Making a BNS register call
   def test() do
-    bns = 0x75140F88B0F4B2FBC6DADC16CC51203ADB07FE36
+    bns = Base16.decode("0x75140F88B0F4B2FBC6DADC16CC51203ADB07FE36")
 
     other_wallet =
       {:wallet,
@@ -130,14 +92,34 @@ defmodule CallPermit do
     deadline = 1_800_000_000
 
     call =
-      ABI.encode_call("register", ["string", "address"], [
-        "test_account12",
+      ABI.encode_call("Register", ["string", "address"], [
+        "anotheraccount",
         Wallet.address!(other_wallet)
       ])
 
-    call_permit(Wallet.address!(other_wallet), bns, 0, call, gas_limit, deadline)
-    |> call()
+    call_permit(other_wallet, bns, 0, call, gas_limit, deadline)
+    |> Moonbeam.call!()
   end
 
-  # CallPermit.call(CallPermit.domain_separator())
+  def test2() do
+    bns = Base16.decode("0x75140F88B0F4B2FBC6DADC16CC51203ADB07FE36")
+
+    other_wallet =
+      {:wallet,
+       <<168, 72, 60, 32, 26, 244, 241, 69, 33, 155, 57, 121, 27, 21, 88, 28, 204, 144, 133, 121,
+         249, 232, 26, 246, 75, 105, 137, 103, 59, 96, 250, 145>>,
+       <<2, 234, 139, 191, 188, 193, 51, 129, 233, 219, 195, 29, 184, 143, 180, 241, 241, 125,
+         151, 17, 194, 147, 145, 66, 214, 210, 149, 111, 30, 152, 115, 246, 28>>,
+       <<111, 57, 182, 104, 128, 82, 13, 111, 164, 185, 235, 166, 127, 6, 48, 118, 214, 19, 2, 6>>}
+
+    gas_limit = 500_000
+    deadline = 1_800_000_000
+
+    call = ABI.encode_call("Version")
+
+    call_permit(other_wallet, bns, 0, call, gas_limit, deadline)
+    |> Moonbeam.call!()
+  end
+
+  # CallPermit.call!(CallPermit.domain_separator())
 end

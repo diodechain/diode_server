@@ -393,9 +393,9 @@ defmodule Diode do
 
   def self(hostname) do
     Object.Server.new(hostname, hd(edge2_ports()), peer_port(), version(), [
-      ["tickets", TicketStore.value(ChainWrap.epoch())],
+      ["tickets", TicketStore.value(Moonbeam.epoch())],
       ["uptime", Diode.uptime()],
-      ["block", ChainWrap.peak()]
+      ["block", Moonbeam.peak()]
     ])
     |> Object.Server.sign(Wallet.privkey!(Diode.miner()))
   end
