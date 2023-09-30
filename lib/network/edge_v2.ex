@@ -315,7 +315,7 @@ defmodule Network.EdgeV2 do
   def handle_async_msg(msg, state) do
     case msg do
       ["m1:" <> cmd | rest] ->
-        Network.EdgeV2.handle_async_msg([cmd | rest], state)
+        Network.EdgeM1.handle_async_msg([cmd | rest], state)
 
       ["ping"] ->
         response("pong")
@@ -675,8 +675,15 @@ defmodule Network.EdgeV2 do
         pid = self()
 
         spawn_link(fn ->
-          OnCrash.call(fn err -> log(state, "Error: ~p", [err]) end)
+          OnCrash.call(fn err ->
+            if err != :normal do
+              IO.inspect("#{inspect(method_params)} failed: #{inspect(err)}")
+            end
+          end)
+
           result = handle_async_msg(method_params, state)
+
+          IO.inspect("#{inspect(method_params)} result: #{inspect(result)}")
 
           GenServer.cast(pid, fn state2 ->
             {:noreply, send_socket(state2, request_id, request_id, result)}

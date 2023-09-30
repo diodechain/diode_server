@@ -3,6 +3,11 @@ defmodule CallPermit do
                       "0x2d44830364594de15bf34f87ca86da8d1967e5bc7d64b301864028acb9120412"
                     )
 
+  def address() do
+    Base16.decode("0x000000000000000000000000000000000000080A")
+  end
+
+  # 0xe7f13b866a7fc159cb6ee32bcb4103cf0477652e
   def wallet() do
     {:wallet,
      <<205, 186, 242, 6, 129, 177, 86, 35, 141, 148, 105, 188, 131, 116, 84, 18, 226, 131, 244,
@@ -56,7 +61,7 @@ defmodule CallPermit do
 
   def call_permit(from_wallet, to, value, data, gaslimit, deadline) do
     from = Wallet.address!(from_wallet)
-    nonce = Moonbeam.call!(nonces(from)) |> Base16.decode_int()
+    nonce = rpc_call!(nonces(from)) |> Base16.decode_int()
 
     signature =
       EIP712.encode(@domain_separator, "CallPermit", [
@@ -98,7 +103,7 @@ defmodule CallPermit do
       ])
 
     call_permit(other_wallet, bns, 0, call, gas_limit, deadline)
-    |> Moonbeam.call!()
+    |> rpc_call!()
   end
 
   def test2() do
@@ -118,7 +123,17 @@ defmodule CallPermit do
     call = ABI.encode_call("Version")
 
     call_permit(other_wallet, bns, 0, call, gas_limit, deadline)
-    |> Moonbeam.call!()
+    |> rpc_call!()
+  end
+
+  def rpc_call!(call, from \\ nil, blockref \\ "latest") do
+    {:ok, ret} = rpc_call(call, from, blockref)
+    ret
+  end
+
+  def rpc_call(call, from \\ nil, blockref \\ "latest") do
+    from = if from != nil, do: Base16.encode(from)
+    Moonbeam.call(Base16.encode(address()), from, Base16.encode(call), blockref)
   end
 
   # CallPermit.call!(CallPermit.domain_separator())

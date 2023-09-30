@@ -77,9 +77,12 @@ defmodule Diode do
       worker(Stats, []),
       supervisor(Model.Sql),
       supervisor(Channels),
+      worker(Chain.BlockCache, [ets_extra]),
+      worker(Chain, [ets_extra]),
       worker(PubSub, [args]),
       worker(Chain.Pool, [args]),
-      worker(TicketStore, [ets_extra])
+      worker(TicketStore, [ets_extra]),
+      worker(Moonbeam.NonceProvider)
     ]
 
     children =
@@ -393,9 +396,9 @@ defmodule Diode do
 
   def self(hostname) do
     Object.Server.new(hostname, hd(edge2_ports()), peer_port(), version(), [
-      ["tickets", TicketStore.value(Moonbeam.epoch())],
+      ["tickets", TicketStore.value(Chain.epoch())],
       ["uptime", Diode.uptime()],
-      ["block", Moonbeam.peak()]
+      ["block", Chain.peak()]
     ])
     |> Object.Server.sign(Wallet.privkey!(Diode.miner()))
   end
