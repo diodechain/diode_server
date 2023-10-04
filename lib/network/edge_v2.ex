@@ -1130,6 +1130,7 @@ defmodule Network.EdgeV2 do
     end) || check_block(n)
   end
 
+  @spec check_block(integer()) :: no_return()
   defp check_block(n) do
     if is_integer(n) and n < Chain.peak() do
       # we had some cases of missing blocks

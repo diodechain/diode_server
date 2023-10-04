@@ -207,12 +207,7 @@ defmodule Network.PeerHandler do
       log(state, "wrong genesis: ~p ~p", [Base16.encode(genesis), Base16.encode(genesis_hash)])
       {:stop, :normal, state}
     else
-      state =
-        if Moonbeam.light_node?() do
-          state
-        else
-          publish_peak(state)
-        end
+      state = publish_peak(state)
 
       if Map.has_key?(state, :peer_port) do
         {:noreply, state}

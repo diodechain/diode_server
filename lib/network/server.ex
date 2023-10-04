@@ -48,7 +48,7 @@ defmodule Network.Server do
   end
 
   @impl true
-  @spec init({integer(), atom(), %{}}) :: {:ok, Network.Server.t(), {:continue, :accept}}
+  @spec init({[integer()], atom(), %{}}) :: {:ok, Network.Server.t(), {:continue, :accept}}
   def init({ports, protocolHandler, opts}) when is_list(ports) do
     :erlang.process_flag(:trap_exit, true)
 

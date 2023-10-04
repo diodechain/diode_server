@@ -16,10 +16,6 @@ defmodule Moonbeam do
     0x33638DDE636F9264B6472B9D976D58E757FE88BADAC53F204F3F530ECC5AACFA
   end
 
-  def light_node?() do
-    true
-  end
-
   def get_proof(address, keys, block \\ "latest") do
     # requires https://eips.ethereum.org/EIPS/eip-1186
     rpc!("eth_getProof", [address, keys, block])
@@ -70,9 +66,9 @@ defmodule Moonbeam do
     }
 
     {:ok, %{body: body}} =
-      HTTPoison.post(@endpoint, Jason.encode!(request), [{"Content-Type", "application/json"}])
+      HTTPoison.post(@endpoint, Poison.encode!(request), [{"Content-Type", "application/json"}])
 
-    case Jason.decode!(body) do
+    case Poison.decode!(body) do
       %{"result" => result} ->
         {:ok, result}
 
