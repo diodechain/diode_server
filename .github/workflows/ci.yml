@@ -7,7 +7,7 @@ jobs:
     runs-on: "ubuntu-latest"
     steps:
     - name: Install deps
-      run: apt-get install -y libboost-dev libboost-system-dev
+      run: sudo apt-get install -y libboost-dev libboost-system-dev
 
     - name: Setup elixir
       uses: erlef/setup-elixir@v1
