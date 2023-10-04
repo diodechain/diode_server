@@ -24,7 +24,6 @@ defmodule Kademlia do
     GenServer.start_link(__MODULE__, :ok, name: __MODULE__, hibernate_after: 5_000)
   end
 
-  @spec ping(any) :: any
   def ping(node_id) do
     rpc(find_node(node_id), [Client.ping()])
   end
@@ -51,7 +50,6 @@ defmodule Kademlia do
   @doc """
     store/1 same as store/2 but usees Object.key/1 and Object.encode/1
   """
-  @spec store(tuple()) :: any()
   def store(object) when is_tuple(object) do
     key = Object.key(object)
     value = Object.encode!(object)
@@ -62,7 +60,6 @@ defmodule Kademlia do
     store() stores the given key-value pair in the @k nodes
     that are closest to the key
   """
-  @spec store(binary(), binary()) :: any()
   def store(key, value) when is_binary(value) do
     nodes =
       find_nodes(key)
@@ -76,7 +73,6 @@ defmodule Kademlia do
     find_value() is different from store() in that it might return
     an earlier result
   """
-  @spec find_value(binary()) :: any()
   def find_value(key) do
     key = hash(key)
     nodes = do_find_nodes(key, KBuckets.k(), Client.find_value())
@@ -132,7 +128,6 @@ defmodule Kademlia do
     end
   end
 
-  @spec find_node(Wallet.address()) :: nil | KBuckets.Item.t()
   def find_node(address) do
     case find_nodes(address) do
       [] ->
@@ -146,7 +141,6 @@ defmodule Kademlia do
     end
   end
 
-  @spec find_nodes(any()) :: [KBuckets.Item.t()]
   def find_nodes(key) do
     key = hash(key)
     visited = do_find_nodes(key, KBuckets.k(), Client.find_node())
@@ -175,7 +169,6 @@ defmodule Kademlia do
   Retrieves for the target key either the last cached values or
   the nearest k entries from the KBuckets store
   """
-  @spec find_node_lookup(any()) :: [KBuckets.Item.t()]
   def find_node_lookup(key) do
     get_cached(&nearest_n/1, key)
   end

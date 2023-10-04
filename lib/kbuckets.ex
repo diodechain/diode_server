@@ -12,12 +12,14 @@ defmodule KBuckets do
     defstruct node_id: nil, last_connected: nil, last_error: nil, retries: 0
 
     @type t :: %Item{
-            node_id: Wallet.t(),
+            node_id: Wallet.t() | <<_::256>>,
             last_connected: integer() | nil,
             last_error: integer() | nil,
             retries: integer()
           }
   end
+
+  alias KBuckets.Item
 
   defimpl String.Chars, for: Item do
     def to_string(item) do
@@ -35,7 +37,6 @@ defmodule KBuckets do
   @zero <<0::size(1)>>
   @one <<1::size(1)>>
 
-  @spec new() :: kbuckets()
   def new() do
     self_id = Diode.miner()
 
@@ -46,7 +47,6 @@ defmodule KBuckets do
       }}}
   end
 
-  @spec self(kbuckets()) :: Item.t()
   def self({:kbucket, self_id, _tree}) do
     %Item{node_id: self_id, last_connected: -1}
   end
@@ -56,7 +56,6 @@ defmodule KBuckets do
     |> Object.decode!()
   end
 
-  @spec to_uri(Item.t()) :: binary()
   def to_uri(item) do
     server = object(item)
     host = Server.host(server)
@@ -64,7 +63,6 @@ defmodule KBuckets do
     "diode://#{item.node_id}@#{host}:#{port}"
   end
 
-  @spec size(kbuckets()) :: non_neg_integer()
   def size({:kbucket, _self_id, tree}) do
     do_size(tree)
   end
@@ -77,7 +75,6 @@ defmodule KBuckets do
     do_size(zero) + do_size(one)
   end
 
-  @spec bucket_count(kbuckets()) :: pos_integer()
   def bucket_count({:kbucket, _self_id, tree}) do
     do_bucket_count(tree)
   end
@@ -90,7 +87,6 @@ defmodule KBuckets do
     do_bucket_count(zero) + do_bucket_count(one)
   end
 
-  @spec to_list(kbuckets() | [Item.t()]) :: [Item.t()]
   def to_list({:kbucket, _self_id, tree}) do
     do_to_list(tree)
   end
@@ -110,7 +106,6 @@ defmodule KBuckets do
   @doc """
     nearer_n finds the n nodes nearer or equal to the current node to the provided item.
   """
-  @spec nearer_n(kbuckets() | [Item.t()], Item.t() | item_id(), pos_integer()) :: [Item.t()]
   def nearer_n({:kbucket, self, _tree} = kbuckets, item, n) do
     min_dist = distance(self, item)
 
@@ -217,7 +212,6 @@ defmodule KBuckets do
     Diode.hash(data)
   end
 
-  @spec key(item_id() | node_id() | KBuckets.Item.t()) :: item_id()
   def key(wallet() = w) do
     hash(Wallet.address!(w))
   end
@@ -255,7 +249,6 @@ defmodule KBuckets do
     end
   end
 
-  @spec delete_item(kbuckets(), Item.t() | item_id()) :: kbuckets()
   def delete_item({:kbucket, self_id, tree}, item) do
     key = key(item)
 
@@ -267,7 +260,6 @@ defmodule KBuckets do
     {:kbucket, self_id, tree}
   end
 
-  @spec update_item(kbuckets(), Item.t() | item_id()) :: kbuckets()
   def update_item({:kbucket, self_id, tree}, item) do
     key = key(item)
 
@@ -283,13 +275,11 @@ defmodule KBuckets do
     {:kbucket, self_id, tree}
   end
 
-  @spec member?(kbuckets(), Item.t() | item_id()) :: boolean()
   def member?(kb, item_id) do
     item(kb, item_id) != nil
   end
 
   # Return an item for the given wallet address
-  @spec item(kbuckets(), Item.t() | item_id()) :: Item.t() | nil
   def item(kb, item_id) do
     key = key(item_id)
 
@@ -306,12 +296,10 @@ defmodule KBuckets do
     end
   end
 
-  @spec insert_item(kbuckets(), Item.t() | item_id()) :: kbuckets()
   def insert_item({:kbucket, self_id, tree}, item) do
     {:kbucket, self_id, do_insert_item(tree, item)}
   end
 
-  @spec insert_items(kbuckets(), [Item.t()]) :: kbuckets()
   def insert_items({:kbucket, self_id, tree}, items) do
     tree =
       Enum.reduce(items, tree, fn item, acc ->
@@ -363,7 +351,6 @@ defmodule KBuckets do
     fun.({:leaf, prefix, bucket})
   end
 
-  @spec k() :: integer()
   def k() do
     @k
   end

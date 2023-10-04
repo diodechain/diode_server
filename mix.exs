@@ -10,20 +10,23 @@ defmodule Diode.Mixfile do
 
   def project do
     [
-      app: Diode,
-      elixir: "~> 1.11",
-      version: :persistent_term.get(:vsn, @vsn),
-      full_version: :persistent_term.get(:full_vsn, @full_vsn),
-      source_url: @url,
-      description: "Diode Network Full Blockchain Node implementation",
-      elixirc_options: [warnings_as_errors: Mix.target() == :host],
-      start_permanent: Mix.env() == :prod,
-      deps: deps(),
       aliases: aliases(),
+      app: Diode,
       compilers: [:elixir_make] ++ Mix.compilers(),
-      elixirc_paths: elixirc_paths(Mix.env()),
+      deps: deps(),
+      description: "Diode Network Full Blockchain Node implementation",
+      dialyzer: [
+        plt_add_apps: [:sqlitex]
+      ],
       docs: docs(),
-      package: package()
+      elixir: "~> 1.11",
+      elixirc_options: [warnings_as_errors: Mix.target() == :host],
+      elixirc_paths: elixirc_paths(Mix.env()),
+      full_version: :persistent_term.get(:full_vsn, @full_vsn),
+      package: package(),
+      source_url: @url,
+      start_permanent: Mix.env() == :prod,
+      version: :persistent_term.get(:vsn, @vsn)
     ]
   end
 
@@ -95,6 +98,7 @@ defmodule Diode.Mixfile do
       {:niffler, "~> 0.1"},
       {:while, "~> 0.2"},
       {:httpoison, "~> 2.0"},
+      {:oncrash, "~> 0.0"},
 
       # linting
       {:dialyxir, "~> 1.1", only: [:dev], runtime: false},
