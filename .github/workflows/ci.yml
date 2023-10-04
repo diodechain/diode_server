@@ -3,9 +3,12 @@ on: ["push", "pull_request"]
 
 jobs:
   test_and_build:
-    name: "Build mix release"
+    name: "Build and lint"
     runs-on: "ubuntu-latest"
     steps:
+    - name: Install deps
+      run: apt-get install -y libboost-dev libboost-system-dev
+
     - name: Setup elixir
       uses: erlef/setup-elixir@v1
       with:
