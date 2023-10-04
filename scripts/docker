@@ -1,0 +1,50 @@
+#!/bin/bash
+# Diode Server
+# Copyright 2021 Diode
+# Licensed under the Diode License, Version 1.1
+set -e
+mkdir -p data_prod
+MD5=md5sum
+if [ -f "$HOME/.erlang.cookie" ]; then
+    COOKIE=`cat $HOME/.erlang.cookie`
+else
+    if [[ "$OSTYPE" == "darwin"* ]]
+    then
+        MD5=md5
+    fi
+    COOKIE=`echo $RANDOM | $MD5 | head -c 20`
+    echo $COOKIE > "$HOME/.erlang.cookie"
+fi
+
+docker build . -t diode -f scripts/Dockerfile
+
+case "$1" in
+    "remsh")
+        exec docker run \
+            --network=host -ti \
+            -e COOKIE=$COOKIE \
+            diode remsh
+        ;;
+    "-f")
+        exec docker run \
+            --network=host -ti \
+            -e COOKIE=$COOKIE \
+            --mount type=bind,source="$(pwd)/data_prod",target=/app/data_prod \
+            --name diode \
+            diode
+        ;;
+    "")
+        exec docker run \
+            -d \
+            --restart unless-stopped \
+            --network=host -ti \
+            -e COOKIE=$COOKIE \
+            --mount type=bind,source="$(pwd)/data_prod",target=/app/data_prod \
+            --name diode \
+            diode
+        ;;
+    "")
+        echo "Usage: $0 <''|-f|remsh>"
+        exit 1
+        ;;
+esac

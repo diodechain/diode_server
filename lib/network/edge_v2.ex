@@ -314,6 +314,9 @@ defmodule Network.EdgeV2 do
 
   def handle_async_msg(msg, state) do
     case msg do
+      ["m1:" <> cmd | rest] ->
+        Network.EdgeM1.handle_async_msg([cmd | rest], state)
+
       ["ping"] ->
         response("pong")
 
@@ -357,6 +360,10 @@ defmodule Network.EdgeV2 do
             end
             |> response()
         end
+
+      ["isonline", key] ->
+        online = Map.get(Network.Server.get_connections(Network.EdgeV2), key) != nil
+        response(online)
 
       ["getobject", key] ->
         case Kademlia.find_value(key) do
@@ -551,11 +558,11 @@ defmodule Network.EdgeV2 do
     end
   end
 
-  defp response(arg) do
+  def response(arg) do
     response_array([arg])
   end
 
-  defp response(arg, arg2) do
+  def response(arg, arg2) do
     response_array([arg, arg2])
   end
 
@@ -563,11 +570,11 @@ defmodule Network.EdgeV2 do
     ["response" | args]
   end
 
-  defp error(code, message) do
+  def error(code, message) do
     ["error", code, message]
   end
 
-  defp error(message) do
+  def error(message) do
     ["error", message]
   end
 
@@ -1123,6 +1130,7 @@ defmodule Network.EdgeV2 do
     end) || check_block(n)
   end
 
+  @spec check_block(integer()) :: no_return()
   defp check_block(n) do
     if is_integer(n) and n < Chain.peak() do
       # we had some cases of missing blocks

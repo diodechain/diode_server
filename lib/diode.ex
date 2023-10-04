@@ -42,6 +42,12 @@ defmodule Diode do
     end
 
     puts("Data Dir : #{data_dir()}")
+
+    if System.get_env("COOKIE") do
+      :erlang.set_cookie(String.to_atom(System.get_env("COOKIE")))
+      puts("Cookie   : #{System.get_env("COOKIE")}")
+    end
+
     puts("")
 
     if dev_mode?() and [] == wallets() do
@@ -77,11 +83,12 @@ defmodule Diode do
       worker(Stats, []),
       supervisor(Model.Sql),
       supervisor(Channels),
-      worker(PubSub, [args]),
       worker(Chain.BlockCache, [ets_extra]),
       worker(Chain, [ets_extra]),
+      worker(PubSub, [args]),
       worker(Chain.Pool, [args]),
-      worker(TicketStore, [ets_extra])
+      worker(TicketStore, [ets_extra]),
+      worker(Moonbeam.NonceProvider)
     ]
 
     children =

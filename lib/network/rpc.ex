@@ -741,7 +741,11 @@ defmodule Network.Rpc do
     gas_price = Map.get(opts, "gasPrice", 0x3B9ACA00)
     value = Map.get(opts, "value", 0x0)
     blockRef = Map.get(opts, "blockRef", "latest")
-    chain_id = with_block(blockRef, fn block -> Diode.chain_id(Block.number(block)) end)
+
+    chain_id =
+      Map.get_lazy(opts, "chainId", fn ->
+        with_block(blockRef, fn block -> Diode.chain_id(Block.number(block)) end)
+      end)
 
     nonce =
       Map.get_lazy(opts, "nonce", fn ->

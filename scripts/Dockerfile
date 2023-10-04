@@ -6,6 +6,8 @@ FROM elixir:1.14.4
 RUN apt-get update && apt-get install -y libboost-dev libboost-system-dev
 
 ENV MIX_ENV=prod
+ENV PORT=8080
+ENV ERL_EPMD_ADDRESS=127.0.0.1
 
 COPY mix.* /app/
 
@@ -17,4 +19,4 @@ COPY . /app/
 
 RUN mix do compile, git_version
 
-CMD ["elixir", "-S", "mix", "run", "--no-halt"]
+ENTRYPOINT ["scripts/entrypoint"]

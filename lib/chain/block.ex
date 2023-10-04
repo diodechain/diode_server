@@ -624,7 +624,6 @@ defmodule Chain.Block do
     case last_final(block) do
       block = %Block{} -> Block.hash(block)
       hash when is_binary(hash) -> hash
-      nil -> nil
     end
   end
 

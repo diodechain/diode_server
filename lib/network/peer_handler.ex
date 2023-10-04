@@ -204,11 +204,7 @@ defmodule Network.PeerHandler do
     genesis = Chain.genesis_hash()
 
     if genesis != genesis_hash do
-      log(state, "wrong genesis: ~p ~p", [
-        Base16.encode(genesis),
-        Base16.encode(genesis_hash)
-      ])
-
+      log(state, "wrong genesis: ~p ~p", [Base16.encode(genesis), Base16.encode(genesis_hash)])
       {:stop, :normal, state}
     else
       state = publish_peak(state)
