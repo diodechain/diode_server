@@ -15,9 +15,6 @@ defmodule Diode.Mixfile do
       compilers: [:elixir_make] ++ Mix.compilers(),
       deps: deps(),
       description: "Diode Network Full Blockchain Node implementation",
-      dialyzer: [
-        plt_add_apps: [:sqlitex]
-      ],
       docs: docs(),
       elixir: "~> 1.11",
       elixirc_options: [warnings_as_errors: Mix.target() == :host],
@@ -54,7 +51,8 @@ defmodule Diode.Mixfile do
       lint: [
         "compile",
         "format --check-formatted",
-        "credo --only warning"
+        "credo --only warning",
+        "dialyzer"
       ]
     ]
   end

@@ -43,7 +43,7 @@
   "profiler": {:git, "https://github.com/dominicletz/profiler.git", "fa164ca623b755f11e4065ceb74e8f67a578e577", []},
   "ranch": {:hex, :ranch, "1.8.0", "8c7a100a139fd57f17327b6413e4167ac559fbc04ca7448e9be9057311597a1d", [:make, :rebar3], [], "hexpm", "49fbcfd3682fab1f5d109351b61257676da1a2fdbe295904176d5e521a2ddfe5"},
   "sha3": {:hex, :sha3, "2.0.0", "fbe5db75a8389fdc810b682446c053b91e591d38d5422808f3a702ed2b270515", [:rebar3], [{:hex2bin, "1.0.0", [hex: :hex2bin, repo: "hexpm", optional: false]}], "hexpm"},
-  "sqlitex": {:git, "https://github.com/diodechain/sqlitex.git", "445195dbfdeceebc30c67c3889a87160a6d066b3", []},
+  "sqlitex": {:git, "https://github.com/diodechain/sqlitex.git", "17bc3cb6ca1fe7ff7ebb65dd24ff97b1630f3df1", []},
   "ssl_verify_fun": {:hex, :ssl_verify_fun, "1.1.7", "354c321cf377240c7b8716899e182ce4890c5938111a1296add3ec74cf1715df", [:make, :mix, :rebar3], [], "hexpm", "fe4c190e8f37401d30167c8c405eda19469f34577987c76dde613e838bbc67f8"},
   "telemetry": {:hex, :telemetry, "1.0.0", "0f453a102cdf13d506b7c0ab158324c337c41f1cc7548f0bc0e130bbf0ae9452", [:rebar3], [], "hexpm", "73bc09fa59b4a0284efb4624335583c528e07ec9ae76aca96ea0673850aec57a"},
   "unicode_util_compat": {:hex, :unicode_util_compat, "0.7.0", "bc84380c9ab48177092f43ac89e4dfa2c6d62b40b8bd132b1059ecc7232f9a78", [:rebar3], [], "hexpm", "25eee6d67df61960cf6a794239566599b09e17e668d3700247bc498638152521"},

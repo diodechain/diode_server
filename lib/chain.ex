@@ -37,13 +37,14 @@ defmodule Chain do
   def init(ets_extra) do
     _create(ets_extra)
     BlockProcess.start_link()
-
-    OnCrash.call(fn reason ->
-      Logger.error("Chain exited with reason #{inspect(reason)}. Halting system")
-      System.halt(1)
-    end)
-
+    OnCrash.call(&on_crash/1)
     {:ok, load_blocks()}
+  end
+
+  @spec on_crash(any()) :: no_return()
+  def on_crash(reason) do
+    Logger.error("Chain exited with reason #{inspect(reason)}. Halting system")
+    System.halt(1)
   end
 
   def window_size() do
@@ -368,53 +369,6 @@ defmodule Chain do
 
   def handle_call({:call, fun}, from, state) when is_function(fun) do
     fun.(state, from)
-  end
-
-  def export_blocks(filename \\ "block_export.sq3", blocks \\ Chain.blocks()) do
-    Sqlitex.with_db(filename, fn db ->
-      Sqlitex.query!(db, """
-      CREATE TABLE IF NOT EXISTS block_export (
-        number INTEGER PRIMARY KEY,
-        data BLOB
-      ) WITHOUT ROWID;
-      """)
-
-      start =
-        case Sqlitex.query!(db, "SELECT MAX(number) as max FROM block_export") do
-          [[max: nil]] -> 0
-          [[max: max]] -> max
-        end
-
-      IO.puts("start: #{start}")
-
-      Stream.take_while(blocks, fn block -> Block.number(block) > start end)
-      |> Stream.chunk_every(100)
-      |> Task.async_stream(fn blocks ->
-        IO.puts("Writing block #{Block.number(hd(blocks))}")
-
-        Enum.map(blocks, fn block ->
-          data =
-            Block.export(block)
-            |> BertInt.encode!()
-
-          [Block.number(block), data]
-        end)
-      end)
-      |> Stream.each(fn {:ok, blocks} ->
-        :ok = Sqlitex.exec(db, "BEGIN")
-
-        Enum.each(blocks, fn [num, data] ->
-          Sqlitex.query!(
-            db,
-            "INSERT INTO block_export (number, data) VALUES(?1, CAST(?2 AS BLOB))",
-            bind: [num, data]
-          )
-        end)
-
-        :ok = Sqlitex.exec(db, "COMMIT")
-      end)
-      |> Stream.run()
-    end)
   end
 
   defp decode_blocks("") do
