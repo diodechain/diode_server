@@ -138,7 +138,7 @@ defmodule Network.PeerHandler do
 
     hello = Diode.self(hostname)
 
-    case ssl_send(state, [@hello, Object.encode!(hello), Moonbeam.genesis_hash()]) do
+    case ssl_send(state, [@hello, Object.encode!(hello), Chain.genesis_hash()]) do
       {:noreply, state} ->
         receive do
           {:ssl, _socket, msg} ->
@@ -201,7 +201,7 @@ defmodule Network.PeerHandler do
   end
 
   defp handle_msg([@hello, server, genesis_hash], state) do
-    genesis = Moonbeam.genesis_hash()
+    genesis = Chain.genesis_hash()
 
     if genesis != genesis_hash do
       log(state, "wrong genesis: ~p ~p", [Base16.encode(genesis), Base16.encode(genesis_hash)])
