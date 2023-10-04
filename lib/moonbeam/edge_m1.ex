@@ -123,8 +123,7 @@ defmodule Network.EdgeM1 do
         # those are not yet valid but will be valid in the future, after the other txs have
         # been processed...
         if nonce == Moonbeam.NonceProvider.fetch_nonce() do
-          CallPermit.rpc_call(call, Wallet.address!(CallPermit.wallet()))
-          |> IO.inspect(label: "rpc_call")
+          {:ok, _} = CallPermit.rpc_call(call, Wallet.address!(CallPermit.wallet()))
         end
 
         # Moonbeam.estimate_gas(Base16.encode(CallPermit.address()), Base16.encode(call))

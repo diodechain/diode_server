@@ -675,15 +675,7 @@ defmodule Network.EdgeV2 do
         pid = self()
 
         spawn_link(fn ->
-          OnCrash.call(fn err ->
-            if err != :normal do
-              IO.inspect("#{inspect(method_params)} failed: #{inspect(err)}")
-            end
-          end)
-
           result = handle_async_msg(method_params, state)
-
-          IO.inspect("#{inspect(method_params)} result: #{inspect(result)}")
 
           GenServer.cast(pid, fn state2 ->
             {:noreply, send_socket(state2, request_id, request_id, result)}
