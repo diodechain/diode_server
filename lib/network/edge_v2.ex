@@ -439,7 +439,7 @@ defmodule Network.EdgeV2 do
                 %{
                   nonce: account.nonce,
                   balance: account.balance,
-                  storage_root: Chain.Account.root_hash(account),
+                  storage_root: MerkleTree.root_hash(Chain.Block.account_tree(block, id)),
                   code: Chain.Account.codehash(account)
                 },
                 proof
