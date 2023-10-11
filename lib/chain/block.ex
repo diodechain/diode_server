@@ -47,7 +47,11 @@ defmodule Chain.Block do
   end
 
   def state_tree(%Block{} = block) do
-    BlockProcess.maybe_cache(hash(block), :state_tree, fn -> Chain.State.tree(state(block)) end)
+    BlockProcess.maybe_cache(hash(block), :state_tree, fn ->
+      state(block)
+      |> Chain.State.tree()
+      |> MerkleTree.merkle()
+    end)
   end
 
   def account_tree(%Block{} = block, account_id) do

@@ -131,10 +131,12 @@ defmodule BlockProcess do
   end
 
   use GenServer
-  defstruct [:ready, :mons, :queue]
+  defstruct [:ready, :busy, :waiting, :mons, :queue]
 
   def start_link() do
-    GenServer.start_link(__MODULE__, %BlockProcess{ready: %{}, mons: %{}, queue: :queue.new()},
+    GenServer.start_link(
+      __MODULE__,
+      %BlockProcess{ready: %{}, mons: %{}, queue: :queue.new(), waiting: %{}, busy: %{}},
       name: __MODULE__
     )
   end
@@ -147,18 +149,43 @@ defmodule BlockProcess do
   @impl true
   def handle_call(
         {:get_worker, block_hash},
-        _from,
-        state = %BlockProcess{ready: ready, mons: mons, queue: queue}
+        from,
+        state = %BlockProcess{
+          ready: ready,
+          busy: busy,
+          waiting: waiting,
+          mons: mons,
+          queue: queue
+        }
       ) do
     case Map.get(ready, block_hash, []) do
       [] ->
-        {pid, mon} = spawn_monitor(fn -> Worker.init(block_hash) end)
-        {:reply, pid, %BlockProcess{state | mons: Map.put(mons, mon, block_hash)}}
+        case Map.get(busy, block_hash, []) do
+          [] ->
+            {pid, mon} = spawn_monitor(fn -> Worker.init(block_hash) end)
+            busy = map_add_value(busy, block_hash, pid)
+            {:reply, pid, %BlockProcess{state | busy: busy, mons: Map.put(mons, mon, block_hash)}}
+
+          busy_blocks ->
+            block_waits = map_get(waiting, block_hash)
+
+            if length(block_waits) > length(busy_blocks) do
+              {pid, mon} = spawn_monitor(fn -> Worker.init(block_hash) end)
+              busy = map_add_value(busy, block_hash, pid)
+
+              {:reply, pid,
+               %BlockProcess{state | busy: busy, mons: Map.put(mons, mon, block_hash)}}
+            else
+              waiting = map_add_value(waiting, block_hash, from)
+              {:noreply, %BlockProcess{state | waiting: waiting}}
+            end
+        end
 
       [pid | rest] ->
-        ready = Map.put(ready, block_hash, rest)
+        ready = map_put(ready, block_hash, rest)
+        busy = map_add_value(busy, block_hash, pid)
         queue = queue_delete(queue, pid)
-        {:reply, pid, %BlockProcess{state | ready: ready, queue: queue}}
+        {:reply, pid, %BlockProcess{state | ready: ready, queue: queue, busy: busy}}
     end
   end
 
@@ -168,7 +195,7 @@ defmodule BlockProcess do
         state = %BlockProcess{mons: mons, ready: ready}
       ) do
     mon = Process.monitor(block_pid)
-    ready = Map.update(ready, block_hash, [block_pid], fn rest -> [block_pid | rest] end)
+    ready = map_add_value(ready, block_hash, block_pid)
 
     state =
       %BlockProcess{state | mons: Map.put(mons, mon, block_hash), ready: ready}
@@ -182,18 +209,9 @@ defmodule BlockProcess do
         _from,
         state = %BlockProcess{ready: ready, queue: queue}
       ) do
-    workers = Map.get(ready, block_hash, [])
-
-    if pid in workers do
-      rest = List.delete(workers, pid)
+    if pid in map_get(ready, block_hash) do
       queue = queue_delete(queue, pid)
-
-      ready =
-        if rest == [] do
-          Map.delete(ready, block_hash)
-        else
-          Map.put(ready, block_hash, rest)
-        end
+      ready = map_delete_value(ready, block_hash, pid)
 
       {:reply, true, %BlockProcess{state | ready: ready, queue: queue}}
     else
@@ -204,11 +222,18 @@ defmodule BlockProcess do
   @impl true
   def handle_cast(
         {:i_am_ready, block_hash, pid},
-        state = %BlockProcess{ready: ready}
+        state = %BlockProcess{ready: ready, waiting: waiting, busy: busy}
       ) do
-    workers = [pid | Map.get(ready, block_hash, [])]
-    ready = Map.put(ready, block_hash, workers)
-    {:noreply, queue_add(%BlockProcess{state | ready: ready}, pid, block_hash)}
+    case map_get(waiting, block_hash) do
+      [from | rest] ->
+        GenServer.reply(from, pid)
+        {:noreply, %BlockProcess{state | waiting: map_put(waiting, block_hash, rest)}}
+
+      [] ->
+        ready = map_add_value(ready, block_hash, pid)
+        busy = map_delete_value(busy, block_hash, pid)
+        {:noreply, queue_add(%BlockProcess{state | ready: ready, busy: busy}, pid, block_hash)}
+    end
   end
 
   @impl true
@@ -218,14 +243,7 @@ defmodule BlockProcess do
       ) do
     remove_hash = Map.get(mons, ref)
     queue = queue_delete(queue, remove_pid)
-
-    ready =
-      case Map.get(ready, remove_hash) do
-        nil -> ready
-        [^remove_pid] -> Map.delete(ready, remove_hash)
-        workers -> Map.put(ready, remove_hash, List.delete(workers, remove_pid))
-      end
-
+    ready = map_delete_value(ready, remove_hash, remove_pid)
     mons = Map.delete(mons, ref)
 
     if reason != :normal do
@@ -240,14 +258,7 @@ defmodule BlockProcess do
     if :queue.len(queue) > @queue_limit do
       {{:value, {remove_pid, remove_hash}}, queue} = :queue.out_r(queue)
       send(remove_pid, :stop)
-
-      ready =
-        case Map.get(ready, remove_hash) do
-          nil -> ready
-          [^remove_pid] -> Map.delete(ready, remove_hash)
-          workers -> Map.put(ready, remove_hash, List.delete(workers, remove_pid))
-        end
-
+      ready = map_delete_value(ready, remove_hash, remove_pid)
       %BlockProcess{state | ready: ready, queue: :queue.in_r({pid, hash}, queue)}
     else
       %BlockProcess{state | queue: :queue.in_r({pid, hash}, queue)}
@@ -256,6 +267,18 @@ defmodule BlockProcess do
 
   defp queue_delete(queue, pid) do
     :queue.delete_with(fn {tpid, _} -> tpid == pid end, queue)
+  end
+
+  defp map_put(map, key, []), do: Map.delete(map, key)
+  defp map_put(map, key, value), do: Map.put(map, key, value)
+  defp map_get(map, key), do: Map.get(map, key, [])
+
+  defp map_delete_value(map, key, value) do
+    map_put(map, key, List.delete(map_get(map, key), value))
+  end
+
+  defp map_add_value(map, key, value) do
+    Map.update(map, key, [value], fn rest -> [value | rest] end)
   end
 
   def fetch(block_ref, methods) when is_list(methods) do
