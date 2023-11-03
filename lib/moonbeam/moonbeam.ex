@@ -1,7 +1,13 @@
 defmodule Moonbeam do
   # https://github.com/moonbeam-foundation/moonbeam/blob/master/precompiles/call-permit/CallPermit.sol
-  @endpoint "https://moonbeam-alpha.api.onfinality.io/public"
+  @default_endpoint "https://moonbeam-alpha.api.onfinality.io/public"
   # @endpoint "https://rpc.api.moonbase.moonbeam.network"
+  def endpoint() do
+    case System.get_env("MOONBEAM_ENDPOINT") do
+      nil -> @default_endpoint
+      endpoint -> endpoint
+    end
+  end
 
   def epoch() do
     0
@@ -66,7 +72,7 @@ defmodule Moonbeam do
     }
 
     {:ok, %{body: body}} =
-      HTTPoison.post(@endpoint, Poison.encode!(request), [{"Content-Type", "application/json"}])
+      HTTPoison.post(endpoint(), Poison.encode!(request), [{"Content-Type", "application/json"}])
 
     case Poison.decode!(body) do
       %{"result" => result} ->
