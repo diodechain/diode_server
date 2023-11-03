@@ -83,12 +83,12 @@ defmodule Diode do
       worker(Stats, []),
       supervisor(Model.Sql),
       supervisor(Channels),
+      supervisor(Moonbeam.Sup),
       worker(Chain.BlockCache, [ets_extra]),
       worker(Chain, [ets_extra]),
       worker(PubSub, [args]),
       worker(Chain.Pool, [args]),
-      worker(TicketStore, [ets_extra]),
-      worker(Moonbeam.NonceProvider)
+      worker(TicketStore, [ets_extra])
     ]
 
     children =
@@ -106,7 +106,6 @@ defmodule Diode do
       end
 
     children = children ++ [worker(Chain.Worker, [worker_mode()])]
-
     Supervisor.start_link(children, strategy: :rest_for_one, name: Diode.Supervisor)
   end
 

@@ -5,7 +5,7 @@ defmodule Moonbeam.NonceProvider do
 
   defstruct [:nonce, :fetched_nonce]
 
-  def start_link() do
+  def start_link([]) do
     GenServer.start_link(__MODULE__, nil, name: __MODULE__, hibernate_after: 5_000)
   end
 

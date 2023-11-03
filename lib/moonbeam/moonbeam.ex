@@ -31,7 +31,7 @@ defmodule Moonbeam do
     rpc!("eth_blockNumber")
   end
 
-  def get_block_by_number(block \\ "lastest", with_transactions \\ false) do
+  def get_block_by_number(block \\ "latest", with_transactions \\ false) do
     rpc!("eth_getBlockByNumber", [block, with_transactions])
   end
 
