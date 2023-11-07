@@ -207,13 +207,18 @@ defmodule BlockProcess do
   def handle_call(
         {:can_i_stop?, block_hash, pid},
         _from,
-        state = %BlockProcess{ready: ready, queue: queue}
+        state = %BlockProcess{ready: ready, queue: queue, waiting: waiting}
       ) do
     if pid in map_get(ready, block_hash) do
       queue = queue_delete(queue, pid)
       ready = map_delete_value(ready, block_hash, pid)
 
-      {:reply, true, %BlockProcess{state | ready: ready, queue: queue}}
+      if map_get(waiting, block_hash) == [] do
+        {:reply, true, %BlockProcess{state | ready: ready, queue: queue}}
+      else
+        GenServer.cast(BlockProcess, {:i_am_ready, block_hash, pid})
+        {:reply, false, state}
+      end
     else
       {:reply, false, state}
     end
@@ -239,7 +244,13 @@ defmodule BlockProcess do
   @impl true
   def handle_info(
         {:DOWN, ref, :process, remove_pid, reason},
-        state = %BlockProcess{ready: ready, mons: mons, queue: queue}
+        state = %BlockProcess{
+          ready: ready,
+          mons: mons,
+          queue: queue,
+          waiting: waiting,
+          busy: busy
+        }
       ) do
     remove_hash = Map.get(mons, ref)
     queue = queue_delete(queue, remove_pid)
@@ -250,7 +261,18 @@ defmodule BlockProcess do
       Logger.warn("block_proxy #{Base16.encode(remove_hash)} crashed for #{inspect(reason)}")
     end
 
-    {:noreply, %BlockProcess{state | mons: mons, ready: ready, queue: queue}}
+    state = %BlockProcess{state | mons: mons, ready: ready, queue: queue}
+
+    with [from | rest] <- map_get(waiting, remove_hash) do
+      {pid, mon} = spawn_monitor(fn -> Worker.init(remove_hash) end)
+      busy = map_add_value(busy, remove_hash, pid)
+      GenServer.reply(from, pid)
+
+      {:noreply,
+       %BlockProcess{state | busy: busy, mons: Map.put(mons, mon, remove_hash), waiting: rest}}
+    else
+      _ -> {:noreply, state}
+    end
   end
 
   @queue_limit 100
