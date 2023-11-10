@@ -1,11 +1,34 @@
 defmodule Moonbeam do
+  require Logger
+
   # https://github.com/moonbeam-foundation/moonbeam/blob/master/precompiles/call-permit/CallPermit.sol
   @default_endpoint "https://moonbeam-alpha.api.onfinality.io/public"
+  @fallback "https://moonbase.unitedbloc.com"
   # @endpoint "https://rpc.api.moonbase.moonbeam.network"
   def endpoint() do
+    case :persistent_term.get({__MODULE__, :endpoint}, nil) do
+      nil ->
+        endpoint = default_endpoint()
+        :persistent_term.put({__MODULE__, :endpoint}, endpoint)
+        endpoint
+
+      endpoint ->
+        endpoint
+    end
+  end
+
+  def default_endpoint() do
     case System.get_env("MOONBEAM_ENDPOINT") do
       nil -> @default_endpoint
       endpoint -> endpoint
+    end
+  end
+
+  def swap_endpoint() do
+    if endpoint() == default_endpoint() do
+      :persistent_term.put({__MODULE__, :endpoint}, @fallback)
+    else
+      :persistent_term.put({__MODULE__, :endpoint}, default_endpoint())
     end
   end
 
@@ -71,15 +94,32 @@ defmodule Moonbeam do
       id: 1
     }
 
-    {:ok, %{body: body}} =
-      HTTPoison.post(endpoint(), Poison.encode!(request), [{"Content-Type", "application/json"}])
-
-    case Poison.decode!(body) do
+    case post(request) do
       %{"result" => result} ->
         {:ok, result}
 
       %{"error" => error} ->
         {:error, error}
+    end
+  end
+
+  defp post(request, retry \\ true) do
+    url = endpoint()
+
+    case HTTPoison.post(url, Poison.encode!(request), [
+           {"Content-Type", "application/json"}
+         ]) do
+      {:ok, %{body: body}} ->
+        Poison.decode!(body)
+
+      {:error, error} ->
+        if retry do
+          Logger.error("HTTPoison error: #{inspect(error)} @ #{url} swapping endpoint() once")
+          swap_endpoint()
+          post(request, false)
+        else
+          raise "HTTPoison error: #{inspect(error)} @ #{url}"
+        end
     end
   end
 
