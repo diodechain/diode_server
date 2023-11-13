@@ -200,7 +200,7 @@ defmodule Secp256k1 do
         [{:AttributeTypeAndValue, {2, 5, 4, 10}, {:utf8String, "Company Name"}}],
         [{:AttributeTypeAndValue, {2, 5, 4, 11}, {:utf8String, "Org"}}],
         [{:AttributeTypeAndValue, {2, 5, 4, 3}, {:utf8String, "www.example.com"}}]
-      ]}, {:Validity, {:utcTime, '181113072916Z'}, {:utcTime, '231113072916Z'}},
+      ]}, {:Validity, {:utcTime, '181113072916Z'}, {:utcTime, '321113072916Z'}},
      {:rdnSequence,
       [
         [{:AttributeTypeAndValue, {2, 5, 4, 6}, 'US'}],
