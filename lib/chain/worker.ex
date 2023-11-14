@@ -55,6 +55,10 @@ defmodule Chain.Worker do
     {:ok, activate_timer(state)}
   end
 
+  def hashrate() do
+    Stats.get(:hashrate, 0)
+  end
+
   @spec update() :: :ok
   def update() do
     Debouncer.immediate(Chain.Worker, fn ->
@@ -176,30 +180,60 @@ defmodule Chain.Worker do
 
     Stats.incr(:hashrate, @samples * workers)
 
-    block =
-      Enum.map(1..workers, fn i ->
-        Task.async(fn ->
-          candidate = update_block(candidate, creds, i * @samples)
+    worker = self()
+    header = candidate.header
 
-          Enum.reduce_while(1..@samples, candidate, fn _, candidate ->
-            candidate = update_block(candidate, creds)
-            hash = Block.hash(candidate) |> Hash.integer()
-
-            if hash < target do
-              {:halt, candidate}
-            else
-              {:cont, candidate}
-            end
-          end)
+    pids =
+      Enum.map(1..workers, fn _ ->
+        spawn_link(fn ->
+          %{
+            header
+            | nonce:
+                :rand.uniform(
+                  26_959_946_667_150_639_794_667_015_087_019_630_673_637_144_422_540_572_481_103_610_249_215
+                )
+          }
+          |> mine(target, creds, worker)
         end)
       end)
-      |> Task.await_many(:infinity)
-      |> Enum.find(fn candidate ->
-        hash = Block.hash(candidate) |> Hash.integer()
-        hash < target
-      end)
 
-    block = block || update_block(candidate, creds, @samples * workers + 1)
+    block =
+      receive do
+        {:header, header} ->
+          block = %{candidate | header: header}
+
+          for pid <- pids do
+            send(pid, :stop)
+
+            receive do
+              {:min, min} -> min
+            end
+          end
+
+          :io.format("Block found: ~p~n", [Block.number(block)])
+          block
+      after
+        2000 ->
+          min =
+            Enum.map(pids, fn
+              pid ->
+                send(pid, :stop)
+
+                receive do
+                  {:min, min} -> min
+                end
+            end)
+            |> Enum.min()
+
+          if Diode.worker_log?() do
+            "target: #{byte_size(Integer.to_string(target))} min: #{byte_size(Integer.to_string(min))} hashrate: #{hashrate()}"
+            |> IO.puts()
+          end
+
+          nil
+      end
+
+    block = block || candidate
     hash = Block.hash(block) |> Hash.integer()
     state = %{state | working: false, candidate: block}
 
@@ -223,6 +257,41 @@ defmodule Chain.Worker do
       state
     end
     |> activate_timer()
+  end
+
+  defp mine(header, target, creds, receiver, count \\ 1, min \\ nil) do
+    header = update_header(header, creds, 1)
+    header2 = update_header(header, creds, 1)
+    min2 = min(Hash.integer(header.block_hash), Hash.integer(header2.block_hash))
+    min = if min == nil, do: min2, else: min(min, min2)
+
+    cond do
+      Hash.integer(header.block_hash) < target ->
+        Stats.incr(:hashrate, count)
+        send(receiver, {:header, header})
+        send(receiver, {:min, min})
+
+      Hash.integer(header2.block_hash) < target ->
+        Stats.incr(:hashrate, count)
+        send(receiver, {:header, header2})
+        send(receiver, {:min, min})
+
+      true ->
+        if count >= 100 do
+          Stats.incr(:hashrate, count)
+
+          receive do
+            :stop ->
+              Stats.incr(:hashrate, count)
+              send(receiver, {:min, min})
+          after
+            0 ->
+              mine(header2, target, creds, receiver, 2, min)
+          end
+        else
+          mine(header2, target, creds, receiver, count + 2, min)
+        end
+    end
   end
 
   defp generate_candidate(state = %Worker{}) do
@@ -322,25 +391,15 @@ defmodule Chain.Worker do
     |> update_block(creds)
   end
 
-  def update_block(block, creds, n \\ 1) do
-    block
-    |> Block.increment_nonce(n)
-    |> Block.sign(creds)
+  defp update_block(block, creds, n \\ 1) do
+    %{block | header: update_header(block.header, creds, n)}
   end
 
-  # Disabled to keep nonce same in tests, if nonce changes contract addresses change :-(
-  # defp patch_tx_nonce(block, tx, creds) do
-  #   if Wallet.equal?(Transaction.origin(tx), creds) do
-  #     nonce =
-  #       Chain.State.ensure_account(Block.state(block), Wallet.address!(creds))
-  #       |> Chain.Account.nonce()
-
-  #     %Transaction{tx | nonce: nonce}
-  #     |> Transaction.sign(Wallet.privkey!(creds))
-  #   else
-  #     tx
-  #   end
-  # end
+  defp update_header(header = %{nonce: nonce}, creds, n) do
+    %{header | nonce: nonce + n}
+    |> Chain.Header.sign(creds)
+    |> Chain.Header.update_hash()
+  end
 
   defp activate_timer(state = %{working: true}) do
     state

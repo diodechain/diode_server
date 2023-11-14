@@ -25,28 +25,49 @@ defmodule Chain.Header do
         }
 
   # egg is everything but the miner_signature and the block hash, it is required to create the miner_signature
-  defp encode_egg(%Chain.Header{} = header) do
-    BertExt.encode!([
-      header.previous_block,
+  defp encode_egg(
+         %Chain.Header{
+           previous_block: prev_block,
+           transaction_hash: tx_hash,
+           timestamp: timestamp,
+           number: number,
+           nonce: nonce
+         } = header
+       ) do
+    term = [
+      prev_block,
       state_hash(header),
-      header.transaction_hash,
-      header.timestamp,
-      header.number,
-      header.nonce
-    ])
+      tx_hash,
+      timestamp,
+      number,
+      nonce
+    ]
+
+    :erlang.term_to_binary(term, minor_version: 1)
   end
 
   # chicken is everything but the block hash, it is required to create the block hash
-  defp encode_chicken(header) do
-    BertExt.encode!([
-      header.previous_block,
+  defp encode_chicken(
+         %Chain.Header{
+           previous_block: prev_block,
+           transaction_hash: tx_hash,
+           timestamp: timestamp,
+           number: number,
+           nonce: nonce,
+           miner_signature: miner_signature
+         } = header
+       ) do
+    term = [
+      prev_block,
       state_hash(header),
-      header.transaction_hash,
-      header.timestamp,
-      header.number,
-      header.nonce,
-      header.miner_signature
-    ])
+      tx_hash,
+      timestamp,
+      number,
+      nonce,
+      miner_signature
+    ]
+
+    :erlang.term_to_binary(term, minor_version: 1)
   end
 
   @spec update_hash(Chain.Header.t()) :: Chain.Header.t()

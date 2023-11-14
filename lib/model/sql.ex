@@ -6,6 +6,7 @@ defmodule Model.Sql do
   use Supervisor
   # esqlite doesn't support :infinity
   @infinity 300_000_000
+  require Logger
 
   defp databases() do
     [
@@ -44,9 +45,19 @@ defmodule Model.Sql do
 
     @impl true
     def init(_args) do
-      Model.ChainSql.init()
-      Model.StateSql.init()
-      Model.KademliaSql.init()
+      try do
+        Model.ChainSql.init()
+        Model.StateSql.init()
+        Model.KademliaSql.init()
+      catch
+        type, other ->
+          Logger.error(
+            "#{__MODULE__}.init failed: #{inspect({type, other})} at: #{inspect(__STACKTRACE__)}"
+          )
+
+          Kernel.reraise(other, __STACKTRACE__)
+      end
+
       {:ok, :done}
     end
   end

@@ -372,6 +372,10 @@ defmodule Diode do
     end
   end
 
+  def worker_log?() do
+    get_env("WORKER_LOG", "false") == "true"
+  end
+
   @spec memory_mode() :: :normal | :minimal
   def memory_mode() do
     case get_env("MEMORY_MODE", "normal") do

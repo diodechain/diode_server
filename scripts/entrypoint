@@ -4,7 +4,7 @@ set -e
 case "$1" in
     "remsh")
         export ELIXIR_ERL_OPTIONS="-setcookie $COOKIE"
-        exec iex --sname remsh_$$ --remsh diode
+        exec iex --sname remsh_$RANDOM --remsh diode
         ;;
     "")
         export ELIXIR_ERL_OPTIONS="+sbwt none -noinput -noshell -sname diode +A 8"
