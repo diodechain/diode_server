@@ -258,7 +258,7 @@ defmodule BlockProcess do
     mons = Map.delete(mons, ref)
 
     if reason != :normal do
-      Logger.warn("block_proxy #{Base16.encode(remove_hash)} crashed for #{inspect(reason)}")
+      Logger.warning("block_proxy #{Base16.encode(remove_hash)} crashed for #{inspect(reason)}")
     end
 
     state = %BlockProcess{state | mons: mons, ready: ready, queue: queue}

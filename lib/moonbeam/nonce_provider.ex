@@ -54,11 +54,11 @@ defmodule Moonbeam.NonceProvider do
 
     cond do
       new_nonce == fetched_once ->
-        Logger.warn("Nonce is stuck (#{old_nonce}), resetting to: #{new_nonce}")
+        Logger.warning("Nonce is stuck (#{old_nonce}), resetting to: #{new_nonce}")
         {:noreply, %NonceProvider{state | fetched_nonce: new_nonce, nonce: new_nonce}}
 
       new_nonce > old_nonce ->
-        Logger.warn("Nonce is too low (#{old_nonce}), resetting to: #{new_nonce}")
+        Logger.warning("Nonce is too low (#{old_nonce}), resetting to: #{new_nonce}")
         {:noreply, %NonceProvider{state | fetched_nonce: new_nonce, nonce: new_nonce}}
 
       true ->

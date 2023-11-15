@@ -93,12 +93,12 @@ defmodule Model.CredSql do
   end
 
   def handle_info({:nodeup, node}, state) do
-    Logger.warn("Node #{inspect(node)} UP")
+    Logger.warning("Node #{inspect(node)} UP")
     {:noreply, state}
   end
 
   def handle_info({:nodedown, node}, state) do
-    Logger.warn("Node #{inspect(node)} DOWN")
+    Logger.warning("Node #{inspect(node)} DOWN")
     {:noreply, state}
   end
 end
