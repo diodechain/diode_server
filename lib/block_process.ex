@@ -264,12 +264,13 @@ defmodule BlockProcess do
     state = %BlockProcess{state | mons: mons, ready: ready, queue: queue}
 
     with [from | rest] <- map_get(waiting, remove_hash) do
+      waiting = map_put(waiting, remove_hash, rest)
       {pid, mon} = spawn_monitor(fn -> Worker.init(remove_hash) end)
       busy = map_add_value(busy, remove_hash, pid)
       GenServer.reply(from, pid)
 
       {:noreply,
-       %BlockProcess{state | busy: busy, mons: Map.put(mons, mon, remove_hash), waiting: rest}}
+       %BlockProcess{state | busy: busy, mons: Map.put(mons, mon, remove_hash), waiting: waiting}}
     else
       _ -> {:noreply, state}
     end
