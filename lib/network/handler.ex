@@ -71,8 +71,7 @@ defmodule Network.Handler do
           other ->
             log(
               {node_id, address, port},
-              "Connection failed in ssl.connect(): ~p",
-              [other]
+              "Connection failed in ssl.connect(): #{inspect(other)}"
             )
 
             {:stop, :normal, state}
@@ -109,7 +108,7 @@ defmodule Network.Handler do
             {:stop, :normal, state}
 
           {:error, reason} ->
-            log(nil, "Connection gone away ~p", [reason])
+            log(nil, "Connection gone away #{inspect(reason)}")
             {:stop, :normal, state}
         end
       end
@@ -193,22 +192,10 @@ defmodule Network.Handler do
         "nil"
       end
 
-      def log(state, format, args \\ []) do
+      def log(state, format) do
         mod = List.last(Module.split(__MODULE__))
         date = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second) |> to_string()
-        :io.format("~s ~s: ~s ~s~n", [date, mod, name(state), format(format, args)])
-      end
-
-      defp format(format, []), do: format
-
-      defp format(format, vars) do
-        string = :io_lib.format(format, vars) |> :erlang.iolist_to_binary()
-
-        if byte_size(string) > 180 do
-          binary_part(string, 0, 180)
-        else
-          string
-        end
+        :io.format("~s ~s: ~s ~s~n", [date, mod, name(state), format])
       end
     end
   end

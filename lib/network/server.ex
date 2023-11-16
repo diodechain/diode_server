@@ -83,7 +83,7 @@ defmodule Network.Server do
         {:valid, state}
 
       other ->
-        IO.puts("Failed for #{inspect(other)}")
+        Logger.warning("Check cert failed for #{inspect(other)}")
         {:fail, event}
     end
   end
@@ -279,20 +279,22 @@ defmodule Network.Server do
 
       {:error, :closed} ->
         # Connection abort before handshake
-        :io.format("~p Anomaly - Connection closed before TLS handshake~n", [state.protocol])
+        Logger.info("#{state.protocol} Anomaly - Connection closed before TLS handshake")
 
       {:ok, newSocket} ->
         spawn_link(fn ->
           peername = :ssl.peername(newSocket)
 
           with {:ok, {_address, _port}} <- peername,
-               {:ok, newSocket2} <- :ssl.handshake(newSocket, 25000) do
+               {:ok, newSocket2} <- :ssl.handshake(newSocket, 45000) do
             worker = start_worker!(state, :init)
             :ok = :ssl.controlling_process(newSocket2, worker)
             send(worker, {:init, newSocket2})
           else
             {:error, error} ->
-              :io.format("~p Handshake error: ~0p ~0p~n", [state.protocol, error, peername])
+              Logger.warning(
+                "#{state.protocol} Handshake error: #{inspect(error)} #{inspect(peername)}"
+              )
           end
         end)
     end
@@ -339,7 +341,9 @@ defmodule Network.Server do
       key: {:ECPrivateKey, Secp256k1.der_encode_private(private, public)},
       show_econnreset: true,
       nodelay: false,
-      delay_send: true
+      delay_send: true,
+      log_level: :warning,
+      log_alert: false
     ] ++
       if role == :server do
         [fail_if_no_peer_cert: true]

@@ -262,7 +262,7 @@ defmodule Network.EdgeV2 do
   end
 
   def terminate(reason, state) do
-    log(state, "Received terminate before init ~p ~p", [reason, state])
+    log(state, "Received terminate before init #{inspect({reason, state})}")
     reason
   end
 
@@ -488,7 +488,7 @@ defmodule Network.EdgeV2 do
               {:reply, :ok, %{state | ports: ports}}
 
             nil ->
-              log(state, "ignoring response for undefined ref ~p", [ref])
+              log(state, "ignoring response for undefined ref #{inspect(ref)}")
               {:reply, :ok, state}
           end
         end)
@@ -549,11 +549,11 @@ defmodule Network.EdgeV2 do
         end
 
       nil ->
-        log(state, "Unhandled message: ~40s~n", [truncate(msg)])
+        log(state, "Unhandled message: #{truncate(msg)}")
         error(400, "that is not rlp")
 
       _ ->
-        log(state, "Unhandled message: ~40s~n", [truncate(msg)])
+        log(state, "Unhandled message: #{truncate(msg)}")
         error(401, "bad input")
     end
   end
@@ -665,7 +665,7 @@ defmodule Network.EdgeV2 do
   end
 
   def handle_info(msg, state) do
-    log(state, "Unhandled info: ~p", [msg])
+    log(state, "Unhandled info: #{inspect(msg)}")
     {:noreply, state}
   end
 

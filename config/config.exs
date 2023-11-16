@@ -9,8 +9,10 @@ config :logger,
   handle_sasl_reports: true,
   backends: [:console],
   truncate: 8000,
-  format: "$time $metadata[$level] $message\n",
+  format: "$time $metadata[$level] $message",
   metadata: [:request_id]
+
+config :logger, :console, format: "$time $metadata[$level] $levelpad$message\n"
 
 case Mix.env() do
   :benchmark ->

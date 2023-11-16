@@ -106,7 +106,7 @@ defmodule Network.PeerHandler do
         end
 
       err ->
-        log(state, "received invalid blocks: ~180p", [err])
+        log(state, "received invalid blocks: #{inspect(err)}")
         {:noreply, %{state | blocks: nil, random_blocks: 0}}
     end
   end
@@ -149,7 +149,7 @@ defmodule Network.PeerHandler do
                 handle_msg(msg, state)
 
               _ ->
-                log(state, "expected hello message, but got ~p", [msg])
+                log(state, "expected hello message, but got #{inspect(msg)}")
                 {:stop, :normal, state}
             end
         after
@@ -191,12 +191,12 @@ defmodule Network.PeerHandler do
   end
 
   def handle_info({:ssl_closed, info}, state) do
-    log(state, "Connection closed by remote. info: ~0p", [info])
+    log(state, "Connection closed by remote. info: #{inspect(info)}")
     {:stop, :normal, state}
   end
 
   def handle_info(msg, state) do
-    log(state, "unhandled info: ~180p", [msg])
+    log(state, "unhandled info: #{inspect(msg)}")
     {:noreply, state}
   end
 
@@ -204,7 +204,7 @@ defmodule Network.PeerHandler do
     genesis = Chain.genesis_hash()
 
     if genesis != genesis_hash do
-      log(state, "wrong genesis: ~p ~p", [Base16.encode(genesis), Base16.encode(genesis_hash)])
+      log(state, "wrong genesis: #{Base16.encode(genesis)}, #{Base16.encode(genesis_hash)}")
       {:stop, :normal, state}
     else
       state = publish_peak(state)
@@ -400,12 +400,13 @@ defmodule Network.PeerHandler do
                 # is this a randomly broadcasted block or a chain re-org?
                 # assuming reorg after n blocks
                 if state.random_blocks < 100 do
-                  log(state, "ignoring wrong ordered block [~p]", [state.random_blocks + 1])
+                  log(state, "ignoring wrong ordered block [#{state.random_blocks + 1}]")
                   {state.random_blocks + 1, blocks}
                 else
-                  log(state, "restarting sync because of random blocks [~p]", [
-                    state.random_blocks + 1
-                  ])
+                  log(
+                    state,
+                    "restarting sync because of random blocks [#{state.random_blocks + 1}]"
+                  )
 
                   {:error, :too_many_random_blocks}
                 end
