@@ -82,6 +82,9 @@ defmodule Network.Server do
       {:bad_cert, :selfsigned_peer} ->
         {:valid, state}
 
+      {:bad_cert, :cert_expired} ->
+        {:valid, state}
+
       other ->
         Logger.warning("Check cert failed for #{inspect(other)}")
         {:fail, event}
