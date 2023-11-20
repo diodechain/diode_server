@@ -87,7 +87,19 @@ defmodule Model.ChainSql do
       end
 
       {:ok, db} = Sql.start_database(Db.Default)
-      {:ok, %Writer{state | db: db}}
+      {:ok, %Writer{state | db: db}, {:continue, :prepare}}
+    end
+
+    @impl true
+    def handle_continue(:prepare, state) do
+      case :ets.whereis(Chain) do
+        :undefined ->
+          Process.sleep(1_000)
+          handle_continue(:prepare, state)
+
+        _pid ->
+          {:noreply, state}
+      end
     end
 
     @impl true
