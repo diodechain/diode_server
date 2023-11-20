@@ -110,8 +110,9 @@ defmodule Chain.Block do
     end
   end
 
-  @spec validate(Chain.Block.t()) :: Chain.Block.ref() | {non_neg_integer(), any()}
-  def validate(%Block{} = block) do
+  @spec validate(Chain.Block.t(), boolean()) :: Chain.Block.ref() | {non_neg_integer(), any()}
+  # def validate(block, fast \\ false)
+  def validate(%Block{} = block, false) do
     # IO.puts("Block #{number(block)}.: #{length(transactions(block))}txs")
     tc(:cache, fn -> BlockCache.cache(block) end)
 
@@ -143,6 +144,46 @@ defmodule Chain.Block do
       # {:reply, self(),
       #  %{sim_block | header: %{block.header | state_hash: sim_block.header.state_hash}}}
       block = %{sim_block | header: %{block.header | state_hash: sim_block.header.state_hash}}
+      tc(:put_new_block, fn -> ChainSql.put_new_block(block) end)
+      tc(:ets_add_alt, fn -> Chain.ets_add_alt(block) end)
+      tc(:start_block, fn -> BlockProcess.start_block(block) end)
+    else
+      {nr, error} -> {nr, error}
+    end
+  end
+
+  def validate(%Block{} = block, true) do
+    # IO.puts("Block #{number(block)}.: #{length(transactions(block))}txs")
+    tc(:cache, fn -> BlockCache.cache(block) end)
+
+    with {_, %Block{}} <- {:is_block, block},
+         {_, true} <-
+           test(:has_parent, fn -> parent_hash(block) == with_parent(block, &hash/1) end),
+         {_, true} <-
+           test(:correct_number, fn -> number(block) == with_parent(block, &number/1) + 1 end),
+         {_, true} <- test(:hash_valid, fn -> hash_valid?(block) end),
+         {_, []} <-
+           test_tc(:tx_valid, fn ->
+             Enum.map(transactions(block), &Transaction.validate/1)
+             |> Enum.reject(fn tx -> tx == true end)
+           end),
+         {_, true} <-
+           test(:tx_hash_valid, fn ->
+             Diode.hash(encode_transactions(transactions(block))) == txhash(block)
+           end),
+         {_, sim_block} <- test_tc(:simulate, fn -> simulate(block, true) end),
+         {_, true} <- test_tc(:registry_tx, fn -> has_registry_tx?(sim_block) end) do
+      block = %{
+        sim_block
+        | header: %{
+            block.header
+            | state_hash: %Chain.State{
+                sim_block.header.state_hash
+                | hash: block.header.state_hash
+              }
+          }
+      }
+
       tc(:put_new_block, fn -> ChainSql.put_new_block(block) end)
       tc(:ets_add_alt, fn -> Chain.ets_add_alt(block) end)
       tc(:start_block, fn -> BlockProcess.start_block(block) end)
@@ -270,7 +311,7 @@ defmodule Chain.Block do
           true | false
         ) ::
           Chain.Block.t()
-  def create(parent_ref, transactions, miner, time, trace? \\ false) do
+  def create(parent_ref, transactions, miner, time, trace? \\ false, fast_validation? \\ false) do
     block =
       BlockProcess.with_block(parent_ref, fn parent -> create_empty(parent, miner, time) end)
 
@@ -282,7 +323,7 @@ defmodule Chain.Block do
         end
       end)
     end)
-    |> finalize_header()
+    |> finalize_header(fast_validation?)
   end
 
   @doc "Creates a new block and stores the generated state in cache file"
@@ -329,19 +370,23 @@ defmodule Chain.Block do
     end
   end
 
-  def finalize_header(%Block{} = block) do
+  def finalize_header(%Block{} = block, fast_validation? \\ false) do
     block = ChainDefinition.hardforks(block)
 
-    tc(:create_header, fn ->
-      %Block{
-        block
-        | header: %Header{
-            block.header
-            | state_hash: tc(:normalize, fn -> State.normalize(state(block)) end),
-              transaction_hash: Diode.hash(encode_transactions(transactions(block)))
-          }
-      }
-    end)
+    if fast_validation? do
+      block
+    else
+      tc(:create_header, fn ->
+        %Block{
+          block
+          | header: %Header{
+              block.header
+              | state_hash: tc(:normalize, fn -> State.normalize(state(block)) end),
+                transaction_hash: Diode.hash(encode_transactions(transactions(block)))
+            }
+        }
+      end)
+    end
   end
 
   @spec encode_transactions(any()) :: binary()
@@ -350,7 +395,7 @@ defmodule Chain.Block do
   end
 
   @spec simulate(Chain.Block.t()) :: Chain.Block.t()
-  def simulate(%Block{} = block) do
+  def simulate(%Block{} = block, fast_validation? \\ false) do
     parent_ref =
       if Block.number(block) >= 1 do
         Block.parent_hash(block)
@@ -358,7 +403,14 @@ defmodule Chain.Block do
         Chain.GenesisFactory.testnet_parent()
       end
 
-    create(parent_ref, transactions(block), miner(block), timestamp(block), false)
+    create(
+      parent_ref,
+      transactions(block),
+      miner(block),
+      timestamp(block),
+      false,
+      fast_validation?
+    )
   end
 
   @spec sign(Block.t(), Wallet.t()) :: Block.t()
@@ -524,9 +576,14 @@ defmodule Chain.Block do
     end)
   end
 
+  @spec set_nonce(Chain.Block.t(), integer()) :: Chain.Block.t()
+  def set_nonce(%Block{header: header} = block, nonce) do
+    %{block | header: %{header | nonce: nonce}}
+  end
+
   @spec increment_nonce(Chain.Block.t(), integer()) :: Chain.Block.t()
-  def increment_nonce(%Block{header: header} = block, n \\ 1) do
-    %{block | header: %{header | nonce: nonce(block) + n}}
+  def increment_nonce(%Block{} = block, n \\ 1) do
+    set_nonce(block, nonce(block) + n)
   end
 
   @spec set_timestamp(Chain.Block.t(), integer()) :: Chain.Block.t()

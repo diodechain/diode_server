@@ -9,6 +9,10 @@ defmodule MapMerkleTree do
     {MapMerkleTree, %{}, %{}}
   end
 
+  def from_map(%{} = map) do
+    {MapMerkleTree, %{}, map}
+  end
+
   # ========================================================
   # Wrapper functions for the impls
   # ========================================================

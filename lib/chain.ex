@@ -379,20 +379,22 @@ defmodule Chain do
     [BertInt.decode!(block)] ++ decode_blocks(rest)
   end
 
-  def import_blocks(filename) when is_binary(filename) do
+  def import_blocks(filename, validate_fast? \\ false)
+
+  def import_blocks(filename, validate_fast?) when is_binary(filename) do
     File.read!(filename)
     |> decode_blocks()
-    |> import_blocks()
+    |> import_blocks(validate_fast?)
   end
 
-  def import_blocks(blocks) do
+  def import_blocks(blocks, validate_fast?) do
     Stream.drop_while(blocks, fn block ->
       block_by_hash?(Block.hash(block))
     end)
-    |> do_import_blocks()
+    |> do_import_blocks(validate_fast?)
   end
 
-  defp do_import_blocks(blocks) do
+  defp do_import_blocks(blocks, validate_fast?) do
     # replay block backup list
     lastblock =
       Enum.reduce_while(blocks, :ok, fn nextblock, _status ->
@@ -401,7 +403,7 @@ defmodule Chain do
         if block_by_hash?(block_hash) do
           {:cont, block_hash}
         else
-          Stats.tc(:vldt, fn -> Block.validate(nextblock) end)
+          Stats.tc(:vldt, fn -> Block.validate(nextblock, validate_fast?) end)
           |> case do
             <<block_hash::binary-size(32)>> ->
               add_block(block_hash, false, false)

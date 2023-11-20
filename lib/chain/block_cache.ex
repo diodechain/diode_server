@@ -250,6 +250,7 @@ defmodule Chain.BlockCache do
   defdelegate header(block), to: Block
   defdelegate in_final_window?(block), to: Block
   defdelegate increment_nonce(block, n), to: Block
+  defdelegate set_nonce(block, n), to: Block
   defdelegate set_timestamp(block, timestamp), to: Block
   defdelegate logs(block), to: Block
   defdelegate logs_bloom(block), to: Block
@@ -275,7 +276,7 @@ defmodule Chain.BlockCache do
   defdelegate transactions(block), to: Block
   defdelegate transaction_status(block, transaction), to: Block
   defdelegate txhash(block), to: Block
-  defdelegate validate(block), to: Block
+  defdelegate validate(block, fast), to: Block
   defdelegate ensure_state(block), to: Block
   defdelegate with_parent(block, fun), to: Block
 end

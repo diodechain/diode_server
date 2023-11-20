@@ -31,11 +31,21 @@ defmodule Model.ChainSql do
     def submit_new_block(block) do
       Ets.put(__MODULE__, Block.hash(block), block)
 
-      if Ets.size(__MODULE__) > 24 do
+      if Ets.size(__MODULE__) > 24 or ChainSql.is_jumpblock(block) do
         IO.puts("block write buffer pause")
         GenServer.call(__MODULE__, {:submit, {:hash, Block.hash(block)}}, :infinity)
       else
-        GenServer.cast(__MODULE__, {:submit, {:hash, Block.hash(block)}})
+        task =
+          spawn(fn ->
+            Process.link(Process.whereis(__MODULE__))
+            ret = ChainSql.prepare_state(block)
+
+            receive do
+              :fetch -> send(__MODULE__, {self(), ret})
+            end
+          end)
+
+        GenServer.cast(__MODULE__, {:submit, {:task, Block.hash(block), task}})
       end
     end
 
@@ -125,6 +135,25 @@ defmodule Model.ChainSql do
         block ->
           # IO.puts("writing block #{Base16.encode(hash)}")
           ChainSql.do_put_new_block(db, block)
+          Ets.remove(__MODULE__, Block.hash(block))
+          GenServer.cast(self(), :write)
+      end
+    end
+
+    defp do_write({db, {:task, hash, task}}) do
+      case peek(hash) do
+        nil ->
+          IO.puts("skipping re-write of block #{Base16.encode(hash)}")
+
+        block ->
+          # IO.puts("writing block #{Base16.encode(hash)}")
+          send(task, :fetch)
+
+          receive do
+            {^task, encoded_state} ->
+              ChainSql.do_put_new_block(db, block, encoded_state)
+          end
+
           Ets.remove(__MODULE__, Block.hash(block))
           GenServer.cast(self(), :write)
       end
@@ -252,8 +281,8 @@ defmodule Model.ChainSql do
     true
   end
 
-  def do_put_new_block(db, block) do
-    encoded_state = prepare_state(block)
+  def do_put_new_block(db, block, encoded_state \\ nil) do
+    encoded_state = encoded_state || prepare_state(block)
 
     with_transaction(
       db,
@@ -517,12 +546,15 @@ defmodule Model.ChainSql do
   end
 
   @jump_size 500
-  defp prepare_state(block) do
+  def is_jumpblock(block) do
     nr = Block.number(block)
+    nr <= @jump_size or rem(nr, @jump_size) == 1
+  end
 
+  def prepare_state(block) do
     state = %Chain.State{} = Block.state(block)
 
-    if nr <= 1 or rem(nr, @jump_size) == 1 do
+    if is_jumpblock(block) do
       state
       |> Chain.State.compact()
       |> BertInt.encode!()
@@ -532,9 +564,7 @@ defmodule Model.ChainSql do
   end
 
   defp compress_state(db, block, state, async) do
-    nr = Block.number(block)
-
-    if nr <= 1 or rem(nr, @jump_size) == 1 do
+    if is_jumpblock(block) do
       :nop
     else
       if async do

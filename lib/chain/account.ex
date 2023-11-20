@@ -100,8 +100,9 @@ defmodule Chain.Account do
     Diode.hash(Rlp.encode!(to_rlp(account)))
   end
 
+  @empty_hash Diode.hash("")
   def codehash(%Chain.Account{code: nil}) do
-    Diode.hash("")
+    @empty_hash
   end
 
   def codehash(%Chain.Account{code: code}) do

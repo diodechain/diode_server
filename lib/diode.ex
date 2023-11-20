@@ -280,7 +280,7 @@ defmodule Diode do
   end
 
   def syncing?() do
-    Process.whereis(:active_sync) != nil
+    Process.whereis(:active_sync) != nil or Process.whereis(:active_sync_job) != nil
   end
 
   @spec wallets() :: [Wallet.t()]

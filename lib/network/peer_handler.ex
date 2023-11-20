@@ -285,7 +285,7 @@ defmodule Network.PeerHandler do
 
       Chain.throttle_sync(
         len > 10,
-        "Downloading block #{Block.number(oldest)}/#{Block.number(peak)} (#{Chain.peak() - Block.number(oldest)}) from #{name(state)}"
+        "Downloading block #{Block.number(oldest)}/#{Block.number(peak)} (#{len}) from #{name(state)}"
       )
     end
 
@@ -443,9 +443,13 @@ defmodule Network.PeerHandler do
 
       job =
         spawn_link(fn ->
+          Process.register(self(), :active_sync_job)
+          count = Model.SyncSql.count(state.blocks)
+          validate_fast? = count > 100
+
           ret =
             Stream.concat([block], Model.SyncSql.resolve(state.blocks))
-            |> Chain.import_blocks()
+            |> Chain.import_blocks(validate_fast?)
 
           GenServer.cast(me, {:sync_done, ret})
         end)

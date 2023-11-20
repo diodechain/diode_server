@@ -23,14 +23,19 @@ defmodule Chain.State do
 
   def normalize(%Chain.State{hash: nil, accounts: accounts} = state) do
     accounts =
-      accounts
-      |> Enum.map(fn {id, acc} -> {id, Account.normalize(acc)} end)
-      |> Map.new()
+      Stats.tc(:accs, fn ->
+        accounts
+        |> Enum.map(fn {id, acc} -> {id, Account.normalize(acc)} end)
+        |> Map.new()
+      end)
 
     state = %Chain.State{state | accounts: accounts}
+    tree = tree(state)
+    hash = MerkleTree.root_hash(tree)
+
     # store: can be non-existing because of later addition to the schema
-    state = Map.put(state, :store, tree(state))
-    %Chain.State{state | hash: hash(state)}
+    state = Map.put(state, :store, tree)
+    %Chain.State{state | hash: hash}
   end
 
   def normalize(%Chain.State{} = state) do
@@ -39,28 +44,27 @@ defmodule Chain.State do
 
   # store: can be non-existing because of later addition to the schema
   def tree(%Chain.State{accounts: accounts, store: store}) when is_tuple(store) do
-    items =
-      Enum.map(accounts, fn {id, acc} -> {id, Account.hash(acc)} end)
-      |> Map.new()
-
-    store =
-      Enum.reduce(MerkleTree.to_list(store), store, fn {id, _hash}, store ->
-        if not Map.has_key?(items, id) do
-          MerkleTree.delete(store, id)
-        else
-          store
-        end
-      end)
-
-    MerkleTree.insert_items(store, items)
+    Enum.reduce(MerkleTree.to_list(store), store, fn {id, _hash}, store ->
+      if not Map.has_key?(accounts, id) do
+        MerkleTree.delete(store, id)
+      else
+        store
+      end
+    end)
+    |> do_tree(accounts)
   end
 
   def tree(%Chain.State{accounts: accounts}) do
-    items = Enum.map(accounts, fn {id, acc} -> {id, Account.hash(acc)} end)
-
-    MerkleTree.new()
-    |> MerkleTree.insert_items(items)
+    do_tree(MerkleTree.new(), accounts)
   end
+
+  defp do_tree(store, accounts) do
+    items = hash_accounts(Map.to_list(accounts))
+    MerkleTree.insert_items(store, items)
+  end
+
+  def hash_accounts([]), do: []
+  def hash_accounts([{id, acc} | rest]), do: [{id, Account.hash(acc)} | hash_accounts(rest)]
 
   def hash(%Chain.State{hash: nil} = state) do
     MerkleTree.root_hash(tree(state))
@@ -106,8 +110,15 @@ defmodule Chain.State do
     %{state | accounts: Map.delete(accounts, id), hash: nil}
   end
 
-  def difference(%Chain.State{} = state_a, %Chain.State{} = state_b) do
-    diff = MerkleTree.difference(tree(state_a), tree(state_b))
+  def difference(
+        %Chain.State{accounts: accounts_a} = state_a,
+        %Chain.State{accounts: accounts_b} = state_b
+      ) do
+    diff =
+      MerkleTree.difference(
+        MapMerkleTree.from_map(accounts_a),
+        MapMerkleTree.from_map(accounts_b)
+      )
 
     Enum.map(diff, fn {id, _} ->
       acc_a = ensure_account(state_a, id)

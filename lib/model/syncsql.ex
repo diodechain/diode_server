@@ -209,6 +209,14 @@ defmodule Model.SyncSql do
     end
   end
 
+  def count(nil) do
+    0
+  end
+
+  def count(%{oldest: oldest, peak: peak}) do
+    Chain.Block.number(peak) - Chain.Block.number(oldest)
+  end
+
   def resolve(nil) do
     []
   end
