@@ -177,8 +177,8 @@ defmodule Network.Handler do
         "pre_connection_information"
       end
 
-      def name({node_id, node_address, _port}) do
-        name({node_id, node_address})
+      def name({node_id, node_address, port}) do
+        "#{name({node_id, node_address})}:#{port}"
       end
 
       def name({_node_id, node_address}) do
