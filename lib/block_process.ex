@@ -29,7 +29,13 @@ defmodule BlockProcess do
         %Worker{hash: Block.hash(block), timeout: 60_000}
         |> do_init(block)
 
-      Chain.Block.state_tree(block)
+      # Prefetching the (normalized) state tree makes sense for serving all API requests
+      # (instead of making the first request suffer the cost of fetching the state tree)
+      # But when syncing the state tree doesn't need to be normalized here
+      unless Diode.syncing?() do
+        Chain.Block.state_tree(block)
+      end
+
       work(state)
     end
 
@@ -84,7 +90,7 @@ defmodule BlockProcess do
     defp work(state = %Worker{hash: hash, timeout: timeout}) do
       receive do
         # IO.puts("stopped worker #{Block.number(block)}")
-        {:with_block, _block_num, fun, pid} ->
+        {:do_work, _block_hash, fun, from} ->
           block = block()
 
           ret =
@@ -96,13 +102,13 @@ defmodule BlockProcess do
 
           case block do
             nil ->
-              send(pid, {fun, ret})
+              GenServer.reply(from, ret)
 
             _block ->
               # Order is important we want to ensure the ready signal
               # arrives at the BlockProcess before the next `get_worker` call
               GenServer.cast(BlockProcess, {:i_am_ready, hash, self()})
-              send(pid, {fun, ret})
+              GenServer.reply(from, ret)
               work(state)
           end
 
@@ -148,7 +154,7 @@ defmodule BlockProcess do
 
   @impl true
   def handle_call(
-        {:get_worker, block_hash},
+        {:with_worker, block_hash, fun},
         from,
         state = %BlockProcess{
           ready: ready,
@@ -164,7 +170,8 @@ defmodule BlockProcess do
           [] ->
             {pid, mon} = spawn_monitor(fn -> Worker.init(block_hash) end)
             busy = map_add_value(busy, block_hash, pid)
-            {:reply, pid, %BlockProcess{state | busy: busy, mons: Map.put(mons, mon, block_hash)}}
+            send(pid, {:do_work, block_hash, fun, from})
+            {:noreply, %BlockProcess{state | busy: busy, mons: Map.put(mons, mon, block_hash)}}
 
           busy_blocks ->
             block_waits = map_get(waiting, block_hash)
@@ -172,11 +179,10 @@ defmodule BlockProcess do
             if length(block_waits) > length(busy_blocks) do
               {pid, mon} = spawn_monitor(fn -> Worker.init(block_hash) end)
               busy = map_add_value(busy, block_hash, pid)
-
-              {:reply, pid,
-               %BlockProcess{state | busy: busy, mons: Map.put(mons, mon, block_hash)}}
+              send(pid, {:do_work, block_hash, fun, from})
+              {:noreply, %BlockProcess{state | busy: busy, mons: Map.put(mons, mon, block_hash)}}
             else
-              waiting = map_add_value(waiting, block_hash, from)
+              waiting = map_add_value(waiting, block_hash, {from, fun})
               {:noreply, %BlockProcess{state | waiting: waiting}}
             end
         end
@@ -185,23 +191,9 @@ defmodule BlockProcess do
         ready = map_put(ready, block_hash, rest)
         busy = map_add_value(busy, block_hash, pid)
         queue = queue_delete(queue, pid)
-        {:reply, pid, %BlockProcess{state | ready: ready, queue: queue, busy: busy}}
+        send(pid, {:do_work, block_hash, fun, from})
+        {:noreply, %BlockProcess{state | ready: ready, queue: queue, busy: busy}}
     end
-  end
-
-  def handle_call(
-        {:add_worker, block_pid, block_hash},
-        _from,
-        state = %BlockProcess{mons: mons, ready: ready}
-      ) do
-    mon = Process.monitor(block_pid)
-    ready = map_add_value(ready, block_hash, block_pid)
-
-    state =
-      %BlockProcess{state | mons: Map.put(mons, mon, block_hash), ready: ready}
-      |> queue_add(block_pid, block_hash)
-
-    {:reply, block_pid, state}
   end
 
   def handle_call(
@@ -226,13 +218,36 @@ defmodule BlockProcess do
 
   @impl true
   def handle_cast(
+        {:add_worker, block_pid, block_hash},
+        state = %BlockProcess{mons: mons, ready: ready}
+      ) do
+    mon = Process.monitor(block_pid)
+    ready = map_add_value(ready, block_hash, block_pid)
+
+    state =
+      %BlockProcess{state | mons: Map.put(mons, mon, block_hash), ready: ready}
+      |> queue_add(block_pid, block_hash)
+
+    {:noreply, state}
+  end
+
+  def handle_cast(
         {:i_am_ready, block_hash, pid},
         state = %BlockProcess{ready: ready, waiting: waiting, busy: busy}
       ) do
     case map_get(waiting, block_hash) do
-      [from | rest] ->
-        GenServer.reply(from, pid)
-        {:noreply, %BlockProcess{state | waiting: map_put(waiting, block_hash, rest)}}
+      [{from, fun} | rest] ->
+        ready = map_delete_value(ready, block_hash, pid)
+        busy = map_add_value(busy, block_hash, pid)
+        send(pid, {:do_work, block_hash, fun, from})
+
+        {:noreply,
+         %BlockProcess{
+           state
+           | ready: ready,
+             busy: busy,
+             waiting: map_put(waiting, block_hash, rest)
+         }}
 
       [] ->
         ready = map_add_value(ready, block_hash, pid)
@@ -263,11 +278,11 @@ defmodule BlockProcess do
 
     state = %BlockProcess{state | mons: mons, ready: ready, queue: queue}
 
-    with [from | rest] <- map_get(waiting, remove_hash) do
+    with [{from, fun} | rest] <- map_get(waiting, remove_hash) do
       waiting = map_put(waiting, remove_hash, rest)
       {pid, mon} = spawn_monitor(fn -> Worker.init(remove_hash) end)
       busy = map_add_value(busy, remove_hash, pid)
-      GenServer.reply(from, pid)
+      send(pid, {:do_work, remove_hash, fun, from})
 
       {:noreply,
        %BlockProcess{state | busy: busy, mons: Map.put(mons, mon, remove_hash), waiting: waiting}}
@@ -277,7 +292,15 @@ defmodule BlockProcess do
   end
 
   @queue_limit 100
-  defp queue_add(state = %BlockProcess{queue: queue, ready: ready}, pid, hash) do
+  defp queue_add(state = %BlockProcess{queue: queue}, pid, hash) do
+    if :queue.member({pid, hash}, queue) do
+      state
+    else
+      do_queue_add(state, pid, hash)
+    end
+  end
+
+  defp do_queue_add(state = %BlockProcess{queue: queue, ready: ready}, pid, hash) do
     if :queue.len(queue) > @queue_limit do
       {{:value, {remove_pid, remove_hash}}, queue} = :queue.out_r(queue)
       send(remove_pid, :stop)
@@ -301,7 +324,13 @@ defmodule BlockProcess do
   end
 
   defp map_add_value(map, key, value) do
-    Map.update(map, key, [value], fn rest -> [value | rest] end)
+    Map.update(map, key, [value], fn rest ->
+      if Enum.member?(rest, value) do
+        rest
+      else
+        [value | rest]
+      end
+    end)
   end
 
   def fetch(block_ref, methods) when is_list(methods) do
@@ -327,8 +356,7 @@ defmodule BlockProcess do
       if Worker.is_worker() and Worker.hash() == block_hash do
         fun.(Worker.block())
       else
-        get_worker(block_hash)
-        |> do_with_block(fun)
+        do_with_worker(block_hash, fun)
       end
     else
       with_block(nil, fun)
@@ -352,34 +380,19 @@ defmodule BlockProcess do
     end
   end
 
-  defp do_with_block(block_pid, fun) when is_pid(block_pid) do
-    ref = Process.monitor(block_pid)
-    send(block_pid, {:with_block, :pid, fun, self()})
-
-    receive do
-      {:DOWN, ^ref, :process, _pid, reason} ->
-        raise "failed with_block() for #{inspect(reason)}"
-
-      {^fun, {:ok, ret}} ->
-        Process.demonitor(ref, [:flush])
+  defp do_with_worker(block_hash, fun) do
+    case GenServer.call(__MODULE__, {:with_worker, block_hash, fun}, :infinity) do
+      {:ok, ret} ->
         ret
 
-      {^fun, {:error, error, trace}} ->
-        Process.demonitor(ref, [:flush])
+      {:error, error, trace} ->
         Kernel.reraise(error, trace)
-    end
-  end
-
-  defp get_worker(block_hash) do
-    case GenServer.call(__MODULE__, {:get_worker, block_hash}, :infinity) do
-      pid when is_pid(pid) ->
-        pid
     end
   end
 
   def start_block(%Block{} = block) do
     pid = spawn(fn -> Worker.init(block) end)
-    ^pid = GenServer.call(__MODULE__, {:add_worker, pid, Block.hash(block)}, :infinity)
+    GenServer.cast(__MODULE__, {:add_worker, pid, Block.hash(block)})
     Block.hash(block)
   end
 
