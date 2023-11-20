@@ -9,8 +9,7 @@ config :logger,
   handle_sasl_reports: true,
   backends: [:console],
   truncate: 8000,
-  format: "$time $metadata[$level] $message",
-  metadata: [:request_id]
+  format: "$time $metadata[$level] $message"
 
 config :logger, :console, format: "$time $metadata[$level] $levelpad$message\n"
 
