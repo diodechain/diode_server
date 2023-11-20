@@ -11,7 +11,7 @@ config :logger,
   truncate: 8000,
   format: "$time $metadata[$level] $message"
 
-config :logger, :console, format: "$time $metadata[$level] $levelpad$message\n"
+config :logger, :console, format: "$time $metadata[$level] $message\n"
 
 case Mix.env() do
   :benchmark ->
