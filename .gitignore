@@ -36,3 +36,4 @@ data_prod/
 data_test/
 data_prod_old/
 supervise/
+.env
