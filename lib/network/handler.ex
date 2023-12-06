@@ -11,6 +11,7 @@ defmodule Network.Handler do
   defmacro __using__(_opts) do
     quote do
       use GenServer
+      import Network.Handler
 
       def init({state, :init}) do
         setup_process(state)
@@ -164,54 +165,54 @@ defmodule Network.Handler do
       defp set_tcpopt(socket, level, opt, value) do
         :ssl.setopts(socket, [{:raw, level, opt, <<value::unsigned-little-size(32)>>}])
       end
-
-      def name(%{node_id: node_id, address: node_address})
-          when node_address != nil do
-        name({node_id, node_address})
-      end
-
-      def name(%{node_id: node_id, node_address: node_address}) do
-        name({node_id, node_address})
-      end
-
-      def name(%{server_pid: _pid}) do
-        "pre_connection_information"
-      end
-
-      def name({node_id, node_address, port}) do
-        "#{name({node_id, node_address})}:#{port}"
-      end
-
-      def name({node_id, node_address}) do
-        prefix =
-          case node_id do
-            bin when is_binary(bin) -> Base16.prefix(node_id, 6) <> "@"
-            wallet when is_tuple(wallet) -> Base16.prefix(Wallet.address!(wallet), 6) <> "@"
-            _ -> ""
-          end
-
-        if is_binary(node_id) do
-          :binary.part(Base.encode16(node_id, case: :lower), 0, 6) <> "@"
-        else
-          ""
-        end
-
-        prefix <>
-          case node_address do
-            tuple when is_tuple(tuple) -> List.to_string(:inet.ntoa(tuple))
-            other -> other
-          end
-      end
-
-      def name(nil) do
-        "nil"
-      end
-
-      def log(state, format) do
-        mod = List.last(Module.split(__MODULE__))
-        date = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second) |> to_string()
-        :io.format("~s ~s: ~s ~s~n", [date, mod, name(state), format])
-      end
     end
+  end
+
+  def name(%{node_id: node_id, address: node_address})
+      when node_address != nil do
+    name({node_id, node_address})
+  end
+
+  def name(%{node_id: node_id, node_address: node_address}) do
+    name({node_id, node_address})
+  end
+
+  def name(%{server_pid: _pid}) do
+    "pre_connection_information"
+  end
+
+  def name({node_id, node_address, port}) do
+    "#{name({node_id, node_address})}:#{port}"
+  end
+
+  def name({node_id, node_address}) do
+    prefix =
+      case node_id do
+        bin when is_binary(bin) -> Base16.prefix(node_id, 6) <> "@"
+        wallet when is_tuple(wallet) -> Base16.prefix(Wallet.address!(wallet), 6) <> "@"
+        _ -> ""
+      end
+
+    if is_binary(node_id) do
+      :binary.part(Base.encode16(node_id, case: :lower), 0, 6) <> "@"
+    else
+      ""
+    end
+
+    prefix <>
+      case node_address do
+        tuple when is_tuple(tuple) -> List.to_string(:inet.ntoa(tuple))
+        other -> inspect(other)
+      end
+  end
+
+  def name(nil) do
+    "nil"
+  end
+
+  def log(state, format) do
+    mod = List.last(Module.split(__MODULE__))
+    date = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second) |> to_string()
+    :io.format("~s ~s: ~s ~s~n", [date, mod, name(state), format])
   end
 end
