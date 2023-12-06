@@ -165,6 +165,12 @@ defmodule Network.Handler do
       defp set_tcpopt(socket, level, opt, value) do
         :ssl.setopts(socket, [{:raw, level, opt, <<value::unsigned-little-size(32)>>}])
       end
+
+      def log(state, format) do
+        mod = List.last(Module.split(__MODULE__))
+        date = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second) |> to_string()
+        :io.format("~s ~s: ~s ~s~n", [date, mod, name(state), format])
+      end
     end
   end
 
@@ -202,17 +208,13 @@ defmodule Network.Handler do
     prefix <>
       case node_address do
         tuple when is_tuple(tuple) -> List.to_string(:inet.ntoa(tuple))
+        bin when is_binary(bin) -> bin
+        list when is_list(list) -> List.to_string(list)
         other -> inspect(other)
       end
   end
 
   def name(nil) do
     "nil"
-  end
-
-  def log(state, format) do
-    mod = List.last(Module.split(__MODULE__))
-    date = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second) |> to_string()
-    :io.format("~s ~s: ~s ~s~n", [date, mod, name(state), format])
   end
 end
