@@ -17,8 +17,8 @@ defmodule Network.Sender do
     GenServer.stop(q, :normal)
   end
 
-  def push_async(q, partition, data) do
-    GenServer.call(q, {:push_async, partition, data})
+  def push_async(q, partition, data, trace) do
+    GenServer.call(q, {:push_async, partition, data, trace})
   end
 
   def push(q, partition, data) do
@@ -35,13 +35,13 @@ defmodule Network.Sender do
 
   @impl true
   def handle_call(
-        {:push_async, partition, data},
+        {:push_async, partition, data, trace},
         _from,
         state = %Sender{partitions: partitions, waiting: nil}
       ) do
     ps =
-      Map.update(partitions, partition, {[data], [nil]}, fn {q, rest} ->
-        {q ++ [data], rest ++ [nil]}
+      Map.update(partitions, partition, {[data], [{:trace, trace}]}, fn {q, rest} ->
+        {q ++ [data], rest ++ [{:trace, trace}]}
       end)
 
     {:reply, :ok, %Sender{state | partitions: ps}}
@@ -49,11 +49,12 @@ defmodule Network.Sender do
 
   @impl true
   def handle_call(
-        {:push_async, _partition, data},
+        {:push_async, _partition, data, trace},
         _from,
         state = %Sender{waiting: from}
       ) do
     GenServer.reply(from, data)
+    Network.EdgeV2.trace(trace)
     {:reply, :ok, %Sender{state | waiting: nil}}
   end
 
@@ -105,7 +106,13 @@ defmodule Network.Sender do
           end
 
         state = %Sender{state | partitions: ps}
-        if from != nil, do: GenServer.reply(from, :ok)
+
+        case from do
+          nil -> :nop
+          {:trace, trace} -> Network.EdgeV2.trace(trace)
+          from -> GenServer.reply(from, :ok)
+        end
+
         {:reply, data, state}
     end
   end

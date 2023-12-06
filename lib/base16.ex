@@ -17,6 +17,16 @@ defmodule Base16 do
     "0x#{Base.encode16(hex, case: :lower)}"
   end
 
+  def prefix(some, length) do
+    case encode(some, false) do
+      <<"0x", head::binary-size(length), _::binary>> ->
+        head
+
+      <<"0x", rest::binary>> ->
+        rest
+    end
+  end
+
   @spec decode(<<_::16, _::_*8>>) :: binary() | non_neg_integer()
   def decode(<<"0x", hex::binary>>) do
     do_decode(hex)

@@ -2,6 +2,7 @@
 # Copyright 2021 Diode
 # Licensed under the Diode License, Version 1.1
 defmodule Network.Handler do
+  require Record
   @callback ssl_options([]) :: []
   @callback do_init() :: any()
   @callback on_nodeid(any()) :: any()
@@ -181,11 +182,25 @@ defmodule Network.Handler do
         "#{name({node_id, node_address})}:#{port}"
       end
 
-      def name({_node_id, node_address}) do
-        case node_address do
-          tuple when is_tuple(tuple) -> List.to_string(:inet.ntoa(tuple))
-          other -> other
+      def name({node_id, node_address}) do
+        prefix =
+          case node_id do
+            bin when is_binary(bin) -> Base16.prefix(node_id, 6) <> "@"
+            wallet when is_tuple(wallet) -> Base16.prefix(Wallet.address!(wallet), 6) <> "@"
+            _ -> ""
+          end
+
+        if is_binary(node_id) do
+          :binary.part(Base.encode16(node_id, case: :lower), 0, 6) <> "@"
+        else
+          ""
         end
+
+        prefix <>
+          case node_address do
+            tuple when is_tuple(tuple) -> List.to_string(:inet.ntoa(tuple))
+            other -> other
+          end
       end
 
       def name(nil) do

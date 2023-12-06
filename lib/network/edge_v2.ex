@@ -10,12 +10,13 @@ defmodule Network.EdgeV2 do
   import Channel, only: :macros
 
   defmodule PortClient do
-    defstruct pid: nil, mon: nil, ref: nil, write: true
+    defstruct pid: nil, mon: nil, ref: nil, write: true, trace: false
 
     @type t :: %PortClient{
             pid: pid(),
             mon: reference(),
-            write: true | false
+            write: boolean(),
+            trace: boolean()
           }
   end
 
@@ -26,7 +27,8 @@ defmodule Network.EdgeV2 do
               clients: [],
               portname: nil,
               shared: false,
-              mailbox: :queue.new()
+              mailbox: :queue.new(),
+              trace: false
 
     @type ref :: binary()
     @type t :: %Port{
@@ -36,7 +38,8 @@ defmodule Network.EdgeV2 do
             clients: [PortClient.t()],
             portname: any(),
             shared: true | false,
-            mailbox: :queue.queue(binary())
+            mailbox: :queue.queue(binary()),
+            trace: boolean()
           }
   end
 
@@ -179,9 +182,15 @@ defmodule Network.EdgeV2 do
 
   @max_preopen_ports 5
   def handle_call({:portopen, pid, ref, flags, portname, device_address}, from, state) do
+    trace = if String.contains?(flags, "t"), do: pid
+
+    preopen_count =
+      Enum.count(state.ports.refs, fn {_key, %Port{state: pstate}} -> pstate == :pre_open end)
+
+    trace(trace, state, "exec portopen #{Base16.encode(ref)}")
+
     cond do
-      Enum.count(state.ports.refs, fn {_key, %Port{state: pstate}} -> pstate == :pre_open end) >
-          @max_preopen_ports ->
+      preopen_count > @max_preopen_ports ->
         # Send message to ensure this is still an active port
         Process.send_after(self(), {:check_activity, state.last_message}, 15_000)
         {:reply, {:error, "too many hanging ports"}, state}
@@ -196,7 +205,8 @@ defmodule Network.EdgeV2 do
           mon: mon,
           pid: pid,
           ref: ref,
-          write: String.contains?(flags, "r")
+          write: String.contains?(flags, "r"),
+          trace: trace
         }
 
         port = %Port{
@@ -205,6 +215,7 @@ defmodule Network.EdgeV2 do
           clients: [client],
           portname: portname,
           shared: String.contains?(flags, "s"),
+          trace: trace,
           ref: ref
         }
 
@@ -235,11 +246,18 @@ defmodule Network.EdgeV2 do
   end
 
   def handle_cast({:portsend, ref, data, _pid}, state) do
-    if PortCollection.get(state.ports, ref) != nil do
-      {:noreply, send_socket(state, {:port, ref}, random_ref(), ["portsend", ref, data])}
-    else
-      {:noreply, state}
+    case PortCollection.get(state.ports, ref) do
+      %Port{trace: trace} ->
+        trace = {trace, name(state), "exec portsend to #{Base16.encode(ref)}"}
+        {:noreply, send_socket(state, {:port, ref}, random_ref(), ["portsend", ref, data], trace)}
+
+      nil ->
+        {:noreply, state}
     end
+  end
+
+  def handle_cast({:trace, msg}, state) do
+    {:noreply, send_socket(state, :trace, random_ref(), ["trace" | msg])}
   end
 
   def handle_cast({:portclose, ref}, state) do
@@ -297,7 +315,9 @@ defmodule Network.EdgeV2 do
           nil ->
             error("port does not exist")
 
-          %Port{state: :open, clients: clients} ->
+          %Port{state: :open, clients: clients, trace: trace} ->
+            trace(trace, state, "recv portsend from #{Base16.encode(ref)}")
+
             for client <- clients do
               if client.write do
                 GenServer.cast(client.pid, {:portsend, client.ref, data, state.pid})
@@ -488,7 +508,7 @@ defmodule Network.EdgeV2 do
               {:reply, :ok, %{state | ports: ports}}
 
             nil ->
-              log(state, "ignoring response for undefined ref #{inspect(ref)}")
+              log(state, "ignoring response for undefined ref #{Base16.encode(ref)}")
               {:reply, :ok, state}
           end
         end)
@@ -793,6 +813,10 @@ defmodule Network.EdgeV2 do
   end
 
   defp portopen(state, <<channel_id::binary-size(32)>>, portname, flags) do
+    ref = random_ref()
+    trace = if String.contains?(flags, "t"), do: state.pid
+    trace(trace, state, "received portopen for channel #{Base16.encode(ref)}")
+
     case Kademlia.find_value(channel_id) do
       nil ->
         error("not found")
@@ -805,7 +829,7 @@ defmodule Network.EdgeV2 do
         |> Wallet.equal?(Diode.miner())
         |> if do
           pid = Channels.ensure(channel)
-          do_portopen(state, device_address(state), state.pid, portname, flags, pid)
+          do_portopen(state, device_address(state), state.pid, portname, flags, pid, ref)
         else
           error("wrong host")
         end
@@ -813,7 +837,10 @@ defmodule Network.EdgeV2 do
   end
 
   defp portopen(state, device_id, portname, flags) do
+    trace = if String.contains?(flags, "t"), do: state.pid
+    ref = random_ref()
     address = device_address(state)
+    trace(trace, state, "received portopen for #{Base16.encode(ref)}")
 
     cond do
       device_id == address ->
@@ -826,7 +853,7 @@ defmodule Network.EdgeV2 do
         with <<bin::binary-size(20)>> <- device_id,
              w <- Wallet.from_address(bin),
              [pid | _] <- PubSub.subscribers({:edge, Wallet.address!(w)}) do
-          do_portopen(state, address, state.pid, portname, flags, pid)
+          do_portopen(state, address, state.pid, portname, flags, pid, ref)
         else
           [] -> error("not found")
           other -> error("invalid address #{inspect(other)}")
@@ -834,13 +861,15 @@ defmodule Network.EdgeV2 do
     end
   end
 
-  defp validate_flags("rw"), do: true
-  defp validate_flags("r"), do: true
-  defp validate_flags("w"), do: true
-  defp validate_flags("rws"), do: true
-  defp validate_flags("rs"), do: true
-  defp validate_flags("ws"), do: true
-  defp validate_flags(_), do: false
+  defp validate_flags(bytes) do
+    Enum.all?(String.to_charlist(bytes), fn
+      ?r -> true
+      ?w -> true
+      ?s -> true
+      ?t -> true
+      _ -> false
+    end)
+  end
 
   defp random_ref() do
     Random.uint31h()
@@ -849,9 +878,9 @@ defmodule Network.EdgeV2 do
     # :io.format("REF ~p~n", [ref])
   end
 
-  defp do_portopen(state, device_address, this, portname, flags, pid) do
+  defp do_portopen(state, device_address, this, portname, flags, pid, ref) do
     mon = monitor(this, pid)
-    ref = random_ref()
+    trace = if String.contains?(flags, "t"), do: state.pid
 
     #  Receives an open request from another local connected edge worker.
     #  Now needs to forward the request to the device and remember to
@@ -867,7 +896,28 @@ defmodule Network.EdgeV2 do
             "Portopen failed for #{Base16.encode(device_address)} #{inspect({kind, what})}"
           )
 
-          :error
+          case what do
+            {:timeout, _} ->
+              {:error, "timeout"}
+
+            {{:timeout, _}, _} ->
+              {:error, "timeout2"}
+
+            {:no_activity_timeout, _} ->
+              {:error, "no_activity_timeout"}
+
+            {{:error, :einval}, _} ->
+              {:error, "sudden close"}
+
+            {:exit, :normal} ->
+              {:error, "peer disconnect"}
+
+            {:noproc, _} ->
+              {:error, "peer already disconnected"}
+
+            _ ->
+              {:error, "unknown"}
+          end
       end
 
     case resp do
@@ -876,13 +926,13 @@ defmodule Network.EdgeV2 do
           pid: pid,
           mon: mon,
           ref: cref,
-          write: String.contains?(flags, "w")
+          write: String.contains?(flags, "w"),
+          trace: trace
         }
 
         call(this, fn _from, state ->
-          ports =
-            PortCollection.put(state.ports, %Port{state: :open, clients: [client], ref: ref})
-
+          port = %Port{state: :open, clients: [client], ref: ref, trace: trace}
+          ports = PortCollection.put(state.ports, port)
           {:reply, :ok, %{state | ports: ports}}
         end)
 
@@ -894,14 +944,16 @@ defmodule Network.EdgeV2 do
 
       :error ->
         Process.demonitor(mon, [:flush])
-        error(ref)
+        error("unexpected error")
     end
   end
 
   defp portclose(state, ref, action \\ true)
 
   # Closing whole port no matter how many clients
-  defp portclose(state, port = %Port{}, action) do
+  defp portclose(state, port = %Port{trace: trace, ref: ref}, action) do
+    trace(trace, state, "exec portclose #{Base16.encode(ref)}")
+
     for client <- port.clients do
       GenServer.cast(client.pid, {:portclose, port.ref})
       Process.demonitor(client.mon, [:flush])
@@ -980,7 +1032,8 @@ defmodule Network.EdgeV2 do
          state = %{unpaid_bytes: unpaid},
          partition,
          request_id,
-         data
+         data,
+         trace \\ nil
        ) do
     cond do
       # early exit
@@ -1002,7 +1055,7 @@ defmodule Network.EdgeV2 do
             account_outgoing(state)
           else
             msg = encode([request_id, data])
-            :ok = do_send_socket(state, partition, msg)
+            :ok = do_send_socket(state, partition, msg, trace)
             account_outgoing(state, msg)
           end
 
@@ -1016,7 +1069,7 @@ defmodule Network.EdgeV2 do
     end
   end
 
-  defp do_send_socket(state, partition, msg) do
+  defp do_send_socket(state, partition, msg, trace \\ nil) do
     msg =
       case state.compression do
         nil -> msg
@@ -1024,7 +1077,13 @@ defmodule Network.EdgeV2 do
       end
 
     length = byte_size(msg)
-    Network.Sender.push_async(state.sender, partition, <<length::unsigned-size(16), msg::binary>>)
+
+    Network.Sender.push_async(
+      state.sender,
+      partition,
+      <<length::unsigned-size(16), msg::binary>>,
+      trace
+    )
   end
 
   @spec device_id(state()) :: Wallet.t()
@@ -1152,5 +1211,20 @@ defmodule Network.EdgeV2 do
 
   defp to_bin(num) do
     Rlpx.num2bin(num)
+  end
+
+  def trace(nil), do: :nop
+  def trace({nil, _name, _format}), do: :nop
+
+  def trace({trace, name, format}) do
+    msg = [System.os_time(:millisecond), name, format]
+    GenServer.cast(trace, {:trace, msg})
+  end
+
+  defp trace(nil, _state, _format), do: :nop
+
+  defp trace(trace, state, format) do
+    msg = [System.os_time(:millisecond), name(state), format]
+    GenServer.cast(trace, {:trace, msg})
   end
 end
