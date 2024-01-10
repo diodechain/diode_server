@@ -375,70 +375,69 @@ defmodule Network.PeerHandler do
 
   # Block is based on unknown predecessor
   # keep block in block backup list
-  defp handle_block(parent, block = %Chain.Block{}, state = %{blocks: blocks, job: job}) do
-    if is_nil(parent) or is_pid(job) do
-      # Checking previous sync jobs
-      case blocks do
-        nil ->
+  defp handle_block(nil, block = %Chain.Block{}, state = %{blocks: blocks}) do
+    case blocks do
+      nil ->
+        parent = Model.SyncSql.search_parent(block)
+        {0, %{peak: block, oldest: parent}}
+
+      %{peak: peak, oldest: oldest} ->
+        if Block.number(oldest) <= Block.number(block) and
+             Block.number(block) <= Block.number(peak) do
+          {0, blocks}
+        else
           parent = Model.SyncSql.search_parent(block)
-          {0, %{peak: block, oldest: parent}}
 
-        %{peak: peak, oldest: oldest} ->
-          if Block.number(oldest) <= Block.number(block) and
-               Block.number(block) <= Block.number(peak) do
-            {0, blocks}
+          if Block.number(oldest) > Block.number(parent) do
+            {0, %{blocks | oldest: parent}}
           else
-            parent = Model.SyncSql.search_parent(block)
-
-            if Block.number(oldest) > Block.number(parent) do
-              {0, %{blocks | oldest: parent}}
+            # this happens when there is a new top block created on the remote side
+            if Block.parent_hash(block) == Block.hash(peak) do
+              {0, %{blocks | peak: block}}
             else
-              # this happens when there is a new top block created on the remote side
-              if Block.parent_hash(block) == Block.hash(peak) do
-                {0, %{blocks | peak: block}}
+              # is this a randomly broadcasted block or a chain re-org?
+              # assuming reorg after n blocks
+              if state.random_blocks < 100 do
+                log(state, "ignoring wrong ordered block [#{state.random_blocks + 1}]")
+                {state.random_blocks + 1, blocks}
               else
-                # is this a randomly broadcasted block or a chain re-org?
-                # assuming reorg after n blocks
-                if state.random_blocks < 100 do
-                  log(state, "ignoring wrong ordered block [#{state.random_blocks + 1}]")
-                  {state.random_blocks + 1, blocks}
-                else
-                  log(
-                    state,
-                    "restarting sync because of random blocks [#{state.random_blocks + 1}]"
-                  )
+                log(
+                  state,
+                  "restarting sync because of random blocks [#{state.random_blocks + 1}]"
+                )
 
-                  {:error, :too_many_random_blocks}
-                end
+                {:error, :too_many_random_blocks}
               end
             end
           end
-      end
-      |> case do
-        {:error, reason} ->
-          {:stop, {:sync_error, reason}, state}
+        end
+    end
+    |> case do
+      {:error, reason} ->
+        {:stop, {:sync_error, reason}, state}
 
-        {random_blocks, blocks} ->
-          # if a search_parent() returns a known block we start the syncs
-          if Chain.block_by_hash?(Chain.Block.parent_hash(blocks.oldest)) do
-            do_handle_block(
-              blocks.oldest,
-              %{state | blocks: blocks, random_blocks: random_blocks}
-            )
+      {random_blocks, blocks} ->
+        # if a search_parent() returns a known block we start the syncs
+        if Chain.block_by_hash?(Chain.Block.parent_hash(blocks.oldest)) do
+          do_handle_block(
+            blocks.oldest,
+            %{state | blocks: blocks, random_blocks: random_blocks}
+          )
 
-            # otherwise keep asking for more blocks
-          else
-            {[@response, @publish, "missing_parent", Block.parent_hash(blocks.oldest)],
-             %{state | blocks: blocks, random_blocks: random_blocks}}
-          end
-      end
-    else
-      do_handle_block(block, state)
+          # otherwise keep asking for more blocks
+        else
+          {[@response, @publish, "missing_parent", Block.parent_hash(blocks.oldest)],
+           %{state | blocks: blocks, random_blocks: random_blocks}}
+        end
     end
   end
 
+  defp handle_block(parent, block, state) when parent != nil do
+    do_handle_block(block, state)
+  end
+
   defp do_handle_block(block, state = %{job: job}) do
-    if Chain.is_active_sync(true) and job == nil do
+    if Chain.is_active_sync(true) and Process.whereis(:active_sync_job) == nil and job == nil do
       me = self()
 
       job =
