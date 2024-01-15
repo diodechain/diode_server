@@ -273,14 +273,19 @@ defmodule BlockProcess do
   end
 
   def with_block(<<block_hash::binary-size(32)>>, fun) do
-    if Chain.block_by_hash?(block_hash) do
-      if Worker.is_worker() and Worker.hash() == block_hash do
-        fun.(Worker.block())
-      else
+    cond do
+      not Chain.block_by_hash?(block_hash) ->
+        with_block(nil, fun)
+
+      not Worker.is_worker() ->
         do_with_worker(block_hash, fun)
-      end
-    else
-      with_block(nil, fun)
+
+      Worker.hash() == block_hash ->
+        fun.(Worker.block())
+
+      true ->
+        do_with_worker(block_hash, fn block -> block end)
+        |> with_block(fun)
     end
   end
 
@@ -387,7 +392,7 @@ defmodule BlockProcess do
           set_worker_mode(state, pid, block_hash, :busy)
       end
     else
-      [] -> oldstate
+      _ -> oldstate
     end
   end
 
