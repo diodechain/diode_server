@@ -180,49 +180,51 @@ defmodule Model.ChainSql do
     Ets.init(Model.ChainSql.Writer)
     EtsLru.new(__MODULE__, 1024)
 
-    with_transaction(__MODULE__, fn db ->
-      query!(db, """
-          CREATE TABLE IF NOT EXISTS blocks (
-            hash BLOB PRIMARY KEY,
-            miner BLOB,
-            parent BLOB,
-            number INTEGER NULL,
-            final BOOL DEFAULT false,
-            data BLOB,
-            state BLOB
-          )
-      """)
-
-      query!(db, """
-          CREATE INDEX IF NOT EXISTS block_number ON blocks (
-            number
-          )
-      """)
-
-      query!(db, """
-          CREATE INDEX IF NOT EXISTS block_parent ON blocks (
-            parent
-          )
-      """)
-
-      query!(db, """
-          CREATE TABLE IF NOT EXISTS transactions (
-            txhash BLOB PRIMARY KEY,
-            blhash BLOB,
-            FOREIGN KEY(blhash) REFERENCES blocks(hash) ON DELETE CASCADE
-          )
-      """)
-
-      query!(db, """
-          CREATE INDEX IF NOT EXISTS tx_block ON transactions (
-            blhash
-          )
-      """)
-    end)
+    with_transaction(__MODULE__, &init_tables/1)
 
     with %Chain.Block{} = block <- peak_block() do
       Model.SyncSql.clean_before(Chain.Block.number(block))
     end
+  end
+
+  def init_tables(db) do
+    query!(db, """
+        CREATE TABLE IF NOT EXISTS blocks (
+          hash BLOB PRIMARY KEY,
+          miner BLOB,
+          parent BLOB,
+          number INTEGER NULL,
+          final BOOL DEFAULT false,
+          data BLOB,
+          state BLOB
+        )
+    """)
+
+    query!(db, """
+        CREATE INDEX IF NOT EXISTS block_number ON blocks (
+          number
+        )
+    """)
+
+    query!(db, """
+        CREATE INDEX IF NOT EXISTS block_parent ON blocks (
+          parent
+        )
+    """)
+
+    query!(db, """
+        CREATE TABLE IF NOT EXISTS transactions (
+          txhash BLOB PRIMARY KEY,
+          blhash BLOB,
+          FOREIGN KEY(blhash) REFERENCES blocks(hash) ON DELETE CASCADE
+        )
+    """)
+
+    query!(db, """
+        CREATE INDEX IF NOT EXISTS tx_block ON transactions (
+          blhash
+        )
+    """)
   end
 
   def set_final(block) do

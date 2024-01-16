@@ -37,7 +37,7 @@ defmodule Stats do
   end
 
   def tc!(metric, fun) do
-    if :persistent_term.get(@key) do
+    if :persistent_term.get(@key, nil) do
       parent = Process.get(__MODULE__, "")
       name = "#{parent}/#{metric}"
       Process.put(__MODULE__, name)
