@@ -41,7 +41,8 @@ defmodule Diode.Mixfile do
         :mix,
         :observer,
         :runtime_tools,
-        :sqlitex
+        :sqlitex,
+        :os_mon
       ]
     ]
   end

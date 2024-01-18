@@ -107,7 +107,11 @@ defmodule BlockProcess do
             _block ->
               # Order is important we want to ensure the ready signal
               # arrives at the BlockProcess before the next `get_worker` call
-              GenServer.cast(BlockProcess, {:i_am_ready, hash, self()})
+              GenServer.cast(
+                BlockProcess,
+                {:i_am_ready, hash, Process.info(self(), :total_heap_size), self()}
+              )
+
               GenServer.reply(from, ret)
               work(state)
           end
@@ -137,12 +141,20 @@ defmodule BlockProcess do
   end
 
   use GenServer
-  defstruct [:ready, :busy, :waiting, :mons, :queue]
+  defstruct [:ready, :busy, :waiting, :mons, :queue, :queue_limit]
 
+  @queue_limit_max 100
   def start_link() do
     GenServer.start_link(
       __MODULE__,
-      %BlockProcess{ready: %{}, mons: %{}, queue: :queue.new(), waiting: %{}, busy: %{}},
+      %BlockProcess{
+        ready: %{},
+        mons: %{},
+        queue: :queue.new(),
+        waiting: %{},
+        busy: %{},
+        queue_limit: @queue_limit_max
+      },
       name: __MODULE__
     )
   end
@@ -189,8 +201,18 @@ defmodule BlockProcess do
     {:noreply, state}
   end
 
-  def handle_cast({:i_am_ready, block_hash, pid}, state) do
-    {:noreply, set_worker_mode(state, pid, block_hash, :ready) |> pop_waiting(block_hash)}
+  def handle_cast({:i_am_ready, block_hash, {:total_heap_size, size}, pid}, state) do
+    {:noreply,
+     update_queue_size(state, size * :memsup.get_os_wordsize())
+     |> set_worker_mode(pid, block_hash, :ready)
+     |> pop_waiting(block_hash)}
+  end
+
+  def handle_cast({:i_am_ready, block_hash, nil, pid}, state) do
+    {:noreply,
+     state
+     |> set_worker_mode(pid, block_hash, :ready)
+     |> pop_waiting(block_hash)}
   end
 
   @impl true
@@ -212,7 +234,23 @@ defmodule BlockProcess do
     {:noreply, pop_waiting(state, remove_hash)}
   end
 
-  @queue_limit 100
+  defp update_queue_size(
+         state = %BlockProcess{queue: queue, queue_limit: prev_queue_limit},
+         process_size
+       ) do
+    with free when free != nil <- :memsup.get_system_memory_data()[:free_memory] do
+      used = :queue.len(queue) * process_size
+      available = trunc((used + free) * 0.8)
+      # find the new target queue limit
+      queue_limit = min(@queue_limit_max, max(5, div(available, process_size))) - prev_queue_limit
+      # adjust in steps of 1, since `process_size` is not an average
+      queue_limit = prev_queue_limit + div(queue_limit, max(1, abs(queue_limit)))
+      %BlockProcess{state | queue_limit: queue_limit}
+    else
+      _ -> state
+    end
+  end
+
   defp queue_add(state = %BlockProcess{queue: queue}, pid, hash) do
     if :queue.member({pid, hash}, queue) do
       state
@@ -221,8 +259,12 @@ defmodule BlockProcess do
     end
   end
 
-  defp do_queue_add(state = %BlockProcess{queue: queue, ready: ready}, pid, hash) do
-    if :queue.len(queue) > @queue_limit do
+  defp do_queue_add(
+         state = %BlockProcess{queue: queue, ready: ready, queue_limit: queue_limit},
+         pid,
+         hash
+       ) do
+    if :queue.len(queue) > queue_limit do
       {{:value, {remove_pid, remove_hash}}, queue} = :queue.out_r(queue)
       send(remove_pid, :stop)
       ready = map_delete_value(ready, remove_hash, remove_pid)
