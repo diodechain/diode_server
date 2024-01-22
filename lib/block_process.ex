@@ -90,7 +90,8 @@ defmodule BlockProcess do
     defp work(state = %Worker{hash: hash, timeout: timeout}) do
       receive do
         # IO.puts("stopped worker #{Block.number(block)}")
-        {:do_work, _block_hash, fun, from} ->
+        {:do_work, _block_hash, fun, from = {pid, _tag}} ->
+          Process.link(pid)
           block = block()
 
           ret =
@@ -103,6 +104,7 @@ defmodule BlockProcess do
           case block do
             nil ->
               GenServer.reply(from, ret)
+              Process.unlink(pid)
 
             _block ->
               # Order is important we want to ensure the ready signal
@@ -113,6 +115,7 @@ defmodule BlockProcess do
               )
 
               GenServer.reply(from, ret)
+              Process.unlink(pid)
               work(state)
           end
 
@@ -349,7 +352,7 @@ defmodule BlockProcess do
   end
 
   defp do_with_worker(block_hash, fun) do
-    case GenServer.call(__MODULE__, {:with_worker, block_hash, fun}, :infinity) do
+    case GenServer.call(__MODULE__, {:with_worker, block_hash, fun}, 120_000) do
       {:ok, ret} ->
         ret
 
