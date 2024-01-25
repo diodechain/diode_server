@@ -284,6 +284,16 @@ defmodule Network.EdgeV2 do
     reason
   end
 
+  def handle_msg_tc(msg, state) do
+    {time, ret} = :timer.tc(fn -> handle_msg(msg, state) end)
+
+    if ret != :async and time > 3_000 do
+      log(state, "Request took too long #{time}ms: #{inspect(msg)}")
+    end
+
+    ret
+  end
+
   def handle_msg(msg, state) do
     case msg do
       ["hello", vsn | flags] when is_binary(vsn) ->
@@ -690,7 +700,7 @@ defmodule Network.EdgeV2 do
   end
 
   defp handle_request(state, request_id, method_params, _opts) do
-    case handle_msg(method_params, state) do
+    case handle_msg_tc(method_params, state) do
       :async ->
         pid = self()
 
