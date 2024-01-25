@@ -294,7 +294,7 @@ defmodule BlockProcess do
       if Enum.member?(rest, value) do
         rest
       else
-        [value | rest]
+        rest ++ [value]
       end
     end)
   end
