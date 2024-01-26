@@ -32,11 +32,6 @@ defmodule Model.CredSql do
       """)
     end)
 
-    ensure_identity()
-    Diode.puts("====== Coinbase ======")
-    Diode.puts("#{Wallet.printable(Diode.miner())}")
-    Diode.puts("")
-
     case Diode.get_env_int("PRIVATE", 0) do
       # Decode env parameter such as
       # export PRIVATE="0x123456789"
@@ -48,6 +43,10 @@ defmodule Model.CredSql do
         |> Wallet.from_privkey()
         |> set_wallet()
     end
+
+    Diode.puts("====== Coinbase ======")
+    Diode.puts("#{Wallet.printable(Diode.miner())}")
+    Diode.puts("")
 
     {:ok, %{}}
   end
