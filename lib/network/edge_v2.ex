@@ -286,9 +286,10 @@ defmodule Network.EdgeV2 do
 
   def handle_msg_tc(msg, state) do
     {time, ret} = :timer.tc(fn -> handle_msg(msg, state) end)
+    time_ms = div(time, 1000)
 
-    if ret != :async and time > 3_000 do
-      log(state, "Request took too long #{time}ms: #{inspect(msg)}")
+    if ret != :async and time_ms > 3_000 do
+      log(state, "Request took too long #{time_ms}ms: #{inspect(msg)}")
     end
 
     ret
