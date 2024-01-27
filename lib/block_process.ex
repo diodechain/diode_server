@@ -87,6 +87,16 @@ defmodule BlockProcess do
       end
     end
 
+    def watch(me) do
+      receive do
+        :stop -> :ok
+      after
+        30000 ->
+          Logger.warn("Long running block process: #{inspect({me, Profiler.stacktrace(me)})}")
+          watch(me)
+      end
+    end
+
     defp work(state = %Worker{hash: hash, timeout: timeout}) do
       receive do
         # IO.puts("stopped worker #{Block.number(block)}")
@@ -96,7 +106,11 @@ defmodule BlockProcess do
 
           ret =
             try do
-              {:ok, fun.(block)}
+              me = self()
+              watcher = spawn_link(fn -> watch(me) end)
+              ret = fun.(block)
+              send(watcher, :stop)
+              {:ok, ret}
             rescue
               e -> {:error, e, __STACKTRACE__}
             end
