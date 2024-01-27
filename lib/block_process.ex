@@ -317,47 +317,48 @@ defmodule BlockProcess do
     with_block(block_ref, fn block -> fun.(Block.state(block)) end)
   end
 
-  def with_block(<<block_hash::binary-size(32)>>, fun) do
+  def with_block(block_ref, fun, timeout \\ 120_000)
+
+  def with_block(<<block_hash::binary-size(32)>>, fun, timeout) do
     cond do
       not Chain.block_by_hash?(block_hash) ->
-        with_block(nil, fun)
+        with_block(nil, fun, timeout)
 
       not Worker.is_worker() ->
-        do_with_worker(block_hash, fun)
+        do_with_worker(block_hash, fun, timeout)
 
       Worker.hash() == block_hash ->
         fun.(Worker.block())
 
       true ->
-        do_with_worker(block_hash, fn block -> block end)
-        |> with_block(fun)
+        do_with_worker(block_hash, fn block -> block end, timeout)
+        |> with_block(fun, timeout)
     end
   end
 
-  def with_block(%Block{} = block, fun), do: fun.(block)
-  def with_block("latest", fun), do: with_block(Chain.peak(), fun)
-  def with_block("pending", fun), do: Chain.Worker.with_candidate(fun)
-  def with_block("earliest", fun), do: with_block(0, fun)
-  def with_block(nil, fun), do: fun.(nil)
-  def with_block(num, fun) when is_integer(num), do: with_block(Chain.blockhash(num), fun)
+  def with_block(%Block{} = block, fun, _timeout), do: fun.(block)
+  def with_block("latest", fun, timeout), do: with_block(Chain.peak(), fun, timeout)
+  def with_block("pending", fun, _timeout), do: Chain.Worker.with_candidate(fun)
+  def with_block("earliest", fun, timeout), do: with_block(0, fun, timeout)
+  def with_block(nil, fun, _timeout), do: fun.(nil)
 
-  def with_block(<<"0x", _rest::binary>> = ref, fun) do
+  def with_block(num, fun, timeout) when is_integer(num),
+    do: with_block(Chain.blockhash(num), fun, timeout)
+
+  def with_block(<<"0x", _rest::binary>> = ref, fun, timeout) do
     if byte_size(ref) >= 66 do
       # assuming it's a block hash
-      with_block(Base16.decode(ref), fun)
+      with_block(Base16.decode(ref), fun, timeout)
     else
       # assuming it's a block index
-      with_block(Base16.decode_int(ref), fun)
+      with_block(Base16.decode_int(ref), fun, timeout)
     end
   end
 
-  defp do_with_worker(block_hash, fun) do
-    case GenServer.call(__MODULE__, {:with_worker, block_hash, fun}, 120_000) do
-      {:ok, ret} ->
-        ret
-
-      {:error, error, trace} ->
-        Kernel.reraise(error, trace)
+  defp do_with_worker(block_hash, fun, timeout) do
+    case GenServer.call(__MODULE__, {:with_worker, block_hash, fun}, timeout) do
+      {:ok, ret} -> ret
+      {:error, error, trace} -> Kernel.reraise(error, trace)
     end
   end
 

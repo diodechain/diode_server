@@ -193,7 +193,8 @@ defmodule Chain.Block do
   end
 
   def with_parent(block = %Block{}, fun) do
-    BlockProcess.with_block(parent_hash(block), fun)
+    # These can be recursive and very long time, so we use a timeout
+    BlockProcess.with_block(parent_hash(block), fun, :infinity)
   end
 
   defp conforms_min_tx_fee?(block) do

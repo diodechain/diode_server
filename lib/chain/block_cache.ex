@@ -99,7 +99,7 @@ defmodule Chain.BlockCache do
     peak = Chain.peak()
 
     for n <- a..peak do
-      if rem(n, 1000) == 0 do
+      if n == a or rem(n, 1000) == 0 do
         IO.puts("BlockCache initialization #{n}/#{peak}")
       end
 
@@ -207,7 +207,7 @@ defmodule Chain.BlockCache do
     hash = BlockProcess.with_block(block_ref, &Block.hash/1)
 
     do_get_cache(hash, :last_final, fn ->
-      BlockProcess.with_block(hash, &Block.last_final_hash/1)
+      BlockProcess.with_block(hash, &Block.last_final_hash/1, :infinity)
     end)
   end
 
