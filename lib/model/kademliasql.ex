@@ -4,7 +4,7 @@
 defmodule Model.KademliaSql do
   alias Model.Sql
 
-  defp query!(sql, params \\ []) do
+  def query!(sql, params \\ []) do
     Sql.query!(__MODULE__, sql, params)
   end
 
@@ -67,6 +67,14 @@ defmodule Model.KademliaSql do
 
   def object(key) do
     Sql.fetch!(__MODULE__, "SELECT object FROM p2p_objects WHERE key = ?1", key)
+  end
+
+  def scan() do
+    query!("SELECT key, object FROM p2p_objects")
+    |> Enum.map(fn [key: key, object: obj] ->
+      obj = BertInt.decode!(obj) |> Object.decode!()
+      {key, obj}
+    end)
   end
 
   @spec objects(integer, integer) :: any
