@@ -87,13 +87,16 @@ defmodule BlockProcess do
       end
     end
 
-    def watch(me) do
+    @tick 30_000
+    def watch(me, secs \\ 0) do
       receive do
         :stop -> :ok
       after
-        30000 ->
-          Logger.warn("Long running block process: #{inspect({me, Profiler.stacktrace(me)})}")
-          watch(me)
+        @tick ->
+          dump = inspect({me, Profiler.stacktrace(me)})
+          secs = secs + div(@tick, 1000)
+          Logger.warn("Long running block process #{secs}s: #{dump}")
+          watch(me, secs)
       end
     end
 
@@ -345,7 +348,9 @@ defmodule BlockProcess do
         fun.(Worker.block())
 
       true ->
-        do_with_worker(block_hash, fn block -> block end, timeout)
+        Stats.tc(:sql_block_by_hash, fn ->
+          Model.ChainSql.block_by_hash(block_hash)
+        end)
         |> with_block(fun, timeout)
     end
   end
