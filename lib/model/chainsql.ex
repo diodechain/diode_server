@@ -570,7 +570,7 @@ defmodule Model.ChainSql do
 
     if is_jumpblock(block) do
       state
-      |> Chain.State.force_normalize()
+      |> Chain.State.normalize()
       |> Chain.State.compact()
       |> BertInt.encode!()
     else

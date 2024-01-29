@@ -21,11 +21,7 @@ defmodule Chain.State do
     |> Map.delete(:store)
   end
 
-  def force_normalize(%Chain.State{} = state) do
-    normalize(%Chain.State{state | hash: nil})
-  end
-
-  def normalize(%Chain.State{hash: nil, accounts: accounts} = state) do
+  def normalize_accounts(%Chain.State{accounts: accounts} = state) do
     accounts =
       Stats.tc(:accs, fn ->
         accounts
@@ -33,7 +29,11 @@ defmodule Chain.State do
         |> Map.new()
       end)
 
-    state = %Chain.State{state | accounts: accounts}
+    %Chain.State{state | accounts: accounts}
+  end
+
+  def normalize(%Chain.State{hash: nil} = state) do
+    state = normalize_accounts(state)
     tree = tree(state)
     hash = MerkleTree.root_hash(tree)
 
@@ -43,7 +43,7 @@ defmodule Chain.State do
   end
 
   def normalize(%Chain.State{} = state) do
-    state
+    normalize_accounts(state)
   end
 
   # store: can be non-existing because of later addition to the schema
@@ -131,7 +131,8 @@ defmodule Chain.State do
       delta = %{
         nonce: {Account.nonce(acc_a), Account.nonce(acc_b)},
         balance: {Account.balance(acc_a), Account.balance(acc_b)},
-        code: {Account.code(acc_a), Account.code(acc_b)}
+        code: {Account.code(acc_a), Account.code(acc_b)},
+        root_hash: {Account.root_hash(acc_a), Account.root_hash(acc_b)}
       }
 
       report = %{state: MerkleTree.difference(Account.tree(acc_a), Account.tree(acc_b))}
@@ -151,24 +152,23 @@ defmodule Chain.State do
 
   def apply_difference(%Chain.State{} = state, difference) do
     Enum.reduce(difference, state, fn {id, report}, state ->
-      acc = ensure_account(state, id)
+      oacc = acc = ensure_account(state, id)
+
+      {state_update, report} = Map.pop(report, :state, %{})
+
+      acc =
+        Enum.reduce(state_update, acc, fn {key, {a, b}}, acc ->
+          tree = Account.tree(acc)
+          ^a = MerkleTree.get(tree, key)
+          tree = MerkleTree.insert(tree, key, b)
+          Account.put_tree(acc, tree)
+        end)
 
       acc =
         Enum.reduce(report, acc, fn {key, delta}, acc ->
-          case key do
-            :state ->
-              Enum.reduce(delta, acc, fn {key, {a, b}}, acc ->
-                tree = Account.tree(acc)
-                ^a = MerkleTree.get(tree, key)
-                tree = MerkleTree.insert(tree, key, b)
-                Account.put_tree(acc, tree)
-              end)
-
-            _other ->
-              {a, b} = delta
-              ^a = apply(Account, key, [acc])
-              %{acc | key => b}
-          end
+          {a, b} = delta
+          ^a = apply(Account, key, [oacc])
+          %{acc | key => b}
         end)
 
       set_account(state, id, acc)
