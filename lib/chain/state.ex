@@ -21,6 +21,10 @@ defmodule Chain.State do
     |> Map.delete(:store)
   end
 
+  def force_normalize(%Chain.State{} = state) do
+    normalize(%Chain.State{state | hash: nil})
+  end
+
   def normalize(%Chain.State{hash: nil, accounts: accounts} = state) do
     accounts =
       Stats.tc(:accs, fn ->
