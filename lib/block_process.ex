@@ -95,7 +95,7 @@ defmodule BlockProcess do
         @tick ->
           dump = inspect({me, Profiler.stacktrace(me)})
           secs = secs + div(@tick, 1000)
-          Logger.warn("Long running block process #{secs}s: #{dump}")
+          Logger.warning("Long running block process #{secs}s: #{dump}")
           watch(me, secs)
       end
     end
