@@ -95,14 +95,12 @@ defmodule Moonbeam do
     }
 
     case post(request) do
-      %{"result" => result} ->
-        {:ok, result}
-
-      %{"error" => error} ->
-        {:error, error}
+      %{"result" => result} -> {:ok, result}
+      %{"error" => error} -> {:error, error}
     end
   end
 
+  @dialyzer {:nowarn_function, post: 1, post: 2}
   defp post(request, retry \\ true) do
     url = endpoint()
 
@@ -110,16 +108,30 @@ defmodule Moonbeam do
            {"Content-Type", "application/json"}
          ]) do
       {:ok, %{body: body}} ->
-        Poison.decode!(body)
+        case Poison.decode(body) do
+          {:ok, response} ->
+            response
+
+          {:error, error} ->
+            maybe_retry(
+              retry,
+              "Poison error: #{inspect(error)} @ #{url} in #{inspect(body)}",
+              request
+            )
+        end
 
       {:error, error} ->
-        if retry do
-          Logger.error("HTTPoison error: #{inspect(error)} @ #{url} swapping endpoint() once")
-          swap_endpoint()
-          post(request, false)
-        else
-          raise "HTTPoison error: #{inspect(error)} @ #{url}"
-        end
+        maybe_retry(retry, "HTTPoison error: #{inspect(error)} @ #{url}", request)
+    end
+  end
+
+  defp maybe_retry(retry, error, request) do
+    if retry do
+      Logger.error("#{error} swapping endpoint() once")
+      swap_endpoint()
+      post(request, false)
+    else
+      raise error
     end
   end
 
