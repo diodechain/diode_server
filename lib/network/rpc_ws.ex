@@ -99,7 +99,7 @@ defmodule Network.RpcWs do
                "method" => "eth_subscription",
                "params" => %{
                  "subscription" => id,
-                 "result" => Json.prepare!(block)
+                 "result" => Json.prepare!(block, big_x: false)
                }
              })}
           end)
