@@ -343,6 +343,22 @@ defmodule Network.EdgeV2 do
     end
   end
 
+  def handle_rpc(msg) do
+    state = %{}
+
+    case msg do
+      [cmd | _rest] when cmd in ["ping", "isonline", "sendtransaction"] ->
+        handle_async_msg(msg, state)
+
+      ["get" <> _ | _rest] ->
+        handle_async_msg(msg, state)
+
+      _ ->
+        log(state, "Unhandled message: #{truncate(msg)}")
+        error(401, "bad input")
+    end
+  end
+
   def handle_async_msg(msg, state) do
     case msg do
       ["m1:" <> cmd | rest] ->

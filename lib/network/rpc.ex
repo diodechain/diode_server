@@ -569,6 +569,14 @@ defmodule Network.Rpc do
           |> result()
         end)
 
+      "dio_edgev2" ->
+        msg = hd(params) |> Base16.decode() |> Rlp.decode!()
+
+        Network.EdgeV2.handle_rpc(msg)
+        |> Rlp.encode!()
+        |> Base16.encode()
+        |> result()
+
       _ ->
         nil
     end
