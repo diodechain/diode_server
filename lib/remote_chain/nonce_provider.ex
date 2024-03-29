@@ -1,29 +1,34 @@
-defmodule Moonbeam.NonceProvider do
-  alias Moonbeam.NonceProvider
-  use GenServer
+defmodule RemoteChain.NonceProvider do
+  use GenServer, restart: :permanent
   require Logger
+  alias RemoteChain.NonceProvider
 
-  defstruct [:nonce, :fetched_nonce]
+  defstruct [:nonce, :fetched_nonce, :chain]
 
-  def start_link([]) do
-    GenServer.start_link(__MODULE__, nil, name: __MODULE__, hibernate_after: 5_000)
+  def start_link(chain) do
+    GenServer.start_link(__MODULE__, chain, name: name(chain), hibernate_after: 5_000)
+  end
+
+  defp name(chain) do
+    impl = RemoteChain.chainimpl(chain) || raise "no chainimpl for #{inspect(chain)}"
+    {:global, {__MODULE__, impl}}
   end
 
   @impl true
-  def init(nil) do
-    {:ok, %__MODULE__{}}
+  def init(chain) do
+    {:ok, %__MODULE__{chain: chain}}
   end
 
-  def nonce() do
-    GenServer.call(__MODULE__, :nonce)
+  def nonce(chain) do
+    GenServer.call(name(chain), :nonce)
   end
 
-  def peek_nonce() do
-    GenServer.call(__MODULE__, :peek_nonce)
+  def peek_nonce(chain) do
+    GenServer.call(name(chain), :peek_nonce)
   end
 
-  def check_stale_nonce() do
-    send(__MODULE__, :check_stale_nonce)
+  def check_stale_nonce(chain) do
+    send(Process.whereis(name(chain)), :check_stale_nonce)
   end
 
   @impl true
@@ -31,8 +36,8 @@ defmodule Moonbeam.NonceProvider do
     {:reply, nonce, state}
   end
 
-  def handle_call(:nonce, _from, state = %NonceProvider{nonce: nil}) do
-    nonce = fetch_nonce()
+  def handle_call(:nonce, _from, state = %NonceProvider{nonce: nil, chain: chain}) do
+    nonce = fetch_nonce(chain)
     {:reply, nonce, %NonceProvider{state | nonce: nonce + 1, fetched_nonce: nonce}}
   end
 
@@ -47,9 +52,9 @@ defmodule Moonbeam.NonceProvider do
   @impl true
   def handle_info(
         :check_stale_nonce,
-        state = %NonceProvider{nonce: old_nonce, fetched_nonce: fetched_once}
+        state = %NonceProvider{nonce: old_nonce, fetched_nonce: fetched_once, chain: chain}
       ) do
-    new_nonce = fetch_nonce()
+    new_nonce = fetch_nonce(chain)
     # if nonce is stuck then something is wrong with processing of transactions
 
     cond do
@@ -66,8 +71,9 @@ defmodule Moonbeam.NonceProvider do
     end
   end
 
-  def fetch_nonce() do
-    Moonbeam.get_transaction_count(
+  def fetch_nonce(chain) do
+    RemoteChain.RPCCache.get_transaction_count(
+      chain,
       Wallet.base16(CallPermit.wallet()),
       "latest"
     )

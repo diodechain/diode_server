@@ -84,6 +84,7 @@ defmodule Diode.Mixfile do
 
   defp deps do
     [
+      {:websockex, github: "Azolo/websockex"},
       {:benchee, "~> 1.0", only: :benchmark},
       {:debouncer, "~> 0.1"},
       {:elixir_make, "~> 0.4", runtime: false},

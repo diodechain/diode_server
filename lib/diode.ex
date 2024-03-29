@@ -6,28 +6,10 @@ require Logger
 defmodule Diode do
   use Application
 
-  # Ignoring all info level sasl messages
-  def filter_function(event, _) do
-    case event do
-      %{level: :info, meta: %{domain: [:otp, :sasl]}} -> :stop
-      _other -> :ignore
-    end
-  end
-
   def start(_type, args) do
     :persistent_term.put(:env, Mix.env())
     :erlang.system_flag(:backtrace_depth, 30)
-    :logger.add_primary_filter(:ignore_supervisor_infos, {&filter_function/2, []})
-
     set_chaindefinition()
-
-    if travis_mode?() do
-      puts("++++++ TRAVIS DETECTED ++++++")
-      puts("~0p~n", [:inet.getifaddrs()])
-      puts("~0p~n", [:inet.get_rc()])
-      puts("~0p~n", [:inet.getaddr('localhost', :inet)])
-      puts("~0p~n", [:inet.gethostname()])
-    end
 
     puts("====== ENV #{Mix.env()} ======")
     puts("Build       : #{version()}")
@@ -83,12 +65,14 @@ defmodule Diode do
       worker(Stats, []),
       supervisor(Model.Sql),
       supervisor(Channels),
-      supervisor(Moonbeam.Sup),
       worker(Chain.BlockCache, [ets_extra]),
       worker(Chain, [ets_extra]),
       worker(PubSub, [args]),
       worker(Chain.Pool, [args]),
       worker(TicketStore, [ets_extra])
+      | Enum.map(RemoteChain.chains(), fn chain ->
+          supervisor(RemoteChain.Sup, [chain], {RemoteChain.Sup, chain})
+        end)
     ]
 
     children =
@@ -151,9 +135,9 @@ defmodule Diode do
     %{id: module, start: {Diode, :start_worker, [module, args]}}
   end
 
-  defp supervisor(module, args \\ []) do
+  defp supervisor(module, args \\ [], id \\ nil) do
     %{
-      id: module,
+      id: id || module,
       start: {Diode, :start_worker, [module, args]},
       shutdown: :infinity,
       type: :supervisor
@@ -162,9 +146,16 @@ defmodule Diode do
 
   def start_worker(module, args) do
     puts("Starting #{module}...")
-    {t, ret} = :timer.tc(module, :start_link, args)
-    puts("=======> #{module} loaded after #{Float.round(t / 1_000_000, 3)}s")
-    ret
+
+    case :timer.tc(module, :start_link, args) do
+      {t, {:ok, pid}} ->
+        puts("=======> #{module} loaded after #{Float.round(t / 1_000_000, 3)}s")
+        {:ok, pid}
+
+      {_t, other} ->
+        puts("=======> #{module} failed with: #{inspect(other)}")
+        other
+    end
   end
 
   def start_subwork(label, fun) do
@@ -235,13 +226,6 @@ defmodule Diode do
   @spec dev_mode? :: boolean
   def dev_mode?() do
     env() == :dev or env() == :test
-  end
-
-  def travis_mode?() do
-    case System.get_env("TRAVIS", nil) do
-      nil -> false
-      _ -> true
-    end
   end
 
   @spec test_mode? :: boolean

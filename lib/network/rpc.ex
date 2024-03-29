@@ -70,10 +70,6 @@ defmodule Network.Rpc do
 
     if Diode.dev_mode?() do
       :io.format("~s = ~p~n", [method, result])
-
-      # if error != nil or (is_map(result) and Map.has_key?(result, "error")) do
-      #   :io.format("params: ~p~n", [params])
-      # end
     end
 
     {ret, code} =

@@ -5,8 +5,6 @@ import Config
 
 # Configures Elixir's Logger
 config :logger,
-  handle_otp_reports: true,
-  handle_sasl_reports: true,
   backends: [:console],
   truncate: 8000,
   format: "$time $metadata[$level] $message"
@@ -31,10 +29,6 @@ case Mix.env() do
   :dev ->
     System.put_env("WORKER_MODE", "poll")
     System.put_env("SEED", "none")
-
-  # :prod ->
-  #   Manually input your public IP address here if behind NAT
-  #   System.put_env("HOST", "<host-ip-address>")
 
   _env ->
     :ok

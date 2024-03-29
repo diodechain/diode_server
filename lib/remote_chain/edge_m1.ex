@@ -1,13 +1,13 @@
 # Diode Server
-# Copyright 2023 Diode
+# Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
-defmodule Network.EdgeM1 do
+defmodule RemoteChain.Edge do
   import Network.EdgeV2, only: [response: 1, response: 2, error: 1]
 
-  def handle_async_msg(msg, state) do
+  def handle_async_msg(chain, msg, state) do
     case msg do
       ["getblockpeak"] ->
-        Moonbeam.RPCCache.block_number()
+        RemoteChain.peaknumber(chain)
         |> Base16.decode()
         |> response()
 
@@ -24,7 +24,7 @@ defmodule Network.EdgeM1 do
           "stateRoot" => state_hash,
           "timestamp" => timestamp,
           "transactionsRoot" => transaction_hash
-        } = Moonbeam.RPCCache.get_block_by_number(hex_blockref(index))
+        } = RemoteChain.RPCCache.get_block_by_number(chain, hex_blockref(index))
 
         response(%{
           "block_hash" => Base16.decode(hash),
@@ -58,7 +58,9 @@ defmodule Network.EdgeM1 do
         # requires https://eips.ethereum.org/EIPS/eip-1186
         # response(Moonbeam.proof(address, [0], blockref(block)))
 
-        code = Base16.decode(Moonbeam.get_code(hex_address(address), hex_blockref(block)))
+        code =
+          RemoteChain.RPCCache.get_code(chain, hex_address(address), hex_blockref(block))
+          |> Base16.decode()
 
         storage_root =
           if code == "" do
@@ -69,10 +71,15 @@ defmodule Network.EdgeM1 do
 
         response(%{
           nonce:
-            Base16.decode(
-              Moonbeam.get_transaction_count(hex_address(address), hex_blockref(block))
-            ),
-          balance: Base16.decode(Moonbeam.get_balance(hex_address(address), hex_blockref(block))),
+            RemoteChain.RPCCache.get_transaction_count(
+              chain,
+              hex_address(address),
+              hex_blockref(block)
+            )
+            |> Base16.decode(),
+          balance:
+            RemoteChain.RPCCache.get_balance(chain, hex_address(address), hex_blockref(block))
+            |> Base16.decode(),
           storage_root: storage_root,
           code: Hash.keccak_256(code)
         })
@@ -83,7 +90,12 @@ defmodule Network.EdgeM1 do
       ["getaccountvalue", block, address, key] ->
         # requires https://eips.ethereum.org/EIPS/eip-1186
         # response(Moonbeam.proof(address, [key], blockref(block)))
-        Moonbeam.RPCCache.get_storage_at(hex_address(address), hex_key(key), hex_blockref(block))
+        RemoteChain.RPCCache.get_storage_at(
+          chain,
+          hex_address(address),
+          hex_key(key),
+          hex_blockref(block)
+        )
         |> Base16.decode()
         |> response()
 
@@ -91,7 +103,8 @@ defmodule Network.EdgeM1 do
         # requires https://eips.ethereum.org/EIPS/eip-1186
         # response(Moonbeam.proof(address, keys, blockref(block)))
         Enum.map(keys, fn key ->
-          Moonbeam.RPCCache.get_storage_at(
+          RemoteChain.RPCCache.get_storage_at(
+            chain,
             hex_address(address),
             hex_key(key),
             hex_blockref(block)
@@ -104,8 +117,7 @@ defmodule Network.EdgeM1 do
         error("not implemented")
 
       ["getmetanonce", block, address] ->
-        CallPermit.nonces(address)
-        |> CallPermit.rpc_call!(nil, hex_blockref(block))
+        CallPermit.rpc_call!(chain, CallPermit.nonces(address), nil, hex_blockref(block))
         |> Base16.decode_int()
         |> response()
 
@@ -122,12 +134,12 @@ defmodule Network.EdgeM1 do
 
         call = CallPermit.dispatch(from, to, value, call, gaslimit, deadline, v, r, s)
 
-        nonce = Moonbeam.NonceProvider.nonce()
+        nonce = RemoteChain.NonceProvider.nonce(chain)
         # Can't do this pre-check because we will be receiving batches of future nonces
         # those are not yet valid but will be valid in the future, after the other txs have
         # been processed...
-        if nonce == Moonbeam.NonceProvider.fetch_nonce() do
-          {:ok, _} = CallPermit.rpc_call(call, Wallet.address!(CallPermit.wallet()))
+        if nonce == RemoteChain.NonceProvider.fetch_nonce(chain) do
+          {:ok, _} = CallPermit.rpc_call(chain, call, Wallet.address!(CallPermit.wallet()))
         end
 
         # Moonbeam.estimate_gas(Base16.encode(CallPermit.address()), Base16.encode(call))
@@ -138,9 +150,9 @@ defmodule Network.EdgeM1 do
         tx =
           Shell.raw(CallPermit.wallet(), call,
             to: CallPermit.address(),
-            chainId: Moonbeam.chain_id(),
+            chainId: chain.chain_id(),
             gas: 12_000_000,
-            gasPrice: Base16.decode(Moonbeam.gas_price()),
+            gasPrice: RemoteChain.RPC.gas_price(chain) |> Base16.decode_int(),
             value: 0,
             nonce: nonce
           )
@@ -157,7 +169,7 @@ defmodule Network.EdgeM1 do
           |> Hash.keccak_256()
           |> Base16.encode()
 
-        case Moonbeam.send_raw_transaction(payload) do
+        case RemoteChain.RPC.send_raw_transaction(chain, payload) do
           ^tx_hash -> response("ok", tx_hash)
           :already_known -> response("ok", tx_hash)
         end

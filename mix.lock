@@ -47,5 +47,6 @@
   "ssl_verify_fun": {:hex, :ssl_verify_fun, "1.1.7", "354c321cf377240c7b8716899e182ce4890c5938111a1296add3ec74cf1715df", [:make, :mix, :rebar3], [], "hexpm", "fe4c190e8f37401d30167c8c405eda19469f34577987c76dde613e838bbc67f8"},
   "telemetry": {:hex, :telemetry, "1.0.0", "0f453a102cdf13d506b7c0ab158324c337c41f1cc7548f0bc0e130bbf0ae9452", [:rebar3], [], "hexpm", "73bc09fa59b4a0284efb4624335583c528e07ec9ae76aca96ea0673850aec57a"},
   "unicode_util_compat": {:hex, :unicode_util_compat, "0.7.0", "bc84380c9ab48177092f43ac89e4dfa2c6d62b40b8bd132b1059ecc7232f9a78", [:rebar3], [], "hexpm", "25eee6d67df61960cf6a794239566599b09e17e668d3700247bc498638152521"},
+  "websockex": {:git, "https://github.com/Azolo/websockex.git", "4a94f6870528f45d64cdd47bd4374faf52528466", []},
   "while": {:hex, :while, "0.2.3", "71a85cca7c979baad2d2968d390dda41527056b81c22a5b422e8cc4d02697f30", [:mix], [], "hexpm", "49e40bd15c219325e2586d1d7166b561e74b90bc02f2ad35890b0346d37ebadb"},
 }
