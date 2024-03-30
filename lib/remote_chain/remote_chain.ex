@@ -32,7 +32,7 @@ defmodule RemoteChain do
   to override the default endpoints by setting the environment variables like `CHAINS_MOONBEAM_WS`.
   """
   def ws_endpoints(chain) do
-    name = String.upcase("#{chain}_WS") |> String.replace(".", "_")
+    name = String.upcase("#{inspect(chain)}_WS") |> String.replace(".", "_")
     List.wrap(System.get_env(name) || chainimpl(chain).ws_endpoints())
   end
 
