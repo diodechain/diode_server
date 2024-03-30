@@ -88,7 +88,7 @@ defmodule RemoteChain.RPCCache do
 
   defp maybe_cache(chain, method, args) do
     {time, ret} = :timer.tc(fn -> NodeProxy.rpc!(chain, method, args) end)
-    Logger.debug("RPC #{method} #{inspect(args)} took #{time}ms")
+    Logger.debug("RPC #{method} #{inspect(args)} took #{div(time, 1000)}ms")
 
     if should_cache_method(method, args) and should_cache_result(ret) do
       GenServer.cast(name(chain), {:set, method, args, ret})
