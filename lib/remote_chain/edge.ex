@@ -8,7 +8,6 @@ defmodule RemoteChain.Edge do
     case msg do
       ["getblockpeak"] ->
         RemoteChain.peaknumber(chain)
-        |> Base16.decode()
         |> response()
 
       ["getblock", index] when is_binary(index) ->
