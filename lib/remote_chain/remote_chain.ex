@@ -27,6 +27,15 @@ defmodule RemoteChain do
     ]
   end
 
+  @doc """
+  This function reads endpoints from environment variables when available. So it's possible
+  to override the default endpoints by setting the environment variables like `CHAINS_MOONBEAM_WS`.
+  """
+  def ws_endpoints(chain) do
+    name = String.upcase("#{chain}_WS") |> String.replace(".", "_")
+    List.wrap(System.get_env(name) || chainimpl(chain).ws_endpoints())
+  end
+
   def chains(), do: @chains
 
   for chain <- @chains do

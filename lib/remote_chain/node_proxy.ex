@@ -99,7 +99,7 @@ defmodule RemoteChain.NodeProxy do
 
   defp ensure_connections(state = %NodeProxy{chain: chain, connections: connections})
        when map_size(connections) < @security_level do
-    urls = MapSet.new(chain.ws_endpoints())
+    urls = MapSet.new(RemoteChain.ws_endpoints(chain))
     existing = MapSet.new(Map.keys(connections))
     new_urls = MapSet.difference(urls, existing)
     new_url = MapSet.to_list(new_urls) |> List.first()
