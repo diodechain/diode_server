@@ -168,9 +168,20 @@ defmodule RemoteChain.Edge do
           |> Hash.keccak_256()
           |> Base16.encode()
 
-        case RemoteChain.RPC.send_raw_transaction(chain, payload) do
-          ^tx_hash -> response("ok", tx_hash)
-          :already_known -> response("ok", tx_hash)
+        ret = RemoteChain.RPC.send_raw_transaction(chain, payload)
+
+        if ret in [tx_hash, :already_known] do
+          # In order to ensure delivery we're broadcasting to all known endpoints of this chain
+          # spawn(fn ->
+          for endpoint <- chain.rpc_endpoints() do
+            RemoteChain.HTTP.send_raw_transaction(endpoint, payload)
+          end
+
+          # end)
+
+          response("ok", tx_hash)
+        else
+          error(inspect(ret))
         end
 
       _ ->

@@ -27,10 +27,6 @@ defmodule RemoteChain.NonceProvider do
     GenServer.call(name(chain), :peek_nonce)
   end
 
-  def check_stale_nonce(chain) do
-    send(Process.whereis(name(chain)), :check_stale_nonce)
-  end
-
   @impl true
   def handle_call(:peek_nonce, _from, state = %NonceProvider{nonce: nonce}) do
     {:reply, nonce, state}
@@ -41,16 +37,13 @@ defmodule RemoteChain.NonceProvider do
     {:reply, nonce, %NonceProvider{state | nonce: nonce + 1, fetched_nonce: nonce}}
   end
 
-  def handle_call(:nonce, _from, state = %NonceProvider{nonce: nonce}) do
-    # check if nonce is stale
-    pid = self()
-    Debouncer.apply(__MODULE__, fn -> send(pid, :check_stale_nonce) end, 30_000)
-
+  def handle_call(:nonce, _from, state = %NonceProvider{chain: chain, nonce: nonce}) do
+    Debouncer.apply(__MODULE__, fn -> GenServer.cast(name(chain), :check_stale_nonce) end, 30_000)
     {:reply, nonce, %NonceProvider{state | nonce: nonce + 1}}
   end
 
   @impl true
-  def handle_info(
+  def handle_cast(
         :check_stale_nonce,
         state = %NonceProvider{nonce: old_nonce, fetched_nonce: fetched_once, chain: chain}
       ) do
