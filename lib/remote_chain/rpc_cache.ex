@@ -82,7 +82,7 @@ defmodule RemoteChain.RPCCache do
   defp resolve_block(_chain, block), do: block
 
   defp name(chain) do
-    impl = RemoteChain.chainimpl(chain) || raise "no chainimpl for #{inspect(chain)}"
+    impl = RemoteChain.chainimpl(chain)
     {:global, {__MODULE__, impl}}
   end
 
@@ -102,8 +102,8 @@ defmodule RemoteChain.RPCCache do
 
   defp should_cache_method("dio_edgev2", [hex]) do
     case hd(Rlp.decode!(Base16.decode(hex))) do
-      true ->
-        true
+      "ticket" ->
+        false
 
       _other ->
         # IO.inspect(other, label: "should_cache_method dio_edgev2")

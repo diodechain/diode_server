@@ -27,6 +27,14 @@ defmodule RemoteChain do
     ]
   end
 
+  @all_chains [
+    Chains.Diode,
+    Chains.DiodeStaging,
+    Chains.DiodeDev,
+    Chains.Anvil,
+    Chains.Moonriver | @chains
+  ]
+
   @doc """
   This function reads endpoints from environment variables when available. So it's possible
   to override the default endpoints by setting the environment variables like `CHAINS_MOONBEAM_WS`.
@@ -38,11 +46,11 @@ defmodule RemoteChain do
 
   def chains(), do: @chains
 
-  for chain <- @chains do
+  for chain <- @all_chains do
     def chainimpl(unquote(chain.chain_id())), do: unquote(chain)
     def chainimpl(unquote(chain.chain_prefix())), do: unquote(chain)
     def chainimpl(unquote(chain)), do: unquote(chain)
   end
 
-  def chainimpl(_), do: nil
+  def chainimpl(other), do: raise("Unknown chain #{inspect(other)}")
 end

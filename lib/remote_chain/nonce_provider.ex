@@ -10,7 +10,7 @@ defmodule RemoteChain.NonceProvider do
   end
 
   defp name(chain) do
-    impl = RemoteChain.chainimpl(chain) || raise "no chainimpl for #{inspect(chain)}"
+    impl = RemoteChain.chainimpl(chain)
     {:global, {__MODULE__, impl}}
   end
 
@@ -23,15 +23,7 @@ defmodule RemoteChain.NonceProvider do
     GenServer.call(name(chain), :nonce)
   end
 
-  def peek_nonce(chain) do
-    GenServer.call(name(chain), :peek_nonce)
-  end
-
   @impl true
-  def handle_call(:peek_nonce, _from, state = %NonceProvider{nonce: nonce}) do
-    {:reply, nonce, state}
-  end
-
   def handle_call(:nonce, _from, state = %NonceProvider{nonce: nil, chain: chain}) do
     nonce = fetch_nonce(chain)
     {:reply, nonce, %NonceProvider{state | nonce: nonce + 1, fetched_nonce: nonce}}
@@ -52,11 +44,11 @@ defmodule RemoteChain.NonceProvider do
 
     cond do
       new_nonce == fetched_once ->
-        Logger.warning("Nonce is stuck (#{old_nonce}), resetting to: #{new_nonce}")
+        Logger.warning("RTX Nonce is stuck (#{old_nonce}), resetting to: #{new_nonce}")
         {:noreply, %NonceProvider{state | fetched_nonce: new_nonce, nonce: new_nonce}}
 
       new_nonce > old_nonce ->
-        Logger.warning("Nonce is too low (#{old_nonce}), resetting to: #{new_nonce}")
+        Logger.warning("RTX Nonce is too low (#{old_nonce}), resetting to: #{new_nonce}")
         {:noreply, %NonceProvider{state | fetched_nonce: new_nonce, nonce: new_nonce}}
 
       true ->
@@ -64,12 +56,25 @@ defmodule RemoteChain.NonceProvider do
     end
   end
 
+  def handle_cast({:new_nonce, new_nonce}, state = %NonceProvider{nonce: old_nonce}) do
+    if new_nonce > old_nonce do
+      Logger.warning("RTX Nonce is too low (#{old_nonce}), resetting to: #{new_nonce}")
+      {:noreply, %NonceProvider{state | nonce: new_nonce}}
+    else
+      {:noreply, state}
+    end
+  end
+
   def fetch_nonce(chain) do
-    RemoteChain.RPCCache.get_transaction_count(
-      chain,
-      Wallet.base16(CallPermit.wallet()),
-      "latest"
-    )
-    |> Base16.decode_int()
+    nonce =
+      RemoteChain.RPCCache.get_transaction_count(
+        chain,
+        Wallet.base16(CallPermit.wallet()),
+        "latest"
+      )
+      |> Base16.decode_int()
+
+    GenServer.cast(name(chain), {:new_nonce, nonce})
+    nonce
   end
 end

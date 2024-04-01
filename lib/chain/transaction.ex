@@ -158,7 +158,7 @@ defmodule Chain.Transaction do
 
   @spec hash(Chain.Transaction.t()) :: binary()
   def hash(tx) do
-    to_rlp(tx) |> Rlp.encode!() |> Diode.hash()
+    to_rlp(tx) |> Rlp.encode!() |> RemoteChain.transaction_hash(chain_id(tx)).()
   end
 
   @spec to_message(Chain.Transaction.t()) :: binary()

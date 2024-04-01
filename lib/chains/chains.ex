@@ -27,6 +27,19 @@ defmodule Chains.DiodeStaging do
   def transaction_hash(), do: &Hash.sha3_256/1
 end
 
+defmodule Chains.DiodeDev do
+  def chain_id(), do: 5777
+  def expected_block_intervall(), do: 15
+  def epoch(n), do: div(n, 40320)
+  def epoch_progress(n), do: rem(n, 40320) / 40320
+  def chain_prefix(), do: "ddev"
+  def rpc_endpoints(), do: ["http://localhost:8443"]
+  def ws_endpoints(), do: ["ws://localhost:8443/ws"]
+  def registry_address(), do: Base16.decode("0x5000000000000000000000000000000000000000")
+  def developer_fleet_address(), do: Base16.decode("0x6000000000000000000000000000000000000000")
+  def transaction_hash(), do: &Hash.sha3_256/1
+end
+
 defmodule Chains.Moonbeam do
   def chain_id(), do: 1284
   def expected_block_intervall(), do: 15

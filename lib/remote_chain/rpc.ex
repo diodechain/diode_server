@@ -45,7 +45,7 @@ defmodule RemoteChain.RPC do
     case rpc(chain, "eth_sendRawTransaction", [tx]) do
       {:ok, tx_hash} -> tx_hash
       {:error, %{"code" => -32603, "message" => "already known"}} -> :already_known
-      {:error, error} -> raise "RPC error: #{inspect(error)}"
+      {:error, error} -> {:error, error}
     end
   end
 

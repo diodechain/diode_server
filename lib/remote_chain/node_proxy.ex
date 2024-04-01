@@ -21,7 +21,7 @@ defmodule RemoteChain.NodeProxy do
   end
 
   def rpc(chain, method, params) do
-    GenServer.call(name(chain), {:rpc, method, params})
+    GenServer.call(name(chain), {:rpc, method, params}, 15_000)
   end
 
   def rpc!(chain, method, params) do
@@ -115,7 +115,7 @@ defmodule RemoteChain.NodeProxy do
   end
 
   defp name(chain) do
-    impl = RemoteChain.chainimpl(chain) || raise "no chainimpl for #{inspect(chain)}"
+    impl = RemoteChain.chainimpl(chain)
     {:global, {__MODULE__, impl}}
   end
 end

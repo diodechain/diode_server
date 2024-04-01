@@ -14,7 +14,8 @@ defmodule RemoteChain.Sup do
       [
         {RemoteChain.RPCCache, chain},
         {RemoteChain.NodeProxy, chain},
-        {RemoteChain.NonceProvider, chain}
+        {RemoteChain.NonceProvider, chain},
+        {RemoteChain.TxRelay, chain}
       ],
       strategy: :one_for_one
     )
