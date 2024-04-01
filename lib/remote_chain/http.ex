@@ -21,6 +21,7 @@ defmodule RemoteChain.HTTP do
       %{"result" => result} -> {:ok, result}
       %{"error" => error} -> {:error, error}
       {:error, error} -> {:error, error}
+      other -> {:error, "Unexpected result #{inspect(other)}"}
     end
   end
 

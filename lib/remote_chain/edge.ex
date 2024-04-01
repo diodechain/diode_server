@@ -146,12 +146,14 @@ defmodule RemoteChain.Edge do
         # {:error, %{"message" => error}} ->
         #   error(error)
 
+        gas_price = RemoteChain.RPC.gas_price(chain) |> Base16.decode_int()
+
         tx =
           Shell.raw(CallPermit.wallet(), call,
             to: CallPermit.address(),
             chainId: chain.chain_id(),
             gas: 12_000_000,
-            gasPrice: RemoteChain.RPC.gas_price(chain) |> Base16.decode_int(),
+            gasPrice: gas_price + div(gas_price, 10),
             value: 0,
             nonce: nonce
           )
@@ -172,12 +174,11 @@ defmodule RemoteChain.Edge do
 
         if ret in [tx_hash, :already_known] do
           # In order to ensure delivery we're broadcasting to all known endpoints of this chain
-          # spawn(fn ->
-          for endpoint <- chain.rpc_endpoints() do
-            RemoteChain.HTTP.send_raw_transaction(endpoint, payload)
-          end
-
-          # end)
+          spawn(fn ->
+            for endpoint <- chain.rpc_endpoints() do
+              RemoteChain.HTTP.send_raw_transaction(endpoint, payload)
+            end
+          end)
 
           response("ok", tx_hash)
         else

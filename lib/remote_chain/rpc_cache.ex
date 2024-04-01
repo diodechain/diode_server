@@ -89,7 +89,7 @@ defmodule RemoteChain.RPCCache do
   defp maybe_cache(chain, method, args) do
     {time, ret} = :timer.tc(fn -> NodeProxy.rpc!(chain, method, args) end)
 
-    if time > 100_000 do
+    if time > 200_000 do
       Logger.debug("RPC #{method} #{inspect(args)} took #{div(time, 1000)}ms")
     end
 

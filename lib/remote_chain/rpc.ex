@@ -29,6 +29,10 @@ defmodule RemoteChain.RPC do
     rpc!(chain, "eth_getTransactionCount", [address, block])
   end
 
+  def get_transaction_by_hash(chain, hash) do
+    rpc!(chain, "eth_getTransactionByHash", [hash])
+  end
+
   def get_balance(chain, address, block \\ "latest") do
     rpc!(chain, "eth_getBalance", [address, block])
   end
