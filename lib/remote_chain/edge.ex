@@ -201,7 +201,14 @@ defmodule RemoteChain.Edge do
   end
 
   defp hex_blockref(ref) when ref in ["latest", "earliest"], do: ref
-  defp hex_blockref(ref), do: Base16.encode(ref)
+
+  defp hex_blockref(ref) do
+    case Base16.encode(ref) do
+      "0x" -> "0x0"
+      "0x0" <> rest -> "0x" <> rest
+      other -> other
+    end
+  end
 
   defp hex_address(<<_::binary-size(20)>> = address) do
     Base16.encode(address)
