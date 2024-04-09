@@ -66,7 +66,27 @@ defmodule RemoteChain.Edge do
           if code == "" do
             ""
           else
-            Hash.keccak_256("#{div(System.os_time(:second), 10)}")
+            # this code is specific to Moonbeam (EVM on Substrate) simulating the account_root
+
+            # this is modulname and storage name hashed and concatenated
+            # from this document: https://www.shawntabrizi.com/blog/substrate/querying-substrate-storage-via-rpc/#storage-keys
+            prefix =
+              Base16.decode("0x26AA394EEA5630E07C48AE0C9558CEF7B99D880EC681799C0CF30E8886371DA9")
+
+            {:ok, storage_item_key} = :eblake2.blake2b(16, address)
+            storage_key = Base16.encode(prefix <> storage_item_key <> address)
+
+            # fetching the polkadot relay hash for the corresponding block
+            # `block` is always a block number (not a block hash)
+            # and we're assuming that polkadot relay chain and evm chain are in sync
+            block_hash =
+              RemoteChain.RPCCache.get(chain, "chain_getBlockHash", [hex_blockref(block)])
+
+            RemoteChain.RPCCache.get(chain, "state_getStorageHash", [storage_key, block_hash])
+            |> Base16.decode()
+
+            # the returned hash doesn't change. so for now still fake it:
+            Hash.keccak_256(block_hash <> storage_key)
           end
 
         response(%{

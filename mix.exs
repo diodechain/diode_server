@@ -90,6 +90,7 @@ defmodule Diode.Mixfile do
       {:elixir_make, "~> 0.4", runtime: false},
       {:ex_doc, "~> 0.28", only: :dev, runtime: false},
       {:keccakf1600, github: "diodechain/erlang-keccakf1600"},
+      {:eblake2, "~> 1.0"},
       {:libsecp256k1, github: "diodechain/libsecp256k1"},
       {:plug_cowboy, "~> 2.5"},
       {:poison, "~> 3.0"},

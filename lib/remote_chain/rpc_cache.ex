@@ -15,7 +15,7 @@ defmodule RemoteChain.RPCCache do
 
   @impl true
   def init(chain) do
-    {:ok, %__MODULE__{chain: chain, lru: Lru.new(1000), block_number: nil}}
+    {:ok, %__MODULE__{chain: chain, lru: Lru.new(100_000), block_number: nil}}
   end
 
   def set_block_number(chain, block_number) do
