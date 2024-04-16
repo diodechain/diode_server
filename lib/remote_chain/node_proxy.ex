@@ -24,11 +24,6 @@ defmodule RemoteChain.NodeProxy do
     GenServer.call(name(chain), {:rpc, method, params}, 15_000)
   end
 
-  def rpc!(chain, method, params) do
-    %{"result" => ret} = rpc(chain, method, params)
-    ret
-  end
-
   @impl true
   def handle_call({:rpc, method, params}, from, state) do
     state = ensure_connections(state)
@@ -45,7 +40,19 @@ defmodule RemoteChain.NodeProxy do
       |> Poison.encode!()
 
     WebSockex.cast(conn, {:send_request, request})
-    {:noreply, %{state | req: id, requests: Map.put(state.requests, id, from)}}
+
+    {:noreply,
+     %{
+       state
+       | req: id,
+         requests:
+           Map.put(state.requests, id, %{
+             from: from,
+             method: method,
+             params: params,
+             start_ms: System.os_time(:millisecond)
+           })
+     }}
   end
 
   @impl true
@@ -91,7 +98,13 @@ defmodule RemoteChain.NodeProxy do
         Logger.warning("No request found for response: #{inspect(response)}")
         {:noreply, state}
 
-      {from, requests} ->
+      {%{from: from, start_ms: start_ms, method: method, params: params}, requests} ->
+        time_ms = System.os_time(:millisecond) - start_ms
+
+        if time_ms > 200 do
+          Logger.debug("RPC #{method} #{inspect(params)} took #{time_ms}ms")
+        end
+
         GenServer.reply(from, response)
         {:noreply, %{state | requests: requests}}
     end
@@ -114,7 +127,7 @@ defmodule RemoteChain.NodeProxy do
     state
   end
 
-  defp name(chain) do
+  def name(chain) do
     impl = RemoteChain.chainimpl(chain)
     {:global, {__MODULE__, impl}}
   end

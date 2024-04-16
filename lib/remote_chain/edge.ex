@@ -66,27 +66,12 @@ defmodule RemoteChain.Edge do
           if code == "" do
             ""
           else
-            # this code is specific to Moonbeam (EVM on Substrate) simulating the account_root
-
-            # this is modulname and storage name hashed and concatenated
-            # from this document: https://www.shawntabrizi.com/blog/substrate/querying-substrate-storage-via-rpc/#storage-keys
-            prefix =
-              Base16.decode("0x26AA394EEA5630E07C48AE0C9558CEF7B99D880EC681799C0CF30E8886371DA9")
-
-            {:ok, storage_item_key} = :eblake2.blake2b(16, address)
-            storage_key = Base16.encode(prefix <> storage_item_key <> address)
-
-            # fetching the polkadot relay hash for the corresponding block
-            # `block` is always a block number (not a block hash)
-            # and we're assuming that polkadot relay chain and evm chain are in sync
-            block_hash =
-              RemoteChain.RPCCache.get(chain, "chain_getBlockHash", [hex_blockref(block)])
-
-            RemoteChain.RPCCache.get(chain, "state_getStorageHash", [storage_key, block_hash])
+            RemoteChain.RPCCache.get_account_root(
+              chain,
+              hex_address(address),
+              hex_blockref(block)
+            )
             |> Base16.decode()
-
-            # the returned hash doesn't change. so for now still fake it:
-            Hash.keccak_256(block_hash <> storage_key)
           end
 
         response(%{
@@ -122,15 +107,13 @@ defmodule RemoteChain.Edge do
       ["getaccountvalues", block, address | keys] ->
         # requires https://eips.ethereum.org/EIPS/eip-1186
         # response(Moonbeam.proof(address, keys, blockref(block)))
-        Enum.map(keys, fn key ->
-          RemoteChain.RPCCache.get_storage_at(
-            chain,
-            hex_address(address),
-            hex_key(key),
-            hex_blockref(block)
-          )
-          |> Base16.decode()
-        end)
+        RemoteChain.RPCCache.get_storage_many(
+          chain,
+          hex_address(address),
+          Enum.map(keys, &hex_key/1),
+          hex_blockref(block)
+        )
+        |> Enum.map(&Base16.decode/1)
         |> response()
 
       ["sendtransaction", _tx] ->
