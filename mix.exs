@@ -10,8 +10,8 @@ end
 defmodule Diode.Mixfile do
   use Mix.Project
 
-  @vsn "1.3.0"
-  @full_vsn "v1.3.0"
+  @vsn "1.3.1"
+  @full_vsn "v1.3.1"
   @url "https://github.com/diodechain/diode_server"
 
   def project do
@@ -22,7 +22,7 @@ defmodule Diode.Mixfile do
       deps: deps(),
       description: "Diode Network Full Blockchain Node implementation",
       docs: docs(),
-      elixir: "~> 1.14",
+      elixir: "~> 1.13",
       elixirc_options: [warnings_as_errors: Mix.target() == :host],
       elixirc_paths: elixirc_paths(Mix.env()),
       full_version: :persistent_term.get(:full_vsn, @full_vsn),

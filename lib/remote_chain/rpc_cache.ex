@@ -57,10 +57,10 @@ defmodule RemoteChain.RPCCache do
         result
 
       {:reply, %{"error" => error}} ->
-        raise "RPC error in get_storage_many(#{inspect({chain, address, slots})}): #{inspect(error)}"
+        raise "RPC error in get_storage_many(#{inspect({chain, address, slots, block})}): #{inspect(error)}"
 
       {:error, reason} ->
-        raise "Batch error in get_storage_many(#{inspect({chain, address, slots})}): #{inspect(reason)}"
+        raise "Batch error in get_storage_many(#{inspect({chain, address, slots, block})}): #{inspect(reason)}"
     end)
   end
 
@@ -104,10 +104,13 @@ defmodule RemoteChain.RPCCache do
     # 1) Fetch all account keys
     # => because there can be many account keys and fetching them all can be slow
     # => we're guessing here on change for more than 20 keys
-    keys = rpc!(chain, "state_getKeys", [storage_key, block_hash]) |> Enum.sort()
+    keys =
+      rpc!(chain, "state_getKeys", [storage_key, block_hash])
+      |> Enum.map(fn key -> "0x" <> binary_part(key, byte_size(key) - 40, 40) end)
+      |> Enum.sort()
 
-    if length(keys) < 20 do
-      values = RemoteChain.RPCCache.get_storage_many(chain, address, keys, block)
+    if length(keys) < 40 do
+      values = get_storage_many(chain, address, keys, block)
 
       Enum.zip(keys, values)
       |> Enum.map(fn {key, value} -> key <> value end)
@@ -222,7 +225,8 @@ defmodule RemoteChain.RPCCache do
   end
 
   def resolve_block(chain, "latest"), do: block_number(chain)
-  def resolve_block(_chain, block), do: block
+  def resolve_block(_chain, block) when is_integer(block), do: block
+  def resolve_block(_chain, "0x" <> _ = block), do: Base16.decode_int(block)
 
   defp name(chain) do
     impl = RemoteChain.chainimpl(chain)
