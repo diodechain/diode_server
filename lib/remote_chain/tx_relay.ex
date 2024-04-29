@@ -55,7 +55,7 @@ defmodule RemoteChain.TxRelay do
         state
       ) do
     tx_hash =
-      Chain.Transaction.hash(metatx)
+      Transaction.hash(metatx)
       |> Base16.encode()
 
     cond do

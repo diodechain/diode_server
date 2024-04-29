@@ -1,5 +1,5 @@
 // EVMC Wrapper
-// Copyright 2021 Diode
+// Copyright 2021-2024 Diode
 // Licensed under the GNU General Public License, Version 3.
 #include "host.hpp"
 

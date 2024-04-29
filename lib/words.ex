@@ -1,5 +1,5 @@
 # Diode Server
-# Copyright 2021 Diode
+# Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
 defmodule Words do
   @words {"abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract",

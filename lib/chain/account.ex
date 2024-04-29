@@ -1,5 +1,5 @@
 # Diode Server
-# Copyright 2021 Diode
+# Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
 defmodule Chain.Account do
   defstruct nonce: 0, balance: 0, storage_root: nil, code: nil, root_hash: nil

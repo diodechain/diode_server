@@ -1,5 +1,5 @@
 # Diode Server
-# Copyright 2021 Diode
+# Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
 SHELL := /bin/bash
 TESTS := $(wildcard test/*_test.exs)

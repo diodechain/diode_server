@@ -1,5 +1,5 @@
 # Diode Server
-# Copyright 2020 Diode (IBTC)
+# Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
 defmodule ChainDefinition.Mainnet do
   alias ChainDefinition.{Voyager, Pioneer}

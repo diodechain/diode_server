@@ -1,6 +1,6 @@
 #!/bin/bash
 # Diode Server
-# Copyright 2021 Diode
+# Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
 export RPC_PORT=11000
 export EDGE2_PORT=12000

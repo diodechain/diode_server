@@ -61,6 +61,9 @@ defmodule RemoteChain.RPCCache do
 
       {:error, reason} ->
         raise "Batch error in get_storage_many(#{inspect({chain, address, slots, block})}): #{inspect(reason)}"
+
+      :timeout ->
+        raise "Timeout error in get_storage_many(#{inspect({chain, address, slots, block})})"
     end)
   end
 
