@@ -101,6 +101,8 @@ defmodule Diode do
       ssl_rpc_api()
     end
 
+    Supervisor.start_child(Diode.Supervisor, worker(BridgeMonitor, [[]]))
+
     Supervisor.start_child(Diode.Supervisor, Network.Server.child(edge2_ports(), Network.EdgeV2))
     |> case do
       {:error, :already} -> Supervisor.restart_child(Diode.Supervisor, Network.EdgeV2)
@@ -145,16 +147,22 @@ defmodule Diode do
   end
 
   def start_worker(module, args) do
-    puts("Starting #{module}...")
+    puts("Starting #{module}/#{length(args)}...")
 
-    case :timer.tc(module, :start_link, args) do
-      {t, {:ok, pid}} ->
-        puts("=======> #{module} loaded after #{Float.round(t / 1_000_000, 3)}s")
-        {:ok, pid}
+    try do
+      case :timer.tc(module, :start_link, args) do
+        {t, {:ok, pid}} ->
+          puts("=======> #{module} loaded after #{Float.round(t / 1_000_000, 3)}s")
+          {:ok, pid}
 
-      {_t, other} ->
-        puts("=======> #{module} failed with: #{inspect(other)}")
-        other
+        {_t, other} ->
+          puts("=======> #{module} failed with: #{inspect(other)}")
+          other
+      end
+    catch
+      type, other ->
+        puts("=======> #{module} failed with: #{inspect({type, other})}")
+        reraise(other, __STACKTRACE__)
     end
   end
 

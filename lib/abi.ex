@@ -2,6 +2,7 @@
 # Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
 defmodule ABI do
+  require Logger
   import Wallet
 
   def encode_args(types, values) when is_list(types) and is_list(values) do
@@ -9,11 +10,22 @@ defmodule ABI do
     |> :erlang.iolist_to_binary()
   end
 
+  def decode_types(types, data) do
+    {ret, ""} =
+      Enum.reduce(types, {[], data}, fn type, {ret, rest} ->
+        {value, rest} = decode(type, rest)
+        {ret ++ [value], rest}
+      end)
+
+    ret
+  end
+
   def decode_revert(<<"">>) do
     {:evmc_revert, ""}
   end
 
   # Decoding "Error(string)" type revert messages
+  # <<8, 195, 121, 160>> = ABI.encode_spec("Error", ["string"])
   def decode_revert(
         <<8, 195, 121, 160, 32::unsigned-size(256), length::unsigned-size(256), rest::binary>>
       ) do
@@ -21,23 +33,22 @@ defmodule ABI do
   end
 
   def decode_revert(other) do
-    :io.format("DEBUG: decode_revert(~0p)~n", [other])
+    Logger.debug("decode_revert(#{inspect(other)})")
     {:evmc_revert, "blubb"}
   end
 
   def encode_spec(name, types \\ []) do
-    signature = "#{name}(#{Enum.join(types, ",")})"
+    signature =
+      "#{name}(#{Enum.join(types, ",")})"
+      |> String.replace(" ", "")
+
     binary_part(Hash.keccak_256(signature), 0, 4)
   end
 
   def encode_call(name, types \\ [], values \\ []) do
-    if name == nil do
-      ""
-    else
-      fun = ABI.encode_spec(name, types)
-      args = ABI.encode_args(types, values)
-      fun <> args
-    end
+    fun = encode_spec(name, types)
+    args = encode_args(types, values)
+    fun <> args
   end
 
   def do_encode_data(type, value) do
@@ -86,6 +97,10 @@ defmodule ABI do
 
   def dynamic(type, values) when is_list(values) do
     {List.duplicate(subtype(type), length(values)), values, length(values)}
+  end
+
+  def dynamic(type, {:call, name, types, args}) do
+    dynamic(type, encode_call(name, types, args))
   end
 
   def dynamic(_type, value) when is_binary(value) do
@@ -140,4 +155,33 @@ defmodule ABI do
     do: encode("bytes24", encode("address", address) <> encode_spec(name, types))
 
   def encode("function", value), do: encode("bytes24", value)
+
+  def encode("(" <> tuple_def, values) do
+    len = byte_size(tuple_def) - 1
+    <<tuple_def::binary-size(len), ")">> = tuple_def
+
+    types =
+      String.split(tuple_def, ",")
+      |> Enum.map(&String.trim/1)
+
+    encode_args(types, values)
+  end
+
+  for bit <- 1..32 do
+    Module.eval_quoted(
+      __MODULE__,
+      Code.string_to_quoted("""
+        def decode("uint#{bit * 8}", <<value :: unsigned-size(256), rest :: binary>>), do: {value, rest}
+        def decode("int#{bit * 8}", <<value :: signed-size(256), rest :: binary>>), do: {value, rest}
+        def decode("bytes#{bit}", <<value :: binary-size(#{bit}), _ :: binary-size(#{32 - bit}), rest :: binary()>>), do: {value, rest}
+      """)
+    )
+  end
+
+  def decode("uint", value), do: decode("uint256", value)
+  def decode("int", value), do: decode("int256", value)
+  def decode("bool", value), do: decode("uint8", value)
+
+  def decode("address", <<_::binary-size(12), address::binary-size(20), rest::binary>>),
+    do: {address, rest}
 end
