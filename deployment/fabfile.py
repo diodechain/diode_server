@@ -2,13 +2,8 @@
 # Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
 import binascii
-import os
-import time
-from collections import defaultdict
-from datetime import datetime
-from fabric.api import env, run, cd, put, get, abort, hide, local, lcd, prefix, hosts, sudo
+from fabric.api import env, run, cd, local
 from fabric.contrib.files import exists
-
 
 env.diode="/opt/diode"
 
@@ -72,3 +67,17 @@ def setkey(key):
     run("systemctl daemon-reload")
     run("systemctl stop diode")
     run("systemctl start diode")
+
+def optimize():
+  # https://access.redhat.com/solutions/30453
+  settings =[
+    "net.core.default_qdisc=fq", 
+    "net.ipv4.tcp_congestion_control=bbr",
+    "net.core.somaxconn=16384",
+    "net.ipv4.tcp_max_syn_backlog=512"
+    ]
+  
+  for setting in settings:
+    run("echo {} >> /etc/sysctl.conf".format(setting))
+
+  run("sysctl --system")
