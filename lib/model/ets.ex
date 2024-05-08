@@ -18,9 +18,8 @@ defmodule Model.Ets do
     :ets.delete(name, idx)
   end
 
-  def all(name) do
+  def to_list(name) do
     :ets.tab2list(name)
-    |> Enum.map(fn {_key, value} -> value end)
   end
 
   def keys(name) do

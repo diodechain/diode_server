@@ -52,7 +52,15 @@ defmodule Chain do
   end
 
   def genesis_hash() do
-    BlockProcess.with_block(0, &Block.hash/1)
+    case :persistent_term.get(:genesis_hash, nil) do
+      nil ->
+        hash = BlockProcess.with_block(0, &Block.hash/1)
+        :persistent_term.put(:genesis_hash, hash)
+        hash
+
+      hash ->
+        hash
+    end
   end
 
   def sync() do

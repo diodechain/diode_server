@@ -25,8 +25,9 @@ defmodule TicketStore do
   end
 
   def tickets(epoch) do
-    Ets.all(__MODULE__)
-    |> Enum.filter(fn tck -> Ticket.epoch(tck) == epoch end)
+    Ets.to_list(__MODULE__)
+    |> Enum.filter(fn {{_device, _fleet, ticket_epoch}, _ticket} -> ticket_epoch == epoch end)
+    |> Enum.map(fn {_key, ticket} -> ticket end)
     |> Enum.concat(TicketSql.tickets(epoch))
   end
 
