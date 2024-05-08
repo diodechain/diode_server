@@ -2,6 +2,7 @@
 # Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
 defmodule Chain.State do
+  require Logger
   alias Chain.Account
 
   # @enforce_keys [:store]
@@ -128,26 +129,46 @@ defmodule Chain.State do
       acc_a = ensure_account(state_a, id)
       acc_b = ensure_account(state_b, id)
 
-      delta = %{
-        nonce: {Account.nonce(acc_a), Account.nonce(acc_b)},
-        balance: {Account.balance(acc_a), Account.balance(acc_b)},
-        code: {Account.code(acc_a), Account.code(acc_b)},
-        root_hash: {Account.root_hash(acc_a), Account.root_hash(acc_b)}
-      }
+      {time, report} =
+        :timer.tc(fn ->
+          delta = %{
+            nonce: {Account.nonce(acc_a), Account.nonce(acc_b)},
+            balance: {Account.balance(acc_a), Account.balance(acc_b)},
+            code: {Account.code(acc_a), Account.code(acc_b)}
+          }
 
-      report = %{state: MerkleTree.difference(Account.tree(acc_a), Account.tree(acc_b))}
+          report =
+            Enum.reduce(delta, %{}, fn {key, {a, b}}, report ->
+              if a == b do
+                report
+              else
+                Map.put(report, key, {a, b})
+              end
+            end)
 
-      report =
-        Enum.reduce(delta, report, fn {key, {a, b}}, report ->
-          if a == b do
-            report
+          state_diff = MerkleTree.difference(Account.tree(acc_a), Account.tree(acc_b))
+
+          if map_size(state_diff) > 0 do
+            Map.merge(report, %{
+              state: state_diff,
+              root_hash: {Account.root_hash(acc_a), Account.root_hash(acc_b)}
+            })
           else
-            Map.put(report, key, {a, b})
+            report
           end
         end)
 
+      if div(time, 1000) > 1000 do
+        trees = {Account.tree(acc_a) |> elem(0), Account.tree(acc_b) |> elem(0)}
+
+        Logger.warning(
+          "State diff took longer than 1s #{inspect({Base16.encode(id), div(time, 1000), map_size(report), trees})}"
+        )
+      end
+
       {id, report}
     end)
+    |> Enum.filter(fn {_, report} -> map_size(report) > 0 end)
   end
 
   def apply_difference(%Chain.State{} = state, difference) do
