@@ -12,8 +12,8 @@ jobs:
     - name: Setup elixir
       uses: erlef/setup-elixir@v1
       with:
-        otp-version: 24.3.3
-        elixir-version: 1.13.4
+        otp-version: 25.3
+        elixir-version: 1.14.5
 
     - uses: actions/checkout@v1
     - run: |
