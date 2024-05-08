@@ -187,7 +187,9 @@ defmodule BlockProcess do
   @impl true
   def handle_call({:with_worker, block_hash, fun}, from, state = %BlockProcess{waiting: waiting}) do
     if :queue.len(waiting) > 2 * max_busy() do
-      Logger.warning("BlockProcess queue is full: #{:queue.len(waiting)}/#{max_busy()}")
+      Debouncer.immediate({__MODULE__, :queue_full}, fn ->
+        Logger.warning("BlockProcess queue is full: #{:queue.len(waiting)}/#{max_busy()}")
+      end)
     end
 
     # Giving the Chain process high priority treatment
