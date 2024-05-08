@@ -37,15 +37,15 @@ defmodule Stages do
 
     state =
       if map_size(conns) >= min_conns do
-        if ticks >= min_ticks do
-          if Diode.syncing?() do
-            %{state | ticks: 0}
-          else
+        if Diode.syncing?() do
+          %{state | ticks: 0}
+        else
+          if ticks >= min_ticks do
             Diode.start_client_network()
             %{state | stage: 1}
+          else
+            %{state | ticks: ticks + 1}
           end
-        else
-          %{state | ticks: ticks + 1}
         end
       else
         %{state | ticks: 0}
