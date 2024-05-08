@@ -171,8 +171,8 @@ defmodule BlockProcess do
         ready: %{},
         mons: %{},
         queue: :queue.new(),
-        waiting: %{},
-        busy: %{},
+        waiting: :queue.new(),
+        busy: MapSet.new(),
         queue_limit: @queue_limit_max
       },
       name: __MODULE__
@@ -186,24 +186,26 @@ defmodule BlockProcess do
 
   @impl true
   def handle_call({:with_worker, block_hash, fun}, from, state = %BlockProcess{waiting: waiting}) do
-    state = %BlockProcess{state | waiting: map_add_value(waiting, block_hash, {from, fun})}
+    if :queue.len(waiting) > 2 * max_busy() do
+      Logger.warning("BlockProcess queue is full: #{:queue.len(waiting)}/#{max_busy()}")
+    end
+
+    # Giving the Chain process high priority treatment
+    {pid, _tag} = from
+
+    state =
+      if Process.whereis(Chain) == pid do
+        %BlockProcess{state | waiting: :queue.in_r({from, fun, block_hash}, waiting)}
+      else
+        %BlockProcess{state | waiting: :queue.in({from, fun, block_hash}, waiting)}
+      end
+
     {:noreply, pop_waiting(state, block_hash)}
   end
 
-  def handle_call(
-        {:can_i_stop?, block_hash, pid},
-        from,
-        state = %BlockProcess{ready: ready, queue: queue, waiting: waiting}
-      ) do
+  def handle_call({:can_i_stop?, block_hash, pid}, _from, state = %BlockProcess{ready: ready}) do
     if pid in map_get(ready, block_hash) do
-      if map_get(waiting, block_hash) == [] do
-        queue = queue_delete(queue, pid)
-        ready = map_delete_value(ready, block_hash, pid)
-        {:reply, true, %BlockProcess{state | ready: ready, queue: queue}}
-      else
-        GenServer.reply(from, false)
-        {:noreply, set_worker_mode(state, pid, block_hash, :ready) |> pop_waiting(block_hash)}
-      end
+      {:reply, true, set_worker_mode(state, pid, block_hash, :gone)}
     else
       {:reply, false, state}
     end
@@ -415,44 +417,42 @@ defmodule BlockProcess do
       ) do
     case mode do
       :busy ->
-        busy = map_add_value(busy, block_hash, pid)
+        busy = MapSet.put(busy, pid)
         ready = map_delete_value(ready, block_hash, pid)
         queue = queue_delete(queue, pid)
         %BlockProcess{state | ready: ready, queue: queue, busy: busy}
 
       :ready ->
         ready = map_add_value(ready, block_hash, pid)
-        busy = map_delete_value(busy, block_hash, pid)
+        busy = MapSet.delete(busy, pid)
         queue_add(%BlockProcess{state | ready: ready, busy: busy}, pid, block_hash)
 
       :gone ->
         ready = map_delete_value(ready, block_hash, pid)
-        busy = map_delete_value(busy, block_hash, pid)
+        busy = MapSet.delete(busy, pid)
         queue = queue_delete(queue, pid)
 
         %BlockProcess{state | ready: ready, queue: queue, busy: busy, mons: mons}
     end
   end
 
+  def max_busy() do
+    System.schedulers_online()
+  end
+
   def pop_waiting(
         oldstate = %BlockProcess{waiting: waiting, ready: ready, busy: busy},
-        block_hash
+        _block_hash
       ) do
-    with [{from, fun} | block_waits] <- map_get(waiting, block_hash) do
-      state = %BlockProcess{oldstate | waiting: map_put(waiting, block_hash, block_waits)}
+    with true <- MapSet.size(busy) < max_busy(),
+         {{:value, {from, fun, block_hash}}, waiting} <- :queue.out(waiting) do
+      state = %BlockProcess{oldstate | waiting: waiting}
 
-      case {map_get(ready, block_hash), map_get(busy, block_hash)} do
-        {[], []} ->
+      case map_get(ready, block_hash) do
+        [] ->
           assign_new_worker(state, block_hash, fun, from)
 
-        {[], busy_blocks} ->
-          if length(block_waits) > length(busy_blocks) do
-            assign_new_worker(state, block_hash, fun, from)
-          else
-            oldstate
-          end
-
-        {[pid | _rest], _} ->
+        [pid | _rest] ->
           send(pid, {:do_work, block_hash, fun, from})
           set_worker_mode(state, pid, block_hash, :busy)
       end
