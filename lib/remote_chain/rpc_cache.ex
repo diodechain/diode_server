@@ -6,6 +6,7 @@ defmodule RemoteChain.RPCCache do
   require Logger
   alias RemoteChain.NodeProxy
   alias RemoteChain.RPCCache
+  @default_timeout 25_000
 
   defstruct [:chain, :lru, :block_number, :request_rpc, :request_from, :request_collection]
 
@@ -51,7 +52,7 @@ defmodule RemoteChain.RPCCache do
     block = resolve_block(chain, block)
     calls = Enum.map(slots, fn slot -> {:rpc, "eth_getStorageAt", [address, slot, block]} end)
 
-    RemoteChain.Util.batch_call(name(chain), calls, 15_000)
+    RemoteChain.Util.batch_call(name(chain), calls, @default_timeout)
     |> Enum.map(fn
       {:reply, %{"result" => result}} ->
         result
@@ -136,7 +137,7 @@ defmodule RemoteChain.RPCCache do
   end
 
   def rpc(chain, method, params) do
-    GenServer.call(name(chain), {:rpc, method, params})
+    GenServer.call(name(chain), {:rpc, method, params}, @default_timeout)
   end
 
   @impl true
