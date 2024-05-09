@@ -1,3 +1,14 @@
+# 9th May 2024
+
+node = :global.whereis_name({RemoteChain.NodeProxy, Chains.Moonbeam})
+Process.info(node)
+:sys.get_state(node)
+
+cache = :global.whereis_name({RemoteChain.RPCCache, Chains.Moonbeam})
+Process.info(cache)
+Lru.size(:sys.get_state(cache).lru)
+
+
 # 16 Apr 2024
 
 dom = "0x5849ea89593cf65e13110690d9339c121801a45c"

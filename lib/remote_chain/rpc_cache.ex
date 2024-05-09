@@ -45,11 +45,29 @@ defmodule RemoteChain.RPCCache do
 
   def get_storage_at(chain, address, slot, block \\ "latest") do
     block = resolve_block(chain, block)
+
+    # for storage requests we use the last change block as the base
+    # any contract not using change tracking will suffer 240 blocks (one hour) of caching
+    block =
+      case get_last_change(chain, address, block) do
+        0 -> block - rem(block, 240)
+        num -> min(num, block)
+      end
+
     rpc!(chain, "eth_getStorageAt", [address, slot, block])
   end
 
   def get_storage_many(chain, address, slots, block \\ "latest") do
     block = resolve_block(chain, block)
+
+    # for storage requests we use the last change block as the base
+    # any contract not using change tracking will suffer 240 blocks (one hour) of caching
+    block =
+      case get_last_change(chain, address, block) do
+        0 -> block - rem(block, 240)
+        num -> min(num, block)
+      end
+
     calls = Enum.map(slots, fn slot -> {:rpc, "eth_getStorageAt", [address, slot, block]} end)
 
     RemoteChain.Util.batch_call(name(chain), calls, @default_timeout)
@@ -82,51 +100,34 @@ defmodule RemoteChain.RPCCache do
     rpc!(chain, "eth_getBalance", [address, block])
   end
 
+  def get_last_change(chain, address, block \\ "latest") do
+    block = resolve_block(chain, block)
+
+    # `ChangeTracker.sol` slot for signaling: 0x1e4717b2dc5dfd7f487f2043bfe9999372d693bf4d9c51b5b84f1377939cd487
+    rpc!(chain, "eth_getStorageAt", [
+      address,
+      "0x1e4717b2dc5dfd7f487f2043bfe9999372d693bf4d9c51b5b84f1377939cd487",
+      block
+    ])
+    |> Base16.decode_int()
+  end
+
   def get_account_root(chain, address, block \\ "latest")
       when chain in [Chains.MoonbaseAlpha, Chains.Moonbeam, Chains.Moonriver] do
     block = resolve_block(chain, block)
-
     # this code is specific to Moonbeam (EVM on Substrate) simulating the account_root
+    # we're now using the `ChangeTracker.sol` slot for signaling: 0x1e4717b2dc5dfd7f487f2043bfe9999372d693bf4d9c51b5b84f1377939cd487
 
-    # this is modulname and storage name hashed and concatenated
-    # from this document: https://www.shawntabrizi.com/blog/substrate/querying-substrate-storage-via-rpc/#storage-keys
-    # Constant prefix for '?.?'
-    # prefix = Base16.decode("0x26AA394EEA5630E07C48AE0C9558CEF7B99D880EC681799C0CF30E8886371DA9")
-    # Constant prefix for 'evm.accountStorages'
-    prefix = Base.decode16!("1DA53B775B270400E7E61ED5CBC5A146AB1160471B1418779239BA8E2B847E42")
-    bin_address = Base16.decode(address)
-    {:ok, storage_item_key} = :eblake2.blake2b(16, bin_address)
-    storage_key = Base16.encode(prefix <> storage_item_key <> bin_address)
+    last_change = get_last_change(chain, address, block)
 
-    # fetching the polkadot relay hash for the corresponding block
-    # `block` is always a block number (not a block hash)
-    # and we're assuming that polkadot relay chain and evm chain are in sync
-    block_hash = rpc!(chain, "chain_getBlockHash", [block])
-
-    # To emulate a storage root that only changes when
-    # any of the slots has changed we do this:
-    # 1) Fetch all account keys
-    # => because there can be many account keys and fetching them all can be slow
-    # => we're guessing here on change for more than 20 keys
-    keys =
-      rpc!(chain, "state_getKeys", [storage_key, block_hash])
-      |> Enum.map(fn key -> "0x" <> binary_part(key, byte_size(key) - 40, 40) end)
-      |> Enum.sort()
-
-    if length(keys) < 40 do
-      values = get_storage_many(chain, address, keys, block)
-
-      Enum.zip(keys, values)
-      |> Enum.map(fn {key, value} -> key <> value end)
-      |> Enum.join()
-      |> Hash.keccak_256()
+    if last_change > 0 do
+      Hash.keccak_256(address <> "#{last_change}")
     else
-      # since this is a heuristic, it can be wrong and might miss some changes
-      # so we force fresh every week
-      base = div(block + Base16.decode_int(address), 50_000) |> Base16.encode(false)
-
-      Enum.join([base | keys])
-      |> Hash.keccak_256()
+      # there is no change tracking yet?
+      # in this case we're just not updating more often than once an hour
+      blocks_per_hour = div(3600, 15)
+      base = div(block + Base16.decode_int(address), blocks_per_hour)
+      Hash.keccak_256(address <> "#{last_change}:#{base}")
     end
     |> Base16.encode()
   end
