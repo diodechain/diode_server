@@ -73,7 +73,6 @@ defmodule BlockProcess do
     def with_block(block_hash, fun) do
       key = {__MODULE__, :block, block_hash}
 
-      # IO.inspect(Profiler.stacktrace())
       case Process.get(key, nil) do
         nil ->
           block =

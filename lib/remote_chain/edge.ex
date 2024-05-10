@@ -152,11 +152,6 @@ defmodule RemoteChain.Edge do
           end)
         end
 
-        # Moonbeam.estimate_gas(Base16.encode(CallPermit.address()), Base16.encode(call))
-        # |> IO.inspect(label: "estimate_gas")
-        # {:error, %{"message" => error}} ->
-        #   error(error)
-
         tx =
           Shell.raw(CallPermit.wallet(), call,
             to: CallPermit.address(),

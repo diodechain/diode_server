@@ -146,7 +146,7 @@ defmodule Chain.State do
               end
             end)
 
-          state_diff = MerkleTree.difference(Account.tree(acc_a), Account.tree(acc_b))
+          state_diff = MerkleCache.difference(Account.tree(acc_a), Account.tree(acc_b))
 
           if map_size(state_diff) > 0 do
             Map.merge(report, %{

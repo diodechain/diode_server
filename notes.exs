@@ -1,3 +1,54 @@
+# 10th May 2024
+
+bns = 0xaf60faa5cd840b724742f1af116168276112d6a6
+{acc, nr} = Chain.with_peak(fn block -> {Chain.Block.state(block) |> Chain.State.ensure_account(
+bns), Chain.Block.number(block)} end)
+File.write!("bns_account_#{nr}.etf", :erlang.term_to_binary(acc))
+
+Logger.configure(level: :warning)
+
+accs = ~w(bns_account_7144000.etf bns_account_7144224.etf bns_account_7144861.etf
+  bns_account_7145072.etf bns_account_7145706.etf) |> Enum.map(&File.read!(&1) |> :erlang.binary_to_term() |> Map.put(:root_hash, nil))
+
+check = fn acc ->
+  {time1, root1} = :timer.tc(fn -> MerkleTree.copy(Chain.Account.tree(acc), MerkleTree2) |> MerkleTree.root_hash() end)
+  {time2, root2} = :timer.tc(fn -> Chain.Account.root_hash(acc) end)
+  ^root1 = root2
+  {div(time1, 1000), div(time2, 1000), time1 / time2}
+end
+
+check2 = fn acc ->
+  {time1, root1} = :timer.tc(fn -> MerkleTree.copy(Chain.Account.tree(acc), MerkleTree2) |> MerkleTree.root_hash() end)
+  {time2, root2} = :timer.tc(fn -> MerkleCache.root_hash(Chain.Account.tree(acc)) end)
+  ^root1 = root2
+  {div(time1, 1000), div(time2, 1000), time1 / time2}
+end
+
+check_diff = fn acc, acc2 ->
+  {time1, diff1} = :timer.tc(fn -> MerkleTree.difference(Chain.Account.tree(acc), Chain.Account.tree(acc2)) end)
+  {time2, diff2} = :timer.tc(fn -> MerkleCache.difference(Chain.Account.tree(acc), Chain.Account.tree(acc2)) end)
+  ^diff1 = diff2
+  {div(time1, 1000), div(time2, 1000), time1 / time2}
+end
+
+:timer.tc(fn -> Chain.Account.root_hash(hd(accs)) end)
+:timer.tc(fn -> Chain.Account.root_hash(Enum.at(accs, 1)) end)
+
+check.(Enum.at(accs, 1))
+check2.(Enum.at(accs, 1))
+check_diff.(Enum.at(accs, 1), Enum.at(accs, 2))
+check_diff.(Enum.at(accs, 1), Enum.at(accs, 1))
+check_diff.(Enum.at(accs, 2), Enum.at(accs, 1))
+
+loop = fn loop, acc ->
+  Chain.Account.root_hash(acc)
+  loop.(loop, acc)
+end
+
+pid = spawn(fn -> loop.(loop, Enum.at(accs, 1)) end)
+spawn(fn -> Profiler.fprof(MerkleCache) end)
+
+
 # 9th May 2024
 
 node = :global.whereis_name({RemoteChain.NodeProxy, Chains.Moonbeam})

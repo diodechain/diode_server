@@ -21,11 +21,11 @@ defmodule MapMerkleTree do
   end
 
   def merkle(tree) do
-    MerkleTree.copy(tree, MerkleTree2)
+    MerkleCache.merkle(tree)
   end
 
   def root_hash(tree) do
-    MerkleTree.root_hash(merkle(tree))
+    MerkleCache.root_hash(tree)
   end
 
   def root_hashes(tree) do

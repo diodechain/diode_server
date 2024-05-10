@@ -63,6 +63,7 @@ defmodule Diode do
 
     base_children = [
       worker(Stats, []),
+      worker(MerkleCache, []),
       supervisor(Model.Sql),
       supervisor(Channels),
       worker(Chain.BlockCache, [ets_extra]),

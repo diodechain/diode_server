@@ -23,6 +23,10 @@ defmodule MerkleTree do
     copy(merkle, mod)
   end
 
+  def copy(merkle = {mod, _, _}, mod) do
+    merkle
+  end
+
   def copy(merkle, mod) do
     insert_items(mod.new(), to_list(merkle))
   end
