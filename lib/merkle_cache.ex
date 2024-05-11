@@ -19,12 +19,20 @@ defmodule MerkleCache do
     end
   end
 
+  def merkle(tree) do
+    MerkleTree.copy(tree, MerkleTree2)
+  end
+
   def root_hash(tree = {MapMerkleTree, _opts, dict}) do
     if map_size(dict) > 1000 do
       GenServer.call(__MODULE__, {:root_hash, dict})
     else
       merkle(tree) |> MerkleTree.root_hash()
     end
+  end
+
+  def root_hash(tree) do
+    merkle(tree) |> MerkleTree.root_hash()
   end
 
   def difference(tree1 = {MapMerkleTree, _opts, map1}, tree2 = {MapMerkleTree, _opts2, map2}) do
@@ -42,6 +50,10 @@ defmodule MerkleCache do
     else
       MerkleTree.difference(tree1, tree2)
     end
+  end
+
+  def difference(tree1, tree2) do
+    MerkleTree.difference(tree1, tree2)
   end
 
   @impl true
