@@ -108,20 +108,18 @@ defmodule BlockProcess do
           block = block()
 
           if Process.alive?(pid) do
+            me = self()
+            watcher = spawn_link(fn -> watch(me) end)
             Process.link(pid)
 
             ret =
               try do
-                me = self()
-                watcher = spawn_link(fn -> watch(me) end)
-
-                ret = :timer.tc(fn -> fun.(block) end)
-                send(watcher, :stop)
-                {:ok, ret}
+                {:ok, :timer.tc(fn -> fun.(block) end)}
               rescue
                 e -> {:error, e, __STACKTRACE__}
               end
 
+            send(watcher, :stop)
             GenServer.reply(from, ret)
             Process.unlink(pid)
           end
