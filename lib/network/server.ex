@@ -59,11 +59,15 @@ defmodule Network.Server do
             {ports ++ [port], Map.put(sockets, port, socket)}
 
           {:error, reason} ->
-            Logger.error(
-              "Failed to open #{inspect(protocolHandler)} port: #{inspect(port)} for reason: #{inspect(reason)}"
-            )
+            if is_optional(port) do
+              Logger.error(
+                "Failed to open #{inspect(protocolHandler)} port: #{inspect(port)} for reason: #{inspect(reason)}"
+              )
 
-            {ports, sockets}
+              {ports, sockets}
+            else
+              raise "Failed to open #{inspect(protocolHandler)} port: #{inspect(port)} for reason: #{inspect(reason)}"
+            end
         end
       end)
 
@@ -76,6 +80,9 @@ defmodule Network.Server do
        pid: self()
      }, {:continue, :accept}}
   end
+
+  # Only ports below 1024 are optional, e.g. when not running as root
+  defp is_optional(port), do: port < 1024
 
   def check(_cert, event, state) do
     case event do
