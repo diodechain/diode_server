@@ -9,8 +9,8 @@ defmodule Kademlia do
     Node distance is symmetric on the ring.
   """
   use GenServer
-  alias Network.PeerHandler, as: Client
-  alias Object.Server, as: Server
+  alias Network.PeerHandler
+  alias Object.Server
   alias Model.KademliaSql
   @k 3
   @relay_factor 3
@@ -25,7 +25,7 @@ defmodule Kademlia do
   end
 
   def ping(node_id) do
-    rpc(find_node(node_id), [Client.ping()])
+    rpc(find_node(node_id), [PeerHandler.ping()])
   end
 
   @doc """
@@ -39,7 +39,7 @@ defmodule Kademlia do
     relay is used to forward NEW received blocks/transactions further through the network
   """
   def relay(msg) do
-    msg = [Client.publish(), msg]
+    msg = [PeerHandler.publish(), msg]
 
     KBuckets.next(network())
     |> filter_online()
@@ -66,7 +66,7 @@ defmodule Kademlia do
       |> Enum.take(@k)
 
     # :io.format("Storing #{value} at ~p as #{Base16.encode(key)}~n", [Enum.map(nearest, &port/1)])
-    rpc(nodes, [Client.store(), hash(key), value])
+    rpc(nodes, [PeerHandler.store(), hash(key), value])
   end
 
   @doc """
@@ -75,7 +75,7 @@ defmodule Kademlia do
   """
   def find_value(key) do
     key = hash(key)
-    nodes = do_find_nodes(key, KBuckets.k(), Client.find_value())
+    nodes = do_find_nodes(key, KBuckets.k(), PeerHandler.find_value())
 
     case nodes do
       {:value, value, visited} ->
@@ -94,7 +94,7 @@ defmodule Kademlia do
               with true <- local_block > value_block,
                    nearest when nearest != nil <- Enum.at(result, 0) do
                 # IO.puts("updating a #{Wallet.printable(nearest.node_id)}")
-                rpcast(nearest, [Client.store(), key, local_ret])
+                rpcast(nearest, [PeerHandler.store(), key, local_ret])
               end
 
               local_ret
@@ -106,7 +106,7 @@ defmodule Kademlia do
         # Kademlia logic: Writing found result to second nearest node
         with second_nearest when second_nearest != nil <- Enum.at(result, 1) do
           # IO.puts("updating b #{Wallet.printable(second_nearest.node_id)}")
-          rpcast(second_nearest, [Client.store(), key, value])
+          rpcast(second_nearest, [PeerHandler.store(), key, value])
         end
 
         value
@@ -120,7 +120,7 @@ defmodule Kademlia do
         if local_ret != nil do
           for node <- Enum.take(visited, 2) do
             # IO.puts("updating c #{Wallet.printable(node.node_id)}")
-            rpcast(node, [Client.store(), key, local_ret])
+            rpcast(node, [PeerHandler.store(), key, local_ret])
           end
         end
 
@@ -143,7 +143,7 @@ defmodule Kademlia do
 
   def find_nodes(key) do
     key = hash(key)
-    visited = do_find_nodes(key, KBuckets.k(), Client.find_node())
+    visited = do_find_nodes(key, KBuckets.k(), PeerHandler.find_node())
     insert_nodes(visited)
     nearest_n(key, visited)
   end
@@ -204,10 +204,10 @@ defmodule Kademlia do
           str -> Wallet.from_address(Base16.decode(str))
         end
 
-      Network.Server.ensure_node_connection(Network.PeerHandler, id, address, port)
+      Network.Server.ensure_node_connection(PeerHandler, id, address, port)
     end
 
-    online = Network.Server.get_connections(Network.PeerHandler)
+    online = Network.Server.get_connections(PeerHandler)
     now = System.os_time(:second)
 
     network =
@@ -263,7 +263,7 @@ defmodule Kademlia do
   end
 
   def handle_cast({:broadcast, msg}, state = %Kademlia{network: network}) do
-    msg = [Client.publish(), msg]
+    msg = [PeerHandler.publish(), msg]
 
     list =
       KBuckets.to_list(network)
@@ -358,7 +358,7 @@ defmodule Kademlia do
   """
   @max_key 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
   def redistribute(network, node) do
-    online = Network.Server.get_connections(Network.PeerHandler)
+    online = Network.Server.get_connections(PeerHandler)
     node = %KBuckets.Item{} = KBuckets.item(network, node)
 
     # IO.puts("redistribute(#{inspect(node)})")
@@ -381,7 +381,7 @@ defmodule Kademlia do
 
     objs = KademliaSql.objects(range_start, range_end)
     # IO.puts("redistribute() -> #{length(objs)}")
-    Enum.each(objs, fn {key, value} -> rpcast(node, [Client.store(), key, value]) end)
+    Enum.each(objs, fn {key, value} -> rpcast(node, [PeerHandler.store(), key, value]) end)
   end
 
   # -------------------------------------------------------------------------------------
@@ -429,7 +429,7 @@ defmodule Kademlia do
   defp ensure_node_connection(item = %KBuckets.Item{node_id: node_id}) do
     if KBuckets.is_self(item) do
       Network.Server.ensure_node_connection(
-        Network.PeerHandler,
+        PeerHandler,
         node_id,
         "localhost",
         Diode.peer_port()
@@ -438,7 +438,7 @@ defmodule Kademlia do
       server = KBuckets.object(item)
       host = Server.host(server)
       port = Server.peer_port(server)
-      Network.Server.ensure_node_connection(Network.PeerHandler, node_id, host, port)
+      Network.Server.ensure_node_connection(PeerHandler, node_id, host, port)
     end
   end
 
@@ -470,7 +470,7 @@ defmodule Kademlia do
     |> Enum.take(KBuckets.k())
   end
 
-  defp filter_online(list, online \\ Network.Server.get_connections(Network.PeerHandler)) do
+  defp filter_online(list, online \\ Network.Server.get_connections(PeerHandler)) do
     Enum.filter(list, fn %KBuckets.Item{node_id: wallet} = item ->
       KBuckets.is_self(item) or Map.has_key?(online, Wallet.address!(wallet))
     end)

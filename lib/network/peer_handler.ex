@@ -33,16 +33,16 @@ defmodule Network.PeerHandler do
   def do_init(state) do
     send_hello(
       Map.merge(state, %{
-        calls: :queue.new(),
         blocks: nil,
-        random_blocks: 0,
-        stable: false,
-        msg_count: 0,
-        start_time: System.os_time(:second),
-        server: nil,
+        calls: :queue.new(),
         job: nil,
         last_publish: nil,
-        last_send: nil
+        last_send: nil,
+        msg_count: 0,
+        random_blocks: 0,
+        server: nil,
+        stable: false,
+        start_time: System.os_time(:second)
       })
     )
   end

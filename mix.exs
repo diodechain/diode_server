@@ -90,22 +90,23 @@ defmodule Diode.Mixfile do
 
   defp deps do
     [
-      {:websockex, github: "Azolo/websockex"},
+      {:dets_plus, "~> 2.0"},
       {:benchee, "~> 1.0", only: :benchmark},
       {:debouncer, "~> 0.1"},
+      {:eblake2, "~> 1.0"},
       {:elixir_make, "~> 0.4", runtime: false},
       {:ex_doc, "~> 0.28", only: :dev, runtime: false},
+      {:httpoison, "~> 2.0"},
       {:keccakf1600, github: "diodechain/erlang-keccakf1600"},
-      {:eblake2, "~> 1.0"},
       {:libsecp256k1, github: "diodechain/libsecp256k1"},
+      {:niffler, "~> 0.1"},
+      {:oncrash, "~> 0.0"},
       {:plug_cowboy, "~> 2.5"},
       {:poison, "~> 3.0"},
       {:profiler, github: "dominicletz/profiler"},
       {:sqlitex, github: "diodechain/sqlitex"},
-      {:niffler, "~> 0.1"},
+      {:websockex, github: "Azolo/websockex"},
       {:while, "~> 0.2"},
-      {:httpoison, "~> 2.0"},
-      {:oncrash, "~> 0.0"},
 
       # linting
       {:dialyxir, "~> 1.1", only: [:dev], runtime: false},

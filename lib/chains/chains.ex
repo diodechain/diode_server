@@ -146,25 +146,3 @@ defmodule Chains.Moonriver do
   def developer_fleet_address(), do: Base16.decode("0x6000000000000000000000000000000000000000")
   def transaction_hash(), do: &Hash.keccak_256/1
 end
-
-defmodule Chains.Anvil do
-  def chain_id(), do: 31337
-  def expected_block_intervall(), do: 15
-  def epoch(n), do: div(RemoteChain.blocktime(__MODULE__, n), epoch_length())
-
-  def epoch_progress(n),
-    do: rem(RemoteChain.blocktime(__MODULE__, n), epoch_length()) / epoch_length()
-
-  def epoch_length(), do: 2_592_000
-  def chain_prefix(), do: "av"
-
-  def rpc_endpoints(),
-    do: ["http://localhost:8545"]
-
-  def ws_endpoints(),
-    do: ["ws://localhost:8545"]
-
-  def registry_address(), do: Base16.decode("0xEb0aDCd736Ae9341DFb635759C5D7D6c2D51B673")
-  def developer_fleet_address(), do: Base16.decode("0x6000000000000000000000000000000000000000")
-  def transaction_hash(), do: &Hash.keccak_256/1
-end

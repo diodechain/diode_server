@@ -138,7 +138,7 @@ defmodule RemoteChain.WSConn do
 
   defp new_block(hex_number, state) do
     block_number = String.to_integer(hex_number, 16)
-    Logger.info("WSConn received block #{block_number} from #{state.ws_url}")
+    # Logger.info("WSConn received block #{block_number} from #{state.ws_url}")
     send(state.owner, {:new_block, state.ws_url, block_number})
     %{state | lastblock_at: DateTime.utc_now(), lastblock_number: block_number}
   end

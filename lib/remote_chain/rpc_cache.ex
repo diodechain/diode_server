@@ -4,37 +4,42 @@
 defmodule RemoteChain.RPCCache do
   use GenServer, restart: :permanent
   require Logger
+  alias RemoteChain.Cache
   alias RemoteChain.NodeProxy
   alias RemoteChain.RPCCache
   @default_timeout 25_000
 
-  defstruct [:chain, :lru, :block_number, :request_rpc, :request_from, :request_collection]
+  defstruct [
+    :chain,
+    :cache,
+    :block_number,
+    :request_rpc,
+    :request_from,
+    :request_collection,
+    :block_number_requests
+  ]
 
-  def start_link(chain) do
-    GenServer.start_link(__MODULE__, chain, name: name(chain), hibernate_after: 5_000)
+  def start_link([chain, cache]) do
+    GenServer.start_link(__MODULE__, {chain, cache}, name: name(chain), hibernate_after: 5_000)
   end
 
   @impl true
-  def init(chain) do
+  def init({chain, cache}) do
     {:ok,
      %__MODULE__{
        chain: chain,
-       lru: Lru.new(100_000),
+       cache: cache,
        block_number: nil,
        request_rpc: %{},
        request_from: %{},
-       request_collection: :gen_server.reqids_new()
+       request_collection: :gen_server.reqids_new(),
+       block_number_requests: []
      }}
-  end
-
-  def set_block_number(chain, block_number) do
-    GenServer.cast(name(chain), {:block_number, block_number})
   end
 
   def block_number(chain) do
     case GenServer.call(name(chain), :block_number) do
-      nil -> raise "no block_number yet"
-      number -> number
+      number when number != nil -> number
     end
   end
 
@@ -86,6 +91,10 @@ defmodule RemoteChain.RPCCache do
     end)
   end
 
+  def call(chain, to, from, data, block \\ "latest") do
+    rpc!(chain, "eth_call", [%{to: to, data: data, from: from}, block])
+  end
+
   def get_code(chain, address, block \\ "latest") do
     rpc!(chain, "eth_getCode", [address, block])
   end
@@ -133,8 +142,13 @@ defmodule RemoteChain.RPCCache do
   end
 
   def rpc!(chain, method, params) do
-    %{"result" => ret} = rpc(chain, method, params)
-    ret
+    case rpc(chain, method, params) do
+      %{"result" => ret} ->
+        ret
+
+      other ->
+        raise "RPC error in #{inspect(chain)}.#{method}(#{inspect(params)}): #{inspect(other)}"
+    end
   end
 
   def rpc(chain, method, params) do
@@ -142,11 +156,14 @@ defmodule RemoteChain.RPCCache do
   end
 
   @impl true
-  def handle_cast({:block_number, block_number}, state) do
-    {:noreply, %RPCCache{state | block_number: block_number}}
+  def handle_call(
+        :block_number,
+        from,
+        state = %RPCCache{block_number: nil, block_number_requests: requests}
+      ) do
+    {:noreply, %RPCCache{state | block_number_requests: [from | requests]}}
   end
 
-  @impl true
   def handle_call(:block_number, _from, state = %RPCCache{block_number: number}) do
     {:reply, number, state}
   end
@@ -156,12 +173,12 @@ defmodule RemoteChain.RPCCache do
         from,
         state = %RPCCache{
           chain: chain,
-          lru: lru,
+          cache: cache,
           request_rpc: request_rpc,
           request_collection: col
         }
       ) do
-    case Lru.get(lru, {method, params}) do
+    case Cache.get(cache, {chain, method, params}) do
       nil ->
         case Map.get(request_rpc, {method, params}) do
           nil ->
@@ -188,9 +205,20 @@ defmodule RemoteChain.RPCCache do
 
   @impl true
   def handle_info(
+        {{NodeProxy, _chain}, :block_number, block_number},
+        state = %RPCCache{block_number_requests: requests}
+      ) do
+    for from <- requests do
+      GenServer.reply(from, block_number)
+    end
+
+    {:noreply, %RPCCache{state | block_number: block_number, block_number_requests: []}}
+  end
+
+  def handle_info(
         msg,
         state = %RPCCache{
-          lru: lru,
+          cache: cache,
           chain: chain,
           request_collection: col,
           request_rpc: request_rpc
@@ -211,7 +239,7 @@ defmodule RemoteChain.RPCCache do
             {:reply, ret} ->
               state =
                 if should_cache_method(method, params) and should_cache_result(ret) do
-                  %RPCCache{state | lru: Lru.insert(lru, {method, params}, ret)}
+                  %RPCCache{state | cache: Cache.put(cache, {chain, method, params}, ret)}
                 else
                   state
                 end
@@ -233,6 +261,8 @@ defmodule RemoteChain.RPCCache do
   def resolve_block(_chain, block) when is_integer(block), do: block
   def resolve_block(_chain, "0x" <> _ = block), do: Base16.decode_int(block)
 
+  defp name(nil), do: raise("Chain `nil` not found")
+
   defp name(chain) do
     impl = RemoteChain.chainimpl(chain)
     {:global, {__MODULE__, impl}}
@@ -240,12 +270,8 @@ defmodule RemoteChain.RPCCache do
 
   defp should_cache_method("dio_edgev2", [hex]) do
     case hd(Rlp.decode!(Base16.decode(hex))) do
-      "ticket" ->
-        false
-
-      _other ->
-        # IO.inspect(other, label: "should_cache_method dio_edgev2")
-        true
+      "ticket" -> false
+      _other -> true
     end
   end
 

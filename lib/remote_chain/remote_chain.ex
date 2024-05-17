@@ -19,21 +19,23 @@ defmodule RemoteChain do
   def transaction_hash(chain_id), do: chainimpl(chain_id).transaction_hash()
 
   if Mix.env() == :test do
-    @chains []
+    def diode_l1_fallback(), do: Chains.DiodeStaging
+    @chains [Chains.DiodeStaging, Chains.Anvil]
   else
+    def diode_l1_fallback(), do: Chains.Diode
+
     @chains [
+      Chains.Diode,
       Chains.Moonbeam,
       Chains.MoonbaseAlpha
     ]
   end
 
-  @all_chains [
-    Chains.Diode,
-    Chains.DiodeStaging,
-    Chains.DiodeDev,
-    Chains.Anvil,
-    Chains.Moonriver | @chains
-  ]
+  @all_chains Enum.uniq([
+                Chains.DiodeDev,
+                Chains.DiodeStaging,
+                Chains.Moonriver | @chains
+              ])
 
   @doc """
   This function reads endpoints from environment variables when available. So it's possible
@@ -52,5 +54,6 @@ defmodule RemoteChain do
     def chainimpl(unquote(chain)), do: unquote(chain)
   end
 
+  def chainimpl(module) when is_atom(module), do: module
   def chainimpl(other), do: raise("Unknown chain #{inspect(other)}")
 end

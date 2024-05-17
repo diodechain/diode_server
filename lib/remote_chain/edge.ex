@@ -98,7 +98,7 @@ defmodule RemoteChain.Edge do
         RemoteChain.RPCCache.get_storage_at(
           chain,
           hex_address(address),
-          hex_key(key),
+          hex_slot(key),
           hex_blockref(block)
         )
         |> Base16.decode()
@@ -110,14 +110,18 @@ defmodule RemoteChain.Edge do
         RemoteChain.RPCCache.get_storage_many(
           chain,
           hex_address(address),
-          Enum.map(keys, &hex_key/1),
+          Enum.map(keys, &hex_slot/1),
           hex_blockref(block)
         )
         |> Enum.map(&Base16.decode/1)
         |> response()
 
-      ["sendtransaction", _tx] ->
-        error("not implemented")
+      ["sendtransaction", payload] ->
+        case RemoteChain.RPC.send_raw_transaction(chain, Base16.encode(payload)) do
+          :already_known -> response("ok")
+          tx_hash when is_binary(tx_hash) -> response("ok")
+          {:error, error} -> error(error)
+        end
 
       ["getmetanonce", block, address] ->
         CallPermit.rpc_call!(chain, CallPermit.nonces(address), nil, hex_blockref(block))
@@ -212,7 +216,11 @@ defmodule RemoteChain.Edge do
     Base16.encode(address)
   end
 
-  defp hex_key(<<_::binary-size(32)>> = key) do
+  defp hex_slot(<<_::binary-size(32)>> = key) do
     Base16.encode(key)
+  end
+
+  defp hex_slot(key) when is_binary(key) do
+    Base16.encode(Rlpx.bin2num(key), false)
   end
 end

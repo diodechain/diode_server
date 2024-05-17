@@ -272,6 +272,14 @@ defmodule Diode do
     Model.CredSql.wallet()
   end
 
+  def wallet() do
+    miner()
+  end
+
+  def address() do
+    wallet() |> Wallet.address!()
+  end
+
   def syncing?() do
     Process.whereis(:active_sync) != nil or Process.whereis(:active_sync_job) != nil
   end

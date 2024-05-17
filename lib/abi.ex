@@ -11,13 +11,25 @@ defmodule ABI do
   end
 
   def decode_types(types, data) do
-    {ret, ""} =
+    {ret, _rest} =
       Enum.reduce(types, {[], data}, fn type, {ret, rest} ->
         {value, rest} = decode(type, rest)
         {ret ++ [value], rest}
       end)
 
-    ret
+    Enum.zip(types, ret)
+    |> Enum.map(fn {type, value} ->
+      # if is_dynamic(type) do
+      if type in ["string", "bytes"] do
+        # for dynamic types the decoded value in the header is the offset of the data
+        base = binary_part(data, value, byte_size(data) - value)
+        {len, rest} = decode("uint256", base)
+        slots = div(len, 32) + 1
+        binary_part(rest, slots * 32 - len, len)
+      else
+        value
+      end
+    end)
   end
 
   def decode_revert(<<"">>) do
@@ -173,7 +185,7 @@ defmodule ABI do
       Code.string_to_quoted("""
         def decode("uint#{bit * 8}", <<value :: unsigned-size(256), rest :: binary>>), do: {value, rest}
         def decode("int#{bit * 8}", <<value :: signed-size(256), rest :: binary>>), do: {value, rest}
-        def decode("bytes#{bit}", <<value :: binary-size(#{bit}), _ :: binary-size(#{32 - bit}), rest :: binary>>), do: {value, rest}
+        def decode("bytes#{bit}", <<value :: binary-size(#{bit}), _ :: binary-size(#{32 - bit}), rest :: binary()>>), do: {value, rest}
       """)
     )
   end
@@ -184,4 +196,7 @@ defmodule ABI do
 
   def decode("address", <<_::binary-size(12), address::binary-size(20), rest::binary>>),
     do: {address, rest}
+
+  def decode("string", value), do: decode("uint256", value)
+  def decode("bytes", value), do: decode("uint256", value)
 end
