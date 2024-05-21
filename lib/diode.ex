@@ -61,6 +61,8 @@ defmodule Diode do
         []
       end
 
+    {:ok, cache} = DetsPlus.open_file(:remoterpc_cache, file: data_dir("remoterpc.cache"))
+
     base_children = [
       worker(Stats, []),
       worker(MerkleCache, []),
@@ -72,7 +74,7 @@ defmodule Diode do
       worker(Chain.Pool, [args]),
       worker(TicketStore, [ets_extra])
       | Enum.map(RemoteChain.chains(), fn chain ->
-          supervisor(RemoteChain.Sup, [chain], {RemoteChain.Sup, chain})
+          supervisor(RemoteChain.Sup, [chain, [cache: cache]], {RemoteChain.Sup, chain})
         end)
     ]
 
