@@ -99,12 +99,14 @@ defmodule Diode do
   def start_client_network() do
     rpc_api(:http, port: rpc_port())
 
-    if not dev_mode?() do
-      ssl_rpc_api()
+    if not NodeAgent.available?() do
+      if not dev_mode?(), do: ssl_rpc_api()
+      start_child!(Network.Server.child(edge2_ports(), Network.EdgeV2))
+    else
+      start_child!(worker(NodeAgent, []))
     end
 
     start_child!(worker(BridgeMonitor, [[]]))
-    start_child!(Network.Server.child(edge2_ports(), Network.EdgeV2))
     start_child!(worker(Chain.Worker, [worker_mode()]))
   end
 
@@ -118,7 +120,12 @@ defmodule Diode do
   def stop_client_network() do
     Plug.Cowboy.shutdown(Network.RpcHttp.HTTP)
     Plug.Cowboy.shutdown(Network.RpcHttp.HTTPS)
-    Supervisor.terminate_child(Diode.Supervisor, Network.EdgeV2)
+
+    if not NodeAgent.available?() do
+      Supervisor.terminate_child(Diode.Supervisor, Network.EdgeV2)
+    else
+      Supervisor.terminate_child(Diode.Supervisor, NodeAgent)
+    end
   end
 
   defp set_chaindefinition() do
@@ -209,7 +216,7 @@ defmodule Diode do
     end
   end
 
-  defp ssl_rpc_api() do
+  def ssl_rpc_api() do
     if ssl?() do
       rpc_api(:https,
         keyfile: "priv/privkey.pem",
@@ -339,7 +346,11 @@ defmodule Diode do
 
   @spec rpc_port() :: integer()
   def rpc_port() do
-    get_env_int("RPC_PORT", 8545)
+    if NodeAgent.available?() do
+      get_env_int("RPC_PORT", 3834)
+    else
+      get_env_int("RPC_PORT", 8545)
+    end
   end
 
   def rpcs_port() do
