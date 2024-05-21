@@ -90,7 +90,6 @@ defmodule Diode do
         base_children ++ network_children
       end
 
-    children = children ++ [worker(Chain.Worker, [worker_mode()])]
     Supervisor.start_link(children, strategy: :rest_for_one, name: Diode.Supervisor)
   end
 
@@ -102,12 +101,15 @@ defmodule Diode do
       ssl_rpc_api()
     end
 
-    Supervisor.start_child(Diode.Supervisor, worker(BridgeMonitor, [[]]))
+    start_child!(worker(BridgeMonitor, [[]]))
+    start_child!(Network.Server.child(edge2_ports(), Network.EdgeV2))
+    start_child!(worker(Chain.Worker, [worker_mode()]))
+  end
 
-    Supervisor.start_child(Diode.Supervisor, Network.Server.child(edge2_ports(), Network.EdgeV2))
-    |> case do
-      {:error, :already} -> Supervisor.restart_child(Diode.Supervisor, Network.EdgeV2)
-      other -> other
+  defp start_child!(what) do
+    case Supervisor.start_child(Diode.Supervisor, what) do
+      {:ok, _} -> :ok
+      {:error, {:already_started, _}} -> :ok
     end
   end
 
