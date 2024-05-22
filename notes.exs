@@ -1,3 +1,23 @@
+# 22nd May 2024
+
+
+step = 1000
+range = Range.new(7290000, Chain.peak(), step)
+for x <- range do
+  max = min(x + step, Chain.peak())
+  ret = Model.Sql.query!(Db.Default, "SELECT parent, hash, number FROM blocks WHERE number >= ?1 AND number < ?2 ORDER BY number", bind: [x, max])
+  should = x..(max - 1) |> MapSet.new()
+  have = Enum.map(ret, fn [parent: _, hash: _, number: number] -> number end) |> MapSet.new()
+  IO.puts("#{x} Length: #{length(ret)} / #{max - x}: #{inspect MapSet.difference(should, have)}")
+
+  for x <- Enum.sort(MapSet.difference(should, have), :desc) do
+    [x_hash] = BlockProcess.fetch(x + 1, [:parent_hash])
+    [^x] = BlockProcess.fetch(x_hash, [:number])
+    Model.ChainSql.put_block_number(x_hash)
+  end
+
+end
+
 # 10th May 2024
 
 bns = 0xaf60faa5cd840b724742f1af116168276112d6a6
