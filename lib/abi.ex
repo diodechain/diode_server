@@ -185,7 +185,7 @@ defmodule ABI do
       Code.string_to_quoted("""
         def decode("uint#{bit * 8}", <<value :: unsigned-size(256), rest :: binary>>), do: {value, rest}
         def decode("int#{bit * 8}", <<value :: signed-size(256), rest :: binary>>), do: {value, rest}
-        def decode("bytes#{bit}", <<value :: binary-size(#{bit}), _ :: binary-size(#{32 - bit}), rest :: binary()>>), do: {value, rest}
+        def decode("bytes#{bit}", <<value :: binary-size(#{bit}), _ :: binary-size(#{32 - bit}), rest :: binary>>), do: {value, rest}
       """)
     )
   end

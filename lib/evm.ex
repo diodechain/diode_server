@@ -508,7 +508,7 @@ defmodule Evm do
         id = "process_#{binary_part(data, 0, 2)}"
         loop(Stats.tc(id, fn -> process_data(data, evm) end))
 
-      {'EXIT', _port, _reason} ->
+      {~c"EXIT", _port, _reason} ->
         throw({:evm_crash, evm, 0})
     after
       @timeout ->
@@ -675,7 +675,7 @@ defmodule Evm do
         {_port, {:data, <<"su", rest::binary>>}} ->
           process_updates(rest, state(evm))
 
-        {'EXIT', _port, _reason} ->
+        {~c"EXIT", _port, _reason} ->
           throw({:evm_crash, evm, 0})
       after
         @timeout ->

@@ -62,8 +62,8 @@ defmodule PeerTest do
     {:ok, {_head, _opt, body}} =
       :httpc.request(
         :post,
-        {'http://localhost:#{rpc_port(num)}', [], 'application/json',
-         '{"id":1, "method":"#{method}", "params":[#{params}]}'},
+        {~c"http://localhost:#{rpc_port(num)}", [], ~c"application/json",
+         ~c"{\"id\":1, \"method\":\"#{method}\", \"params\":[#{params}]}"},
         [timeout: 5000],
         []
       )

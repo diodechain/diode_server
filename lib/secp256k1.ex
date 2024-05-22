@@ -193,16 +193,16 @@ defmodule Secp256k1 do
      {:SignatureAlgorithm, {1, 2, 840, 10045, 4, 3, 2}, :asn1_NOVALUE},
      {:rdnSequence,
       [
-        [{:AttributeTypeAndValue, {2, 5, 4, 6}, 'US'}],
+        [{:AttributeTypeAndValue, {2, 5, 4, 6}, ~c"US"}],
         [{:AttributeTypeAndValue, {2, 5, 4, 8}, {:utf8String, "Oregon"}}],
         [{:AttributeTypeAndValue, {2, 5, 4, 7}, {:utf8String, "Portland"}}],
         [{:AttributeTypeAndValue, {2, 5, 4, 10}, {:utf8String, "Company Name"}}],
         [{:AttributeTypeAndValue, {2, 5, 4, 11}, {:utf8String, "Org"}}],
         [{:AttributeTypeAndValue, {2, 5, 4, 3}, {:utf8String, "www.example.com"}}]
-      ]}, {:Validity, {:utcTime, '181113072916Z'}, {:utcTime, '321113072916Z'}},
+      ]}, {:Validity, {:utcTime, ~c"181113072916Z"}, {:utcTime, ~c"321113072916Z"}},
      {:rdnSequence,
       [
-        [{:AttributeTypeAndValue, {2, 5, 4, 6}, 'US'}],
+        [{:AttributeTypeAndValue, {2, 5, 4, 6}, ~c"US"}],
         [{:AttributeTypeAndValue, {2, 5, 4, 8}, {:utf8String, "Oregon"}}],
         [{:AttributeTypeAndValue, {2, 5, 4, 7}, {:utf8String, "Portland"}}],
         [{:AttributeTypeAndValue, {2, 5, 4, 10}, {:utf8String, "Company Name"}}],

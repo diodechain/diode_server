@@ -547,7 +547,9 @@ defmodule Model.ChainSql do
   end
 
   def alt_blocks() do
-    Sql.query!(__MODULE__, "SELECT data FROM blocks WHERE number IS NULL", call_timeout: @infinity)
+    Sql.query!(__MODULE__, "SELECT data FROM blocks WHERE number IS NULL",
+      call_timeout: @infinity
+    )
     |> Enum.map(fn [data: data] -> BertInt.decode!(data) end)
   end
 

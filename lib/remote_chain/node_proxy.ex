@@ -21,7 +21,9 @@ defmodule RemoteChain.NodeProxy do
   ]
 
   def start_link(chain) do
-    GenServer.start_link(__MODULE__, %NodeProxy{chain: chain, connections: %{}}, name: name(chain))
+    GenServer.start_link(__MODULE__, %NodeProxy{chain: chain, connections: %{}},
+      name: name(chain)
+    )
   end
 
   @impl true
