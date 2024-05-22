@@ -168,48 +168,67 @@ defmodule RemoteChain.RPCCache do
     {:reply, number, state}
   end
 
-  def handle_call(
-        {:rpc, method, params},
-        from,
-        state = %RPCCache{
-          chain: chain,
-          cache: cache,
-          request_rpc: request_rpc,
-          request_collection: col
-        }
-      ) do
+  def handle_call({:rpc, method, params}, from, state = %RPCCache{chain: chain, cache: cache}) do
     case Cache.get(cache, {chain, method, params}) do
       nil ->
-        case Map.get(request_rpc, {method, params}) do
-          nil ->
-            col =
-              :gen_server.send_request(
-                NodeProxy.name(chain),
-                {:rpc, method, params},
-                {method, params},
-                col
-              )
-
-            request_rpc = Map.put(request_rpc, {method, params}, MapSet.new([from]))
-            {:noreply, %RPCCache{state | request_rpc: request_rpc, request_collection: col}}
-
-          set ->
-            request_rpc = Map.put(request_rpc, {method, params}, MapSet.put(set, from))
-            {:noreply, %RPCCache{state | request_rpc: request_rpc}}
-        end
+        {:noreply, send_request(method, params, from, state)}
 
       result ->
-        {:reply, result, state}
+        if :rand.uniform() < 0.1 do
+          {:reply, result, send_request(method, params, nil, state)}
+        else
+          {:reply, result, state}
+        end
+    end
+  end
+
+  defp send_request(
+         method,
+         params,
+         from,
+         state = %RPCCache{chain: chain, request_rpc: request_rpc, request_collection: col}
+       ) do
+    case Map.get(request_rpc, {method, params}) do
+      nil ->
+        col =
+          :gen_server.send_request(
+            NodeProxy.name(chain),
+            {:rpc, method, params},
+            {method, params},
+            col
+          )
+
+        # if method == "dio_edgev2" do
+        #   IO.inspect({method, Base16.decode(hd(params)) |> Rlp.decode!()}, label: "dio_edgev2")
+        # end
+
+        request_rpc = Map.put(request_rpc, {method, params}, MapSet.new([from]))
+        %RPCCache{state | request_rpc: request_rpc, request_collection: col}
+
+      set ->
+        request_rpc = Map.put(request_rpc, {method, params}, MapSet.put(set, from))
+        %RPCCache{state | request_rpc: request_rpc}
     end
   end
 
   @impl true
   def handle_info(
         {{NodeProxy, _chain}, :block_number, block_number},
-        state = %RPCCache{block_number_requests: requests}
+        state = %RPCCache{block_number_requests: requests, chain: chain}
       ) do
     for from <- requests do
       GenServer.reply(from, block_number)
+    end
+
+    # for development nodes that start at block 0 (genesis)
+    if block_number > 0 do
+      spawn(fn ->
+        if chain in [Chains.Diode, Chains.DiodeDev, Chains.DiodeStaging] do
+          rpc(chain, "dio_edgev2", [Base16.encode(Rlp.encode!(["getblockheader2", block_number]))])
+        else
+          get_block_by_number(chain, block_number)
+        end
+      end)
     end
 
     {:noreply, %RPCCache{state | block_number: block_number, block_number_requests: []}}
@@ -251,7 +270,11 @@ defmodule RemoteChain.RPCCache do
           end
 
         {froms, request_rpc} = Map.pop!(request_rpc, {method, params})
-        for from <- froms, do: GenServer.reply(from, ret)
+
+        for from <- froms do
+          if from != nil, do: GenServer.reply(from, ret)
+        end
+
         state = %RPCCache{state | request_collection: col, request_rpc: request_rpc}
         {:noreply, state}
     end

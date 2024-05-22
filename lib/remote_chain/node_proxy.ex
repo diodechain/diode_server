@@ -151,6 +151,13 @@ defmodule RemoteChain.NodeProxy do
         time_ms = System.os_time(:millisecond) - start_ms
 
         if time_ms > 200 do
+          params =
+            if method == "dio_edgev2" do
+              Base16.decode(hd(params)) |> Rlp.decode!()
+            else
+              params
+            end
+
           Logger.debug("RPC #{method} #{inspect(params)} took #{time_ms}ms")
         end
 
