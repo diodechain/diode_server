@@ -186,7 +186,7 @@ defmodule RemoteChain.Edge do
         spawn(fn ->
           RemoteChain.RPC.send_raw_transaction(chain, payload)
 
-          for endpoint <- chain.rpc_endpoints() do
+          for endpoint <- Enum.shuffle(chain.rpc_endpoints()) do
             RemoteChain.HTTP.send_raw_transaction(endpoint, payload)
           end
         end)
