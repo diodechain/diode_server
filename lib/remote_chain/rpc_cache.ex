@@ -141,6 +141,9 @@ defmodule RemoteChain.RPCCache do
           block
       end
     else
+      # Assuming 12s block time for moonbeam
+      blocks_per_hour = div(3600, 12)
+
       # `ChangeTracker.sol` slot for signaling: 0x1e4717b2dc5dfd7f487f2043bfe9999372d693bf4d9c51b5b84f1377939cd487
       rpc!(chain, "eth_getStorageAt", [
         address,
@@ -149,8 +152,8 @@ defmodule RemoteChain.RPCCache do
       ])
       |> Base16.decode_int()
       |> case do
-        0 -> block - rem(block, 240)
-        num -> min(num, block)
+        0 -> block - rem(block, blocks_per_hour)
+        num -> max(min(num, block), block - blocks_per_hour)
       end
     end
   end
@@ -180,15 +183,7 @@ defmodule RemoteChain.RPCCache do
 
     last_change = get_last_change(chain, address, block)
 
-    if last_change > 0 do
-      Hash.keccak_256(address <> "#{last_change}")
-    else
-      # there is no change tracking yet?
-      # in this case we're just not updating more often than once an hour
-      blocks_per_hour = div(3600, 15)
-      base = div(block + Base16.decode_int(address), blocks_per_hour)
-      Hash.keccak_256(address <> "#{last_change}:#{base}")
-    end
+    Hash.keccak_256(address <> "#{last_change}")
     |> Base16.encode()
   end
 
