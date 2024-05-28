@@ -472,6 +472,21 @@ defmodule Network.EdgeV2 do
         end)
         |> response()
 
+      ["getaccountroot", index, id] ->
+        BlockProcess.with_block(to_num(index), fn block ->
+          Chain.Block.state(block)
+          |> Chain.State.account(id)
+          |> case do
+            nil ->
+              error("account does not exist")
+
+            %Chain.Account{} ->
+              proof = Chain.Block.state_tree(block) |> MerkleTree.get_proofs(id)
+              root = MerkleTree.root_hash(Chain.Block.account_tree(block, id))
+              response(root, proof)
+          end
+        end)
+
       ["getaccount", index, id] ->
         BlockProcess.with_block(to_num(index), fn block ->
           Chain.Block.state(block)
