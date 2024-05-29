@@ -19,7 +19,7 @@ defmodule NodeAgent do
   end
 
   def init(state) do
-    log = File.open!("traffic_node.log", [:write, :binary])
+    log = File.open!("traffic_node.log", [:write, :utf8])
 
     if available?() do
       GenServer.cast(self(), :restart)
