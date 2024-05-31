@@ -32,6 +32,44 @@ defmodule NodeAgent do
     {:noreply, do_restart(state)}
   end
 
+  defp unset_env() do
+    [
+      "_",
+      "BINDIR",
+      "ELIXIR_ERL_OPTIONS",
+      "ERL_CRASH_DUMP_BYTES",
+      # "ERL_EPMD_ADDRESS",
+      "EMU",
+      "MIX_ARCHIVES",
+      "MIX_ENV",
+      "MIX_HOME",
+      "PROGNAME",
+      "RELEASE_BOOT_SCRIPT_CLEAN",
+      "RELEASE_BOOT_SCRIPT",
+      "RELEASE_COMMAND",
+      "RELEASE_COOKIE",
+      "RELEASE_DISTRIBUTION",
+      "RELEASE_MODE",
+      "RELEASE_NAME",
+      "RELEASE_NODE",
+      "RELEASE_PROG",
+      "RELEASE_REMOTE_VM_ARGS",
+      "RELEASE_ROOT",
+      "RELEASE_SYS_CONFIG",
+      "RELEASE_TMP",
+      "RELEASE_VSN",
+      "ROOTDIR"
+    ]
+    |> Enum.map(fn k -> {k, ""} end)
+  end
+
+  def stop() do
+    case System.cmd(cmd(), ["pid"], env: unset_env()) do
+      {_pid, 0} -> {"", 0} = System.cmd(cmd(), ["stop"], env: unset_env())
+      {_error, 1} -> :ok
+    end
+  end
+
   defp do_restart(state = %{port: port}) do
     if port != nil do
       try do
@@ -41,40 +79,7 @@ defmodule NodeAgent do
       end
     end
 
-    unset =
-      [
-        "_",
-        "BINDIR",
-        "ELIXIR_ERL_OPTIONS",
-        "ERL_CRASH_DUMP_BYTES",
-        # "ERL_EPMD_ADDRESS",
-        "EMU",
-        "MIX_ARCHIVES",
-        "MIX_ENV",
-        "MIX_HOME",
-        "PROGNAME",
-        "RELEASE_BOOT_SCRIPT_CLEAN",
-        "RELEASE_BOOT_SCRIPT",
-        "RELEASE_COMMAND",
-        "RELEASE_COOKIE",
-        "RELEASE_DISTRIBUTION",
-        "RELEASE_MODE",
-        "RELEASE_NAME",
-        "RELEASE_NODE",
-        "RELEASE_PROG",
-        "RELEASE_REMOTE_VM_ARGS",
-        "RELEASE_ROOT",
-        "RELEASE_SYS_CONFIG",
-        "RELEASE_TMP",
-        "RELEASE_VSN",
-        "ROOTDIR"
-      ]
-      |> Enum.map(fn k -> {k, ""} end)
-
-    case System.cmd(cmd(), ["pid"], env: unset) do
-      {_pid, 0} -> {"", 0} = System.cmd(cmd(), ["stop"], env: unset)
-      {_error, 1} -> :ok
-    end
+    stop()
 
     port =
       Port.open({:spawn_executable, cmd()}, [
@@ -86,7 +91,7 @@ defmodule NodeAgent do
            {"CHAINS_DIODE_WS", "http://localhost:#{Diode.rpc_port()}/ws"},
            {"CHAINS_DIODE_RPC", "http://localhost:#{Diode.rpc_port()}"},
            {"PARENT_CWD", File.cwd!()}
-           | unset
+           | unset_env()
          ]
          |> Enum.map(fn {k, v} -> {String.to_charlist(k), String.to_charlist(v)} end)},
         :stream,

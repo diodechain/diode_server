@@ -63,6 +63,10 @@ defmodule Diode do
 
     {:ok, cache} = DetsPlus.open_file(:remoterpc_cache, file: data_dir("remoterpc.cache"))
 
+    if NodeAgent.available?() do
+      NodeAgent.stop()
+    end
+
     base_children = [
       worker(Stats, []),
       worker(MerkleCache, []),
