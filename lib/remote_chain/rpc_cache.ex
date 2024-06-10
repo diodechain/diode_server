@@ -37,6 +37,14 @@ defmodule RemoteChain.RPCCache do
      }}
   end
 
+  def optimistic_caching?() do
+    :persistent_term.get({__MODULE__, :optimistic_caching}, true)
+  end
+
+  def set_optimistic_caching(bool) do
+    :persistent_term.put({__MODULE__, :optimistic_caching}, bool)
+  end
+
   def block_number(chain) do
     case GenServer.call(name(chain), :block_number) do
       number when number != nil -> number
@@ -277,7 +285,7 @@ defmodule RemoteChain.RPCCache do
     end
 
     # for development nodes that start at block 0 (genesis)
-    if block_number > 0 do
+    if optimistic_caching?() and block_number > 0 do
       spawn(fn ->
         if chain in [Chains.Diode, Chains.DiodeDev, Chains.DiodeStaging] do
           rpc(chain, "dio_edgev2", [Base16.encode(Rlp.encode!(["getblockheader2", block_number]))])

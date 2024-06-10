@@ -20,7 +20,6 @@ defmodule Model.Sql do
   defp map_mod(Chain.BlockCache), do: Db.Cache
   defp map_mod(Model.SyncSql), do: Db.Sync
   defp map_mod(Model.CredSql), do: Db.Creds
-  defp map_mod(Model.TicketSql), do: Db.Tickets
   defp map_mod(Model.KademliaSql), do: Db.Tickets
   defp map_mod(pid) when is_pid(pid), do: pid
   defp map_mod(_), do: Db.Default
@@ -47,7 +46,6 @@ defmodule Model.Sql do
     def init(_args) do
       Model.ChainSql.init()
       Model.StateSql.init()
-      Model.TicketSql.init()
       Model.KademliaSql.init()
       {:ok, :done}
     end

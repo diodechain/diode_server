@@ -19,7 +19,6 @@ defmodule TestHelper do
     kill_clones()
     Chain.Pool.flush()
     Chain.reset_state()
-    TicketStore.clear()
     Kademlia.reset()
     wait(0)
     Supervisor.restart_child(Diode.Supervisor, Chain.Worker)

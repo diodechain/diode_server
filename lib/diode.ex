@@ -67,16 +67,16 @@ defmodule Diode do
       NodeAgent.stop()
     end
 
+    RemoteChain.RPCCache.set_optimistic_caching(false)
+
     base_children = [
       worker(Stats, []),
       worker(MerkleCache, []),
       supervisor(Model.Sql),
-      supervisor(Channels),
       worker(Chain.BlockCache, [ets_extra]),
       worker(Chain, [ets_extra]),
       worker(PubSub, [args]),
-      worker(Chain.Pool, [args]),
-      worker(TicketStore, [ets_extra])
+      worker(Chain.Pool, [args])
       | Enum.map(RemoteChain.chains(), fn chain ->
           supervisor(RemoteChain.Sup, [chain, [cache: cache]], {RemoteChain.Sup, chain})
         end)
@@ -103,10 +103,7 @@ defmodule Diode do
   def start_client_network() do
     rpc_api(:http, port: rpc_port())
 
-    if not NodeAgent.available?() do
-      if not dev_mode?(), do: ssl_rpc_api()
-      start_child!(Network.Server.child(edge2_ports(), Network.EdgeV2))
-    else
+    if NodeAgent.available?() do
       start_child!(worker(NodeAgent, []))
     end
 
@@ -125,9 +122,7 @@ defmodule Diode do
     Plug.Cowboy.shutdown(Network.RpcHttp.HTTP)
     Plug.Cowboy.shutdown(Network.RpcHttp.HTTPS)
 
-    if not NodeAgent.available?() do
-      Supervisor.terminate_child(Diode.Supervisor, Network.EdgeV2)
-    else
+    if NodeAgent.available?() do
       Supervisor.terminate_child(Diode.Supervisor, NodeAgent)
     end
   end
@@ -220,18 +215,6 @@ defmodule Diode do
     end
   end
 
-  def ssl_rpc_api() do
-    if ssl?() do
-      rpc_api(:https,
-        keyfile: "priv/privkey.pem",
-        certfile: "priv/cert.pem",
-        cacertfile: "priv/fullchain.pem",
-        port: rpcs_port(),
-        otp_app: Diode
-      )
-    end
-  end
-
   @spec env :: :prod | :test | :dev
   def env() do
     :persistent_term.get(:env)
@@ -265,15 +248,6 @@ defmodule Diode do
   @spec trace(boolean) :: any
   def trace(enabled) when is_boolean(enabled) do
     :persistent_term.put(:trace, enabled)
-  end
-
-  @doc "Number of bytes the server is willing to send without payment yet."
-  def ticket_grace() do
-    :persistent_term.get(:ticket_grace, 1024 * 40_960)
-  end
-
-  def ticket_grace(bytes) when is_integer(bytes) do
-    :persistent_term.put(:ticket_grace, bytes)
   end
 
   @spec hash(binary()) :: binary()
@@ -350,11 +324,7 @@ defmodule Diode do
 
   @spec rpc_port() :: integer()
   def rpc_port() do
-    if NodeAgent.available?() do
-      get_env_int("RPC_PORT", 3834)
-    else
-      get_env_int("RPC_PORT", 8545)
-    end
+    get_env_int("RPC_PORT", 3834)
   end
 
   def rpcs_port() do
@@ -421,7 +391,7 @@ defmodule Diode do
 
   def self(hostname) do
     Object.Server.new(hostname, hd(edge2_ports()), peer_port(), version(), [
-      ["tickets", TicketStore.value(Chain.epoch())],
+      ["tickets", 0],
       ["uptime", Diode.uptime()],
       ["block", Chain.peak()]
     ])

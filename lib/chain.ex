@@ -356,10 +356,6 @@ defmodule Chain do
           # Let the ticketstore know the new block
           PubSub.publish(:rpc, {:rpc, :block, block_hash})
 
-          Debouncer.immediate(TicketStore, fn ->
-            TicketStore.newblock(block_hash)
-          end)
-
           if relay do
             [export, miner] = BlockProcess.fetch(block_hash, [:export, :miner])
 

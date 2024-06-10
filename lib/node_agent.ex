@@ -114,13 +114,13 @@ defmodule NodeAgent do
     end
   end
 
-  def handle_info({port0, {:data, msg}}, state = %{log: log, out: out, port: port}) do
+  def handle_info({port0, {:data, msg}}, state = %{log: log, port: port}) do
     if port0 == port do
+      msg = String.trim_trailing(msg)
       IO.puts(log, msg)
-      IO.puts("DIODE_NODE: " <> String.trim_trailing(msg))
-      {:noreply, %{state | out: out <> msg}}
-    else
-      {:noreply, state}
+      IO.puts("DIODE_NODE: " <> msg)
     end
+
+    {:noreply, state}
   end
 end

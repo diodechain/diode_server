@@ -184,7 +184,7 @@ defmodule BlockProcess do
     {pid, _tag} = from
 
     state =
-      if pid in [Process.whereis(TicketStore), Process.whereis(Chain)] do
+      if pid in [Process.whereis(Chain)] do
         %BlockProcess{state | waiting: :queue.in_r({from, fun, block_hash}, waiting)}
       else
         %BlockProcess{state | waiting: :queue.in({from, fun, block_hash}, waiting)}

@@ -1,11 +1,11 @@
 # Diode Server
 # Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
-defmodule TicketTest do
+defmodule ObjectTest do
   use ExUnit.Case
   alias Object.Server
 
-  # Testing forward compatibility of server tickets
+  # Testing forward compatibility of server objects
 
   test "forward/backward compatibility" do
     classic =
