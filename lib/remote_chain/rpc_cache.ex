@@ -246,33 +246,39 @@ defmodule RemoteChain.RPCCache do
     {:noreply, %RPCCache{state | cache: cache}}
   end
 
-  defp send_request(
+  defp send_request(method, params, from, state = %RPCCache{request_rpc: request_rpc}) do
+    now = System.os_time(:second)
+
+    case Map.get(request_rpc, {method, params}) do
+      nil ->
+        new_request(method, params, from, state)
+
+      {time, _set} when now - time > @default_timeout ->
+        new_request(method, params, from, state)
+
+      {time, set} ->
+        request_rpc = Map.put(request_rpc, {method, params}, {time, MapSet.put(set, from)})
+        %RPCCache{state | request_rpc: request_rpc}
+    end
+  end
+
+  defp new_request(
          method,
          params,
          from,
          state = %RPCCache{chain: chain, request_rpc: request_rpc, request_collection: col}
        ) do
-    case Map.get(request_rpc, {method, params}) do
-      nil ->
-        col =
-          :gen_server.send_request(
-            NodeProxy.name(chain),
-            {:rpc, method, params},
-            {method, params},
-            col
-          )
+    col =
+      :gen_server.send_request(
+        NodeProxy.name(chain),
+        {:rpc, method, params},
+        {method, params},
+        col
+      )
 
-        # if method == "dio_edgev2" do
-        #   IO.inspect({method, Base16.decode(hd(params)) |> Rlp.decode!()}, label: "dio_edgev2")
-        # end
-
-        request_rpc = Map.put(request_rpc, {method, params}, MapSet.new([from]))
-        %RPCCache{state | request_rpc: request_rpc, request_collection: col}
-
-      set ->
-        request_rpc = Map.put(request_rpc, {method, params}, MapSet.put(set, from))
-        %RPCCache{state | request_rpc: request_rpc}
-    end
+    now = System.os_time(:second)
+    request_rpc = Map.put(request_rpc, {method, params}, {now, MapSet.new([from])})
+    %RPCCache{state | request_rpc: request_rpc, request_collection: col}
   end
 
   @impl true
@@ -284,8 +290,11 @@ defmodule RemoteChain.RPCCache do
       GenServer.reply(from, block_number)
     end
 
-    # for development nodes that start at block 0 (genesis)
-    if optimistic_caching?() and block_number > 0 do
+    # for development nodes we need to ensure block_number > 0 (genesis)
+    # to prevent block-reorgs from causing issues we're doing 5 blocks delay
+    if optimistic_caching?() and block_number > 5 do
+      block_number = block_number - 5
+
       spawn(fn ->
         if chain in [Chains.Diode, Chains.DiodeDev, Chains.DiodeStaging] do
           rpc(chain, "dio_edgev2", [Base16.encode(Rlp.encode!(["getblockheader2", block_number]))])
@@ -333,7 +342,7 @@ defmodule RemoteChain.RPCCache do
               {state, ret}
           end
 
-        {froms, request_rpc} = Map.pop!(request_rpc, {method, params})
+        {{_time, froms}, request_rpc} = Map.pop!(request_rpc, {method, params})
 
         for from <- froms do
           if from != nil, do: GenServer.reply(from, ret)

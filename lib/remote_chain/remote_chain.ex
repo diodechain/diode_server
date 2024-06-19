@@ -43,7 +43,11 @@ defmodule RemoteChain do
   """
   def ws_endpoints(chain) do
     name = String.upcase("#{inspect(chain)}_WS") |> String.replace(".", "_")
-    List.wrap(System.get_env(name) || chainimpl(chain).ws_endpoints())
+
+    case System.get_env(name) do
+      nil -> chainimpl(chain).ws_endpoints()
+      endpoint -> [endpoint | chainimpl(chain).ws_endpoints()]
+    end
   end
 
   def chains(), do: @chains

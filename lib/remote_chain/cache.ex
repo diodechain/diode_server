@@ -21,3 +21,14 @@ defimpl RemoteChain.Cache, for: DetsPlus do
     cache
   end
 end
+
+defimpl RemoteChain.Cache, for: DetsPlus.LRU do
+  def get(cache, key) do
+    DetsPlus.LRU.get(cache, key)
+  end
+
+  def put(cache, key, value) do
+    DetsPlus.LRU.put(cache, key, value)
+    cache
+  end
+end

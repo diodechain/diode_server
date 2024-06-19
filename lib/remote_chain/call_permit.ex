@@ -5,7 +5,7 @@ defmodule CallPermit do
 
   # 0xe7f13b866a7fc159cb6ee32bcb4103cf0477652e
   def wallet() do
-    Diode.miner()
+    Diode.wallet()
   end
 
   # /// @dev Dispatch a call on the behalf of an other user with a EIP712 permit.
