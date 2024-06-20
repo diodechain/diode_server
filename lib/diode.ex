@@ -17,7 +17,7 @@ defmodule Diode do
     puts("Peer    Port: #{peer_port()}")
     puts("RPC     Port: #{rpc_port()}")
 
-    if ssl?() do
+    if ssl?() and NodeAgent.available?() do
       puts("RPC SSL Port: #{rpcs_port()}")
     else
       puts("RPC SSL Port: DISABLED")
@@ -121,7 +121,6 @@ defmodule Diode do
 
   def stop_client_network() do
     Plug.Cowboy.shutdown(Network.RpcHttp.HTTP)
-    Plug.Cowboy.shutdown(Network.RpcHttp.HTTPS)
 
     if NodeAgent.available?() do
       Supervisor.terminate_child(Diode.Supervisor, NodeAgent)
