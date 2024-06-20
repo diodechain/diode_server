@@ -69,7 +69,8 @@ defmodule RemoteChain.NodeProxy do
              from: from,
              method: method,
              params: params,
-             start_ms: System.os_time(:millisecond)
+             start_ms: System.os_time(:millisecond),
+             conn: conn
            })
      }}
   end
@@ -136,8 +137,17 @@ defmodule RemoteChain.NodeProxy do
         GenServer.cast(pid, :ensure_connections)
       end)
 
-      connections = Enum.filter(connections, fn {_, pid} -> pid != down_pid end) |> Map.new()
-      {:noreply, %{state | connections: connections}}
+      requests =
+        Enum.reject(state.requests, fn {_, %{conn: conn, from: from}} ->
+          if conn == down_pid do
+            GenServer.reply(from, {:error, :disconnect})
+            true
+          end
+        end)
+        |> Map.new()
+
+      new_connections = Enum.filter(connections, fn {_, pid} -> pid != down_pid end) |> Map.new()
+      {:noreply, %{state | connections: new_connections, requests: requests}}
     end
   end
 
@@ -171,7 +181,7 @@ defmodule RemoteChain.NodeProxy do
     urls = MapSet.new(RemoteChain.ws_endpoints(chain))
     existing = MapSet.new(Map.keys(connections))
     new_urls = MapSet.difference(urls, existing)
-    new_url = MapSet.to_list(new_urls) |> List.first()
+    new_url = MapSet.to_list(new_urls) |> Enum.random()
 
     pid = RemoteChain.WSConn.start(self(), chain, new_url)
     Process.monitor(pid)
