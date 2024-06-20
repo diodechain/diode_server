@@ -27,8 +27,25 @@ defmodule Network.RpcWs do
 
   def websocket_handle({:text, message}, state) do
     with {:ok, message} <- Poison.decode(message) do
-      {_status, response} = Network.Rpc.handle_jsonrpc(message, extra: {__MODULE__, :execute_rpc})
-      {:reply, {:text, Poison.encode!(response)}, state}
+      case message do
+        %{"method" => method} when method in ["eth_subscribe", "eth_unsubscribe"] ->
+          {_status, response} =
+            Network.Rpc.handle_jsonrpc(message, extra: {__MODULE__, :execute_rpc})
+
+          {:reply, {:text, Poison.encode!(response)}, state}
+
+        _other ->
+          pid = self()
+
+          spawn_link(fn ->
+            {_status, response} =
+              Network.Rpc.handle_jsonrpc(message, extra: {__MODULE__, :execute_rpc})
+
+            send(pid, {:reply, {:text, Poison.encode!(response)}})
+          end)
+
+          {:ok, state}
+      end
     else
       {:ok, state} ->
         {:ok, state}
@@ -79,6 +96,10 @@ defmodule Network.RpcWs do
 
   def websocket_terminate(_terminate_reason, _arg1, _state) do
     :ok
+  end
+
+  def websocket_info({:reply, reply}, state) do
+    {:reply, reply, state}
   end
 
   def websocket_info(any, state) do
