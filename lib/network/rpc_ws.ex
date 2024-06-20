@@ -3,9 +3,10 @@
 # Licensed under the Diode License, Version 1.1
 defmodule Network.RpcWs do
   @behaviour :cowboy_websocket
+  require Logger
 
   def init(req, state) do
-    {:cowboy_websocket, req, state}
+    {:cowboy_websocket, req, state, %{compress: true}}
   end
 
   def websocket_init(state) do
@@ -168,7 +169,7 @@ defmodule Network.RpcWs do
         {:ok, state}
 
       _ ->
-        :io.format("rpc_ws:websocket_info(~p)~n", [any])
+        Logger.info("rpc_ws:websocket_info(#{inspect(any)})", [any])
         {:ok, state}
     end
   end
