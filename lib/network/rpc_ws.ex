@@ -6,7 +6,7 @@ defmodule Network.RpcWs do
   require Logger
 
   def init(req, state) do
-    {:cowboy_websocket, req, state, %{compress: true}}
+    {:cowboy_websocket, req, state, %{compress: true, idle_timeout: 60 * 60_000}}
   end
 
   def websocket_init(state) do
