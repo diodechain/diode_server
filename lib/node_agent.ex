@@ -88,8 +88,8 @@ defmodule NodeAgent do
          [
            {"PRIVATE", Base16.encode(Wallet.privkey!(Diode.wallet()))},
            {"DATA_DIR", Diode.data_dir("diode_node")},
-           {"CHAINS_DIODE_WS", "http://localhost:#{Diode.rpc_port()}/ws"},
-           {"CHAINS_DIODE_RPC", "http://localhost:#{Diode.rpc_port()}"},
+           {"CHAINS_DIODE_WS", "!http://localhost:#{Diode.rpc_port()}/ws"},
+           {"CHAINS_DIODE_RPC", "!http://localhost:#{Diode.rpc_port()}"},
            {"PARENT_CWD", File.cwd!()}
            | unset_env()
          ]
@@ -116,9 +116,7 @@ defmodule NodeAgent do
 
   def handle_info({port0, {:data, msg}}, state = %{log: log, port: port}) do
     if port0 == port do
-      msg = String.trim_trailing(msg)
-      IO.puts(log, msg)
-      IO.puts("DIODE_NODE: " <> msg)
+      IO.puts(log, String.trim_trailing(msg))
     end
 
     {:noreply, state}
