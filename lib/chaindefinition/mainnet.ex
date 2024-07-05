@@ -2,7 +2,8 @@
 # Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
 defmodule ChainDefinition.Mainnet do
-  alias ChainDefinition.{Voyager, Pioneer}
+  alias ChainDefinition.Ulysses
+  alias ChainDefinition.{Ulysses, Voyager, Pioneer}
 
   # Planned date Monday 31st August 2020
   @voyager 713_277
@@ -12,6 +13,9 @@ defmodule ChainDefinition.Mainnet do
   @pioneer_t1 @pioneer - 1
   # Planned date Friday 26 June 2021
   @new_horizons 2_034_446
+  # Planned 15.07.2024
+  @ulysses 7_573_047
+  @ulysses_t1 @ulysses - 1
 
   @spec network(any) :: ChainDefinition.t()
   def network(blockheight) when blockheight >= @new_horizons do
@@ -80,6 +84,10 @@ defmodule ChainDefinition.Mainnet do
 
   def hardforks(block) do
     case Chain.Block.number(block) do
+      @ulysses_t1 ->
+        state = Ulysses.apply(Chain.Block.state(block))
+        Chain.Block.ensure_state(block, state)
+
       @voyager_t1 ->
         state = Voyager.apply(Chain.Block.state(block))
         Chain.Block.ensure_state(block, state)
