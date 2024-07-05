@@ -58,6 +58,10 @@ defmodule RemoteChain do
     def chainimpl(unquote(chain)), do: unquote(chain)
   end
 
+  # Old deprecated chain ids
+  def chainimpl(41042), do: Chains.DiodeStaging
+  def chainimpl(41043), do: Chains.Diode
+
   def chainimpl(module) when is_atom(module), do: module
   def chainimpl(other), do: raise("Unknown chain #{inspect(other)}")
 end
