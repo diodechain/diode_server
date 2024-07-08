@@ -102,7 +102,7 @@ defmodule Diode.Mixfile do
       {:niffler, "~> 0.1"},
       {:oncrash, "~> 0.0"},
       {:plug_cowboy, "~> 2.5"},
-      {:poison, "~> 3.0"},
+      {:poison, "~> 4.0"},
       {:profiler, github: "dominicletz/profiler"},
       {:sqlitex, github: "diodechain/sqlitex"},
       {:websockex, github: "Azolo/websockex"},
