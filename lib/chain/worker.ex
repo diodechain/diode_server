@@ -159,6 +159,11 @@ defmodule Chain.Worker do
     {:noreply, state}
   end
 
+  # Skipping extra headers generated in case two (or more) blocks are found at the same time
+  def handle_info({:header, _header}, state) do
+    {:noreply, state}
+  end
+
   def handle_info(:work, state) do
     {:noreply, do_work(state)}
   end
