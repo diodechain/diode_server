@@ -19,6 +19,7 @@ defmodule NodeAgent do
   end
 
   def init(state) do
+    File.rename("traffic_node.log", "traffic_node.log.last")
     log = File.open!("traffic_node.log", [:write, :utf8])
 
     if available?() do
