@@ -2,6 +2,7 @@
 # Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
 defmodule Chain.Worker do
+  require Logger
   alias Chain.Worker
   alias Chain.BlockCache, as: Block
   alias Chain.Transaction
@@ -188,9 +189,9 @@ defmodule Chain.Worker do
     worker = self()
     header = candidate.header
 
-    pids =
+    tasks =
       Enum.map(1..workers, fn _ ->
-        spawn_link(fn ->
+        spawn_monitor(fn ->
           %{
             header
             | nonce:
@@ -207,11 +208,17 @@ defmodule Chain.Worker do
         {:header, header} ->
           block = %{candidate | header: header}
 
-          for pid <- pids do
+          for {pid, ref} <- tasks do
             send(pid, :stop)
+            Process.demonitor(ref, [:flush])
 
             receive do
-              {:min, min} -> min
+              {:DOWN, ^pid, :process, _ref, reason} ->
+                Logger.error("Worker died: #{inspect(reason)}")
+                nil
+
+              {:min, ^pid, min} ->
+                min
             end
           end
 
@@ -220,14 +227,21 @@ defmodule Chain.Worker do
       after
         2000 ->
           min =
-            Enum.map(pids, fn
-              pid ->
+            Enum.map(tasks, fn
+              {pid, ref} ->
                 send(pid, :stop)
+                Process.demonitor(ref, [:flush])
 
                 receive do
-                  {:min, min} -> min
+                  {:DOWN, ^pid, :process, _ref, reason} ->
+                    Logger.error("Worker died: #{inspect(reason)}")
+                    nil
+
+                  {:min, ^pid, min} ->
+                    min
                 end
             end)
+            |> Enum.filter(&is_integer/1)
             |> Enum.min()
 
           if Diode.worker_log?() do
@@ -274,12 +288,12 @@ defmodule Chain.Worker do
       Hash.integer(header.block_hash) < target ->
         Stats.incr(:hashrate, count)
         send(receiver, {:header, header})
-        send(receiver, {:min, min})
+        send(receiver, {:min, self(), min})
 
       Hash.integer(header2.block_hash) < target ->
         Stats.incr(:hashrate, count)
         send(receiver, {:header, header2})
-        send(receiver, {:min, min})
+        send(receiver, {:min, self(), min})
 
       true ->
         if count >= 100 do
@@ -288,7 +302,7 @@ defmodule Chain.Worker do
           receive do
             :stop ->
               Stats.incr(:hashrate, count)
-              send(receiver, {:min, min})
+              send(receiver, {:min, self(), min})
           after
             0 ->
               mine(header2, target, creds, receiver, 2, min)
