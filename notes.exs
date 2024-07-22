@@ -1,3 +1,44 @@
+# 19th Jul 2025
+# eu1
+
+6808835 Unstake
+6808836
+
+6984035 Unstake Done
+6984036
+
+epoch = 40320
+
+stake = fn address, block ->
+  for x <- 0..3 do
+    {v1, _gas} =
+      Shell.call(Diode.registry_address(), "MinerValue", ["uint8", "address"], [x, address], blockRef: block)
+    :binary.decode_unsigned(v1)
+  end
+end
+
+w = Diode.miner()
+
+find_stake = fn x, y ->
+  stake.(w, x)
+end
+
+
+balance = fn address, block ->
+  BlockProcess.with_state(block, fn state ->
+    Chain.State.ensure_account(state, address)
+    |> Chain.Account.balance()
+  end)
+end
+
+peak = Chain.peak # 7587652
+for x <- 6757..7587 do
+  b = balance.(Diode.miner(), x*1000)
+  if b > 0 do
+    IO.puts("#{x} = #{b}")
+  end
+end
+
 # 22nd May 2024
 
 

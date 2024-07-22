@@ -728,6 +728,7 @@ defmodule Network.Rpc do
       value =
         case {key, value} do
           {_key, nil} -> nil
+          {_key, list} when is_list(list) -> nil
           {"to", _value} -> Base16.decode(value)
           {"from", _value} -> Base16.decode(value)
           {"data", _value} -> Base16.decode(value)
