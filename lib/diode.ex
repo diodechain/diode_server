@@ -91,7 +91,6 @@ defmodule Diode do
           # Starting External Interfaces
           Network.Server.child(peer_port(), Network.PeerHandler),
           worker(Kademlia, [args]),
-          {DynamicSupervisor, name: Diode.DynamicSupervisor, strategy: :one_for_one},
           worker(Stages)
         ]
 
@@ -114,7 +113,7 @@ defmodule Diode do
   end
 
   defp start_child!(what) do
-    case DynamicSupervisor.start_child(Diode.DynamicSupervisor, what) do
+    case Supervisor.start_child(Diode.Supervisor, what) do
       {:ok, _} -> :ok
       {:error, {:already_started, _}} -> :ok
     end
@@ -124,7 +123,7 @@ defmodule Diode do
     Plug.Cowboy.shutdown(Network.RpcHttp.HTTP)
 
     if NodeAgent.available?() do
-      DynamicSupervisor.terminate_child(Diode.DynamicSupervisor, Process.whereis(NodeAgent))
+      Supervisor.terminate_child(Diode.Supervisor, NodeAgent)
     end
   end
 

@@ -50,10 +50,22 @@ defmodule Chain.Worker do
   end
 
   def init(mode) do
+    OnCrash.call(fn reason ->
+      if reason not in [:normal, :shutdown] do
+        Logger.error("Worker crashed.. flushing tx pool...")
+        Chain.Pool.flush()
+      end
+    end)
+
     state = %Chain.Worker{creds: Diode.miner(), mode: mode}
     :erlang.process_flag(:priority, :low)
     {:ok, _ref} = :timer.send_interval(100, :sleep)
-    {:ok, activate_timer(state)}
+
+    if mode not in [:poll, :disabled] do
+      :timer.send_after(5_000, :work)
+    end
+
+    {:ok, state}
   end
 
   def hashrate() do
