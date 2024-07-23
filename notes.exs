@@ -1,4 +1,32 @@
-# 19th Jul 2025
+# 23rd Jul 2024
+
+registry = Hash.to_address(0x5000000000000000000000000000000000000000)
+eu1 = Hash.to_address(0x937c492a77ae90de971986d003ffbc5f8bb2232c)
+
+block = Chain.peak()
+accs = BlockProcess.with_state(block, fn state -> Chain.State.accounts(state) end) |> Enum.sort()
+
+fp = File.open!("accounts.csv", [:write])
+for {key, acc} <- accs do
+  balance = Chain.Account.balance(acc)
+  {m_staked, m_unstaked} = Contract.Registry.miner_value_slot(key, block)
+  {c_staked, c_unstaked} = Contract.Registry.contract_value_slot(key, block)
+  if balance > 0 or m_staked > 0 or m_unstaked > 0 or c_staked > 0 or c_unstaked > 0 do
+    IO.puts("#{Base16.encode(key)} #{balance} #{m_staked} #{m_unstaked} #{c_staked} #{c_unstaked}")
+    IO.puts(fp, "#{Base16.encode(key)} #{balance} #{m_staked} #{m_unstaked} #{c_staked} #{c_unstaked}")
+  end
+end
+File.close(fp)
+
+# 22nd Jul 2024
+
+Network.Rpc.handle_jsonrpc(%{"id" => 0, "method" => "eth_getTransactionByHash", "params" => ["0xc453a09ce1943f769341fe9dbcd3cb012d549753f812e6f8da47ab3a286a96ce"]})
+
+
+RemoteChain.RPC.get_transaction_by_hash(Chains.Diode, "0xc453a09ce1943f769341fe9dbcd3cb012d549753f812e6f8da47ab3a286a96ce")
+
+
+# 19th Jul 2024
 # eu1
 
 6808835 Unstake

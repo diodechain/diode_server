@@ -7,6 +7,71 @@ defmodule Contract.Registry do
     as needed by the inner workings of the chain
   """
 
+  def miner_value_slot(key, blockRef) do
+    BlockProcess.with_account(blockRef, Diode.registry_address(), fn account ->
+      staked_a =
+        account
+        |> Chain.Account.storage_value(hash_slot_binary(5, key))
+        |> :binary.decode_unsigned()
+
+      staked_b =
+        account
+        |> Chain.Account.storage_value(hash_slot_binary(5, key) |> badd(2))
+        |> :binary.decode_unsigned()
+
+      unstaked_a =
+        account
+        |> Chain.Account.storage_value(hash_slot_binary(5, key) |> badd(3))
+        |> :binary.decode_unsigned()
+
+      unstaked_b =
+        account
+        |> Chain.Account.storage_value(hash_slot_binary(5, key) |> badd(5))
+        |> :binary.decode_unsigned()
+
+      {staked_a + staked_b, unstaked_a + unstaked_b}
+    end)
+  end
+
+  def contract_value_slot(key, blockRef) do
+    BlockProcess.with_account(blockRef, Diode.registry_address(), fn account ->
+      staked_a =
+        account
+        |> Chain.Account.storage_value(hash_slot_binary(6, key))
+        |> :binary.decode_unsigned()
+
+      staked_b =
+        account
+        |> Chain.Account.storage_value(hash_slot_binary(6, key) |> badd(2))
+        |> :binary.decode_unsigned()
+
+      unstaked_a =
+        account
+        |> Chain.Account.storage_value(hash_slot_binary(6, key) |> badd(3))
+        |> :binary.decode_unsigned()
+
+      unstaked_b =
+        account
+        |> Chain.Account.storage_value(hash_slot_binary(6, key) |> badd(5))
+        |> :binary.decode_unsigned()
+
+      {staked_a + staked_b, unstaked_a + unstaked_b}
+    end)
+  end
+
+  def hash_slot_binary(hash_slot, key) do
+    key = Hash.to_bytes32(key)
+    base = Hash.to_bytes32(hash_slot)
+    Hash.keccak_256(key <> base)
+  end
+
+  defp badd(binary, integer) do
+    binary
+    |> :binary.decode_unsigned()
+    |> Kernel.+(integer)
+    |> :binary.encode_unsigned()
+  end
+
   @spec miner_value(0 | 1 | 2 | 3, <<_::160>> | Wallet.t(), any()) :: non_neg_integer
   def miner_value(type, address, blockRef) when type >= 0 and type <= 3 do
     call("MinerValue", ["uint8", "address"], [type, address], blockRef)
