@@ -52,8 +52,9 @@ defmodule Chain.Worker do
   def init(mode) do
     OnCrash.call(fn reason ->
       if reason not in [:normal, :shutdown] do
-        Logger.error("Worker crashed.. flushing tx pool...")
-        Chain.Pool.flush()
+        pool = Chain.Pool.flush()
+        File.write("crash.tx", :erlang.term_to_binary(pool))
+        Logger.error("Worker crashed.. flushed tx pool to file 'crash.tx': #{inspect(pool)}")
       end
     end)
 
