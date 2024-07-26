@@ -9,7 +9,8 @@ defmodule ChainDefinition do
     :min_diversity,
     :min_transaction_fee,
     :get_block_hash_limit,
-    :allow_contract_override
+    :allow_contract_override,
+    :double_spend_delegatecall
   ]
   defstruct @enforce_keys
 
@@ -20,7 +21,8 @@ defmodule ChainDefinition do
           get_block_hash_limit: non_neg_integer(),
           min_diversity: non_neg_integer(),
           min_transaction_fee: boolean(),
-          allow_contract_override: boolean()
+          allow_contract_override: boolean(),
+          double_spend_delegatecall: boolean()
         }
 
   @spec get_block_hash_limit(non_neg_integer) :: non_neg_integer()
@@ -46,6 +48,11 @@ defmodule ChainDefinition do
   @spec allow_contract_override(non_neg_integer) :: boolean()
   def allow_contract_override(blockheight) do
     chain_definition(blockheight).allow_contract_override
+  end
+
+  @spec double_spend_delegatecall(non_neg_integer) :: boolean()
+  def double_spend_delegatecall(blockheight) do
+    chain_definition(blockheight).double_spend_delegatecall
   end
 
   @spec chain_id(non_neg_integer) :: non_neg_integer()

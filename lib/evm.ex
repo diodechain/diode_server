@@ -87,14 +87,23 @@ defmodule Evm do
           do_create(to_address, value, call_data, gas, task)
 
         :evmc_callcode ->
-          do_call_contract(address(task), target, gas, value, call_data, address(task), task)
+          do_call_contract(
+            address(task),
+            target,
+            gas,
+            value,
+            call_data,
+            address(task),
+            task,
+            kind
+          )
 
         :evmc_delegatecall ->
           sender = <<task.from::unsigned-size(160)>>
-          do_call_contract(address(task), target, gas, value, call_data, sender, task)
+          do_call_contract(address(task), target, gas, value, call_data, sender, task, kind)
 
         :evmc_call ->
-          do_call_contract(target, target, gas, value, call_data, address(task), task)
+          do_call_contract(target, target, gas, value, call_data, address(task), task, kind)
       end
     end
 
@@ -105,7 +114,8 @@ defmodule Evm do
            value,
            call_data,
            from,
-           %Task{chain_state: state} = task
+           %Task{chain_state: state, number: number} = task,
+           kind
          ) do
       code = State.ensure_account(state, code).code
 
@@ -118,7 +128,8 @@ defmodule Evm do
       }
 
       state =
-        if value == 0 or from == tx.to do
+        if value == 0 or from == tx.to or
+             (kind == :evmc_delegatecall and not ChainDefinition.double_spend_delegatecall(number)) do
           state
         else
           from_acc = State.account(state, from)

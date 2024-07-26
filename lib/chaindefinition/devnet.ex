@@ -12,7 +12,8 @@ defmodule ChainDefinition.Devnet do
       get_block_hash_limit: 131_072,
       min_diversity: 0,
       min_transaction_fee: true,
-      allow_contract_override: false
+      allow_contract_override: false,
+      double_spend_delegatecall: false
     }
   end
 

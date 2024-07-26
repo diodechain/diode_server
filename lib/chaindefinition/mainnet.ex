@@ -16,8 +16,25 @@ defmodule ChainDefinition.Mainnet do
   # Planned 15.07.2024
   @ulysses 7_573_047
   @ulysses_t1 @ulysses - 1
+  # Planned 26.07.2024
+  @ulysses2 7_650_000
+  # @ulysses2_t1 @ulysses2 - 1
 
   @spec network(any) :: ChainDefinition.t()
+  def network(blockheight) when blockheight >= @ulysses2 do
+    %ChainDefinition{
+      check_window: true,
+      get_block_hash_limit: 131_072,
+      min_diversity: 1,
+      block_reward_position: :last,
+      chain_id: 15,
+      min_transaction_fee: true,
+      allow_contract_override: false,
+      # changed:
+      double_spend_delegatecall: false
+    }
+  end
+
   def network(blockheight) when blockheight >= @new_horizons do
     %ChainDefinition{
       check_window: true,
@@ -26,6 +43,7 @@ defmodule ChainDefinition.Mainnet do
       block_reward_position: :last,
       chain_id: 15,
       min_transaction_fee: true,
+      double_spend_delegatecall: true,
       # changed:
       allow_contract_override: false
     }
@@ -37,6 +55,7 @@ defmodule ChainDefinition.Mainnet do
       get_block_hash_limit: 131_072,
       min_diversity: 1,
       allow_contract_override: true,
+      double_spend_delegatecall: true,
       # changed:
       block_reward_position: :last,
       chain_id: 15,
@@ -52,6 +71,7 @@ defmodule ChainDefinition.Mainnet do
       min_diversity: 1,
       min_transaction_fee: false,
       allow_contract_override: true,
+      double_spend_delegatecall: true,
       # changed:
       get_block_hash_limit: 131_072
     }
@@ -65,6 +85,7 @@ defmodule ChainDefinition.Mainnet do
       get_block_hash_limit: 256,
       min_transaction_fee: false,
       allow_contract_override: true,
+      double_spend_delegatecall: true,
       # changed:
       min_diversity: 1
     }
@@ -78,7 +99,8 @@ defmodule ChainDefinition.Mainnet do
       check_window: true,
       chain_id: 41043,
       min_diversity: 0,
-      allow_contract_override: true
+      allow_contract_override: true,
+      double_spend_delegatecall: true
     }
   end
 

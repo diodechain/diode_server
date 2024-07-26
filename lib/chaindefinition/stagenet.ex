@@ -10,17 +10,20 @@ defmodule ChainDefinition.Stagenet do
   @new_horizons 20
   @ulysses 30
   @ulysses_t1 @ulysses - 1
+  @ulysses2 40
 
   @spec network(any) :: ChainDefinition.t()
-  def network(blockheight) when blockheight < @voyager do
+  def network(blockheight) when blockheight >= @ulysses2 do
     %ChainDefinition{
-      block_reward_position: :first,
-      chain_id: 41042,
-      check_window: false,
-      get_block_hash_limit: 131_072,
-      min_diversity: 0,
-      min_transaction_fee: false,
-      allow_contract_override: true
+      network(@ulysses2 - 1)
+      | double_spend_delegatecall: false
+    }
+  end
+
+  def network(blockheight) when blockheight >= @new_horizons do
+    %ChainDefinition{
+      network(@new_horizons - 1)
+      | allow_contract_override: false
     }
   end
 
@@ -33,10 +36,16 @@ defmodule ChainDefinition.Stagenet do
     }
   end
 
-  def network(blockheight) when blockheight >= @new_horizons do
+  def network(blockheight) when blockheight < @voyager do
     %ChainDefinition{
-      network(@new_horizons - 1)
-      | allow_contract_override: false
+      block_reward_position: :first,
+      chain_id: 41042,
+      check_window: false,
+      get_block_hash_limit: 131_072,
+      min_diversity: 0,
+      min_transaction_fee: false,
+      allow_contract_override: true,
+      double_spend_delegatecall: true
     }
   end
 
