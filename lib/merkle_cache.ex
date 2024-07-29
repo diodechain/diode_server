@@ -12,7 +12,7 @@ defmodule MerkleCache do
   end
 
   def merkle(tree = {MapMerkleTree, _opts, dict}) do
-    if map_size(dict) > 1000 do
+    if not disabled() and map_size(dict) > 1000 do
       call({:merkle, dict})
     else
       MerkleTree.copy(tree, MerkleTree2)
@@ -24,7 +24,7 @@ defmodule MerkleCache do
   end
 
   def root_hash(tree = {MapMerkleTree, _opts, dict}) do
-    if map_size(dict) > 1000 do
+    if not disabled() and map_size(dict) > 1000 do
       call({:root_hash, dict})
     else
       merkle(tree) |> MerkleTree.root_hash()
@@ -36,7 +36,7 @@ defmodule MerkleCache do
   end
 
   def difference(tree1 = {MapMerkleTree, _opts, map1}, tree2 = {MapMerkleTree, _opts2, map2}) do
-    if MerkleTree.size(tree1) > 1000 do
+    if not disabled() and MerkleTree.size(tree1) > 1000 do
       call({:difference, map1, map2})
     else
       MerkleTree.difference(tree1, tree2)
@@ -44,7 +44,7 @@ defmodule MerkleCache do
   end
 
   def difference(tree1 = {MapMerkleTree, _opts, map1}, tree2) do
-    if MerkleTree.size(tree1) > 1000 do
+    if not disabled() and MerkleTree.size(tree1) > 1000 do
       map2 = MerkleTree.to_list(tree2) |> Map.new()
       call({:difference, map1, map2})
     else
@@ -159,6 +159,10 @@ defmodule MerkleCache do
 
     # IO.puts("MerkleCache.do_diff: #{div(time, 1000)}ms = #{key} / #{map_size(diff)}")
     {diff, state}
+  end
+
+  defp disabled() do
+    :persistent_term.get({__MODULE__, :disabled}, false)
   end
 
   defp call(cmd) do

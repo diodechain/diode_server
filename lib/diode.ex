@@ -84,7 +84,7 @@ defmodule Diode do
     ]
 
     children =
-      if Mix.env() == :benchmark do
+      if Mix.env() == :benchmark or get_env("OFFLINE") do
         base_children
       else
         network_children = [

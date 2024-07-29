@@ -1,4 +1,55 @@
-# 25rd Jul 2024
+# 29th Jul 2024
+
+prev_state = BlockProcess.with_state(7506000, fn prev_state -> prev_state end)
+b = File.read!("block_false_7506001") |> :erlang.binary_to_term()
+g = File.read!("block_true_7506001") |> :erlang.binary_to_term()
+good_hash = Chain.Block.state_hash(g)
+
+test = fn block ->
+  new_state = Chain.Block.simulate(block) |> Chain.Block.state()
+  delta = Chain.State.difference(prev_state, new_state)
+  new_state2 = Chain.State.apply_difference(prev_state, delta)
+    |> Chain.State.normalize()
+    |> Chain.State.compact()
+    |> BertInt.encode!()
+    |> BertInt.decode!()
+
+  MerkleTree.root_hash(Chain.State.tree(new_state2)) == good_hash
+end
+
+
+
+b_state = Chain.Block.state(b)
+g_state = Chain.Block.state(g)
+
+
+BlockProcess.with_state(Chain.Block.number(file) - 1, fn prev_state ->
+  state = Chain.Block.state(file)
+  IO.inspect({state, prev_state})
+  diff = Chain.State.difference(prev_state, state)
+  IO.inspect(diff)
+  ret = Chain.State.apply_difference(prev_state, diff)
+  IO.inspect(ret)
+end)
+
+check = fn state ->
+  state2 = %{state | hash: nil, accounts: Enum.map(state.accounts, fn {key, acc} -> {key, %{acc | root_hash: nil}} end) |> Map.new()} |> Map.delete(:store)
+  {MerkleTree.root_hash(Chain.State.tree(state)), Chain.State.hash(state2)}
+end
+
+# 26th Jul 2024
+
+Setting 7506000 (0x00004263f49ab73418a8e6f282a116c6f733b324ed0ac6f6fd0c0d3aa215b02b)
+
+BlockProcess.with_block(7505999, fn block -> {Chain.Block.state_hash(block), block.header.state_hash, MerkleTree.root_hash(Chain.State.tree(Chain.Block.state(block)))} end)
+BlockProcess.with_block(7506000, fn block ->
+  state = Chain.Block.state(block)
+  state2 = %{state | hash: nil, accounts: Enum.map(state.accounts, fn {key, acc} -> {key, %{acc | root_hash: nil}} end) |> Map.new()} |> Map.delete(:store)
+  {block.header.state_hash, MerkleTree.root_hash(Chain.State.tree(state)), Chain.State.hash(state2)}
+end)
+
+
+# 25th Jul 2024
 
 crash_tx = Base16.decode("0x836c00000001740000000a64000a5f5f7374727563745f5f640018456c697869722e436861696e2e5472616e73616374696f6e640008636861696e5f6964610f640004646174616d000000449854175f000000000000000000000000870a2d53b5bff90e35099b04509627b7741b446a00000000000000000000000000000000000000000000000000000000000005046400086761734c696d69746201312d0064000867617350726963656100640004696e69746400036e696c6400056e6f6e636561166400097369676e61747572656d00000041006ae1a25d22adad034618ba162f17d05a60ef92c2df2d1fbc9192a6ea2797bd761617100a9c969ea9c863b4ea8c16769f36e0e0c214d418c0fdca005262bdcbea640002746f6d000000142c303a315a1ee4c377e28121baf30146e229731b64000576616c75656e0900000090ac6e327886876a") |> :erlang.binary_to_term |> hd
 Chain.Worker.build_block("latest", [crash_tx], Diode.miner())

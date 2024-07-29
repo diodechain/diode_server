@@ -48,6 +48,23 @@ defmodule MerkleTree do
     end)
   end
 
+  def difference2(a, b) do
+    a = to_list(a) |> Map.new()
+    b = to_list(b) |> Map.new()
+    keys = MapSet.union(MapSet.new(Map.keys(a)), MapSet.new(Map.keys(b)))
+
+    Enum.reduce(keys, %{}, fn key, set ->
+      a_value = Map.get(a, key)
+      b_value = Map.get(b, key)
+
+      if a_value != b_value do
+        Map.put(set, key, {a_value, b_value})
+      else
+        set
+      end
+    end)
+  end
+
   @spec insert(merkle(), key_type(), value_type()) :: merkle()
   def insert(merkle, key, value) do
     insert_items(merkle, [{key, value}])

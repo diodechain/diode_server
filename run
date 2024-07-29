@@ -5,7 +5,7 @@
 ulimit -n 120000
 export ERL_CRASH_DUMP_BYTES=5000000000
 export ERL_EPMD_ADDRESS=127.0.0.1
-export MIX_ENV=prod
+export MIX_ENV=${MIX_ENV:-prod}
 mix deps.get
 export ELIXIR_ERL_OPTIONS='+sbwt none -noinput -noshell -sname diode +A 8'
 mix git_version

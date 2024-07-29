@@ -110,6 +110,17 @@ defmodule Chain.Block do
     end
   end
 
+  def state_consistent?(block) do
+    block = ensure_state(block)
+    consistent = state_hash(block) == MerkleTree.root_hash(Chain.State.tree(state(block)))
+
+    # if number(block) in [7_506_000, 7_506_001, 7_506_002, 7_506_003] do
+    #   File.write!("block_#{inspect(consistent)}_#{number(block)}", :erlang.term_to_binary(block))
+    # end
+
+    consistent
+  end
+
   @spec validate(Chain.Block.t(), boolean()) :: Chain.Block.ref() | {non_neg_integer(), any()}
   # def validate(block, fast \\ false)
   def validate(%Block{} = block, false) do
@@ -139,8 +150,9 @@ defmodule Chain.Block do
              Diode.hash(encode_transactions(transactions(block))) == txhash(block)
            end),
          {_, sim_block} <- test_tc(:simulate, fn -> simulate(block) end),
-         {_, true} <- test_tc(:registry_tx, fn -> has_registry_tx?(sim_block) end),
-         {_, true} <- test_tc(:state_equal, fn -> state_equal(sim_block, block) end) do
+         {_, true} <- test_tc(:state_consistent, fn -> state_consistent?(sim_block) end),
+         {_, true} <- test_tc(:state_equal, fn -> state_equal(sim_block, block) end),
+         {_, true} <- test_tc(:registry_tx, fn -> has_registry_tx?(sim_block) end) do
       # {:reply, self(),
       #  %{sim_block | header: %{block.header | state_hash: sim_block.header.state_hash}}}
       block = %{sim_block | header: %{block.header | state_hash: sim_block.header.state_hash}}
@@ -397,6 +409,23 @@ defmodule Chain.Block do
 
   @spec simulate(Chain.Block.t()) :: Chain.Block.t()
   def simulate(%Block{} = block, fast_validation? \\ false) do
+    new_block = do_simulate(block, fast_validation?)
+
+    cond do
+      not state_consistent?(new_block) ->
+        Logger.error("State not consistent after simulation")
+        simulate(block, false)
+
+      not state_equal(new_block, block) ->
+        Logger.error("State not the same after simulation")
+        simulate(block, false)
+
+      true ->
+        new_block
+    end
+  end
+
+  defp do_simulate(%Block{} = block, fast_validation?) do
     parent_ref =
       if Block.number(block) >= 1 do
         Block.parent_hash(block)
@@ -619,8 +648,10 @@ defmodule Chain.Block do
         other -> binary_part(other, 0, 5) |> Base16.encode(false)
       end
 
+    state = Block.state_hash(block) |> Base16.encode(false)
+
     len = length(transactions(block))
-    "##{Block.number(block)}[#{prefix}](#{len} TX) @#{author}"
+    "##{Block.number(block)}[#{prefix}](#{len} TX) #{state} @#{author}"
   end
 
   def blockquick_window(%Block{header: %Header{number: num}}) when num <= 100 do

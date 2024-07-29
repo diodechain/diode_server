@@ -44,6 +44,7 @@ defmodule Chain do
   @spec on_crash(any()) :: no_return()
   def on_crash(reason) do
     Logger.error("Chain exited with reason #{inspect(reason)}. Halting system")
+    Process.sleep(5000)
     System.halt(1)
   end
 
@@ -239,7 +240,62 @@ defmodule Chain do
       _block ->
         ets_prefetch()
         block = ChainSql.peak_block()
+
+        block =
+          if not Chain.Block.state_consistent?(block) do
+            {stored_hash, computed_hash} =
+              {block.header.state_hash,
+               MerkleTree.root_hash(Chain.State.tree(Chain.Block.state(block)))}
+
+            Logger.error(
+              "Peak block #{Block.number(block)} state hash mismatch: #{Base16.encode(stored_hash)} != #{Base16.encode(computed_hash)}"
+            )
+
+            good = find_last_good_block(Block.number(block))
+            block = ChainSql.block(good)
+
+            Logger.info(
+              "Setting #{good} (#{Base16.encode(Block.hash(block))}) as last consistent block"
+            )
+
+            ChainSql.put_peak(Block.hash(block))
+            ets_prefetch()
+            block
+          else
+            block
+          end
+
         %Chain{peak_hash: Block.hash(block), peak_num: Block.number(block), by_hash: nil}
+    end
+  end
+
+  defp find_last_good_block(number, step \\ 1) do
+    step = min(step, 10000)
+    number = number - step
+
+    if Block.state_consistent?(ChainSql.block(number)) do
+      Logger.info("Previous block #{number} is consistent, searching for last good block...")
+      find_last_good_block(number, number + step, number + div(step, 2))
+    else
+      Logger.info("Previous block #{number} is inconsistent")
+      find_last_good_block(number, step * 10)
+    end
+  end
+
+  defp find_last_good_block(good, bad, test) do
+    if Block.state_consistent?(ChainSql.block(test)) do
+      Logger.info("Blocks <=#{test} are consistent")
+      good = test
+
+      if good + 1 == bad do
+        good
+      else
+        find_last_good_block(good, bad, div(good + bad, 2))
+      end
+    else
+      Logger.info("Blocks >=#{test} are inconsistent")
+      bad = test
+      find_last_good_block(good, bad, div(good + bad, 2))
     end
   end
 
@@ -400,18 +456,21 @@ defmodule Chain do
 
   defp do_import_blocks(blocks, validate_fast?) do
     # replay block backup list
-    lastblock =
-      Enum.reduce_while(blocks, :ok, fn nextblock, _status ->
+    {lastblock, _count} =
+      Enum.reduce_while(blocks, {:ok, 0}, fn nextblock, {_status, count} ->
         block_hash = Block.hash(nextblock)
 
         if block_by_hash?(block_hash) do
-          {:cont, block_hash}
+          {:cont, {block_hash, count + 1}}
         else
+          validate_fast? =
+            validate_fast? and count > 100 and rem(Block.number(nextblock), 100) != 0
+
           Stats.tc(:vldt, fn -> Block.validate(nextblock, validate_fast?) end)
           |> case do
             <<block_hash::binary-size(32)>> ->
               add_block(block_hash, false, false)
-              {:cont, block_hash}
+              {:cont, {block_hash, count + 1}}
 
             nonblock ->
               :io.format("Chain.import_blocks(2): Failed with ~p on: ~p~n", [
@@ -419,7 +478,7 @@ defmodule Chain do
                 Block.printable(nextblock)
               ])
 
-              {:halt, nonblock}
+              {:halt, {nonblock, count}}
           end
         end
       end)
@@ -520,7 +579,6 @@ defmodule Chain do
   # ETS CACHE FUNCTIONS
   #######################
   defp ets_prefetch() do
-    :persistent_term.put(:placeholder_complete, false)
     _clear()
 
     Diode.start_subwork("clearing alt blocks", fn ->
@@ -549,8 +607,6 @@ defmodule Chain do
               {:cont, hash}
             end
         end)
-
-      :persistent_term.put(:placeholder_complete, true)
     end)
   end
 
@@ -579,10 +635,6 @@ defmodule Chain do
 
   defp ets_add_placeholder(hash, number) do
     _insert2(hash, number)
-  end
-
-  def placeholder_complete() do
-    :persistent_term.get(:placeholder_complete, false)
   end
 
   defp ets_lookup_hash(number) when is_integer(number) do
