@@ -445,6 +445,7 @@ defmodule Network.PeerHandler do
           Process.register(self(), :active_sync_job)
           count = Model.SyncSql.count(state.blocks)
           validate_fast? = count > 100
+          log(state, "Importing #{count} blocks fastmode=#{validate_fast?}")
 
           ret =
             Stream.concat([block], Model.SyncSql.resolve(state.blocks))

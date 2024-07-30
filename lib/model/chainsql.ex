@@ -554,8 +554,8 @@ defmodule Model.ChainSql do
   end
 
   def clear_alt_blocks() do
-    # Sql.query!(__MODULE__, "DELETE FROM blocks WHERE number IS NULL", call_timeout: @infinity)
-    # Sql.query!(__MODULE__, "PRAGMA OPTIMIZE", call_timeout: @infinity)
+    Sql.query!(__MODULE__, "DELETE FROM blocks WHERE number IS NULL", call_timeout: @infinity)
+    Sql.query!(__MODULE__, "PRAGMA OPTIMIZE", call_timeout: @infinity)
     :ok
   end
 

@@ -259,6 +259,9 @@ defmodule Chain do
             )
 
             ChainSql.put_peak(Block.hash(block))
+            # Need to clear alt blocks (number is null) so they are not reloaded
+            # again during re-sync and cause an inconsistency loop
+            ChainSql.clear_alt_blocks()
             ets_prefetch()
             block
           else
@@ -464,7 +467,7 @@ defmodule Chain do
           {:cont, {block_hash, count + 1}}
         else
           validate_fast? =
-            validate_fast? and count > 100 and rem(Block.number(nextblock), 100) != 0
+            validate_fast? and count > 10 and rem(Block.number(nextblock), 100) != 0
 
           Stats.tc(:vldt, fn -> Block.validate(nextblock, validate_fast?) end)
           |> case do
@@ -581,10 +584,10 @@ defmodule Chain do
   defp ets_prefetch() do
     _clear()
 
-    Diode.start_subwork("clearing alt blocks", fn ->
-      ChainSql.clear_alt_blocks()
-      # for block <- ChainSql.alt_blocks(), do: ets_add_alt(block)
-    end)
+    # Diode.start_subwork("clearing alt blocks", fn ->
+    # ChainSql.clear_alt_blocks()
+    # for block <- ChainSql.alt_blocks(), do: ets_add_alt(block)
+    # end)
 
     Diode.start_subwork("preloading hashes", fn ->
       _ =
