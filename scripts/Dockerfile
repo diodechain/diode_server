@@ -13,7 +13,7 @@ COPY mix.* /app/
 
 WORKDIR /app/
 
-RUN mix local.hex --force && mix local.rebar && mix deps.get && mix deps.compile
+RUN mix local.hex --force && mix local.rebar && mix deps.get && make -C deps/libsecp256k1/ && mix deps.compile
 
 COPY . /app/
 
