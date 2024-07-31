@@ -168,7 +168,6 @@ defmodule Chain.State do
 
       {id, report}
     end)
-    |> Enum.filter(fn {_, report} -> map_size(report) > 0 end)
   end
 
   def apply_difference(%Chain.State{} = state, difference) do
