@@ -1,3 +1,42 @@
+# 1st Aug 2024
+
+block = 7505676
+Model.ChainSql.block(7505677) |> Chain.Block.state_consistent?()
+
+b = Model.ChainSql.block(7505677)
+Chain.Block.state_consistent?(b)
+
+b2 = Chain.Block.validate(b, false)
+
+Chain.Block.state_equal(b, b2)
+Chain.Block.hash(b) == Chain.Block.hash(b2)
+Chain.Block.state_consistent?(b2)
+
+Model.ChainSql.put_block(b2)
+Model.ChainSql.block(7505677) |> Chain.Block.state_consistent?()
+
+b3 = Chain.Block.ensure_state(b)
+Chain.Block.state_consistent?(b3)
+
+prev_state = fn block ->
+  nr = Chain.Block.number(block)
+
+  case rem(nr, 500) do
+    0 -> nr - (500 - 1)
+    x -> nr - x + 1
+  end
+  |> BlockProcess.fetch([:state]) |> hd()
+end
+
+test = fn block ->
+  new_state = Chain.Block.simulate(block) |> Chain.Block.state()
+  prev = prev_state.(block)
+  delta = Chain.State.difference(prev, new_state)
+  new_state2 = Chain.State.apply_difference(prev, delta)
+
+  MerkleTree.root_hash(Chain.State.tree(new_state2)) == MerkleTree.root_hash(Chain.State.tree(new_state))
+end
+
 # 29th Jul 2024
 
 prev_state = BlockProcess.with_state(7506000, fn prev_state -> prev_state end)
@@ -16,8 +55,6 @@ test = fn block ->
 
   MerkleTree.root_hash(Chain.State.tree(new_state2)) == good_hash
 end
-
-
 
 b_state = Chain.Block.state(b)
 g_state = Chain.Block.state(g)

@@ -251,7 +251,7 @@ defmodule Chain do
               "Peak block #{Block.number(block)} state hash mismatch: #{Base16.encode(stored_hash)} != #{Base16.encode(computed_hash)}"
             )
 
-            good = find_last_good_block(Block.number(block))
+            good = find_last_good_block(Block.number(block)) - 100
             block = ChainSql.block(good)
 
             Logger.info(
@@ -471,7 +471,8 @@ defmodule Chain do
 
           Stats.tc(:vldt, fn -> Block.validate(nextblock, validate_fast?) end)
           |> case do
-            <<block_hash::binary-size(32)>> ->
+            %Chain.Block{} = block ->
+              <<block_hash::binary-size(32)>> = Block.hash(block)
               add_block(block_hash, false, false)
               {:cont, {block_hash, count + 1}}
 

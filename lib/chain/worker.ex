@@ -271,7 +271,9 @@ defmodule Chain.Worker do
 
     if hash < target do
       case Block.validate(block, false) do
-        <<block_hash::binary-size(32)>> ->
+        %Chain.Block{} = block ->
+          <<block_hash::binary-size(32)>> = Block.hash(block)
+
           case Chain.add_block(block_hash) do
             :added ->
               do_update(state)

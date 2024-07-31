@@ -134,7 +134,6 @@ defmodule Chain.Block do
   end
 
   @spec validate(Chain.Block.t(), boolean()) :: Chain.Block.ref() | {non_neg_integer(), any()}
-  # def validate(block, fast \\ false)
   def validate(%Block{} = block, false) do
     # IO.puts("Block #{number(block)}.: #{length(transactions(block))}txs")
     tc(:cache, fn -> BlockCache.cache(block) end)
@@ -171,6 +170,7 @@ defmodule Chain.Block do
       tc(:put_new_block, fn -> ChainSql.put_new_block(block) end)
       tc(:ets_add_alt, fn -> Chain.ets_add_alt(block) end)
       tc(:start_block, fn -> BlockProcess.start_block(block) end)
+      block
     else
       {nr, error} -> {nr, error}
     end
@@ -211,6 +211,7 @@ defmodule Chain.Block do
       tc(:put_new_block, fn -> ChainSql.put_new_block(block) end)
       tc(:ets_add_alt, fn -> Chain.ets_add_alt(block) end)
       tc(:start_block, fn -> BlockProcess.start_block(block) end)
+      block
     else
       {nr, error} -> {nr, error}
     end

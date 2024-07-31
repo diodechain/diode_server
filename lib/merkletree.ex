@@ -32,23 +32,6 @@ defmodule MerkleTree do
   end
 
   def difference(a, b) do
-    a_map = MapSet.new(to_list(a))
-    b_map = MapSet.new(to_list(b))
-    a_diff = MapSet.difference(a_map, b_map) |> MapSet.to_list()
-    b_diff = MapSet.difference(b_map, a_map) |> MapSet.to_list()
-
-    a_diffmap =
-      Enum.map(a_diff, fn {key, value} ->
-        {key, {value, nil}}
-      end)
-      |> Map.new()
-
-    Enum.reduce(b_diff, a_diffmap, fn {key, value}, set ->
-      Map.update(set, key, {nil, value}, fn {other, nil} -> {other, value} end)
-    end)
-  end
-
-  def difference2(a, b) do
     a = to_list(a) |> Map.new()
     b = to_list(b) |> Map.new()
     keys = MapSet.union(MapSet.new(Map.keys(a)), MapSet.new(Map.keys(b)))
