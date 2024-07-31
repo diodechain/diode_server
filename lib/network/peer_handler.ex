@@ -379,6 +379,7 @@ defmodule Network.PeerHandler do
     case blocks do
       nil ->
         parent = Model.SyncSql.search_parent(block)
+        Stages.probable_peak(Block.number(block))
         {0, %{peak: block, oldest: parent}}
 
       %{peak: peak, oldest: oldest} ->
