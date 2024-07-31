@@ -1,7 +1,7 @@
 # 1st Aug 2024
 
 block = 7505676
-Model.ChainSql.block(7505677) |> Chain.Block.state_consistent?()
+Model.ChainSql.block(7505677) |> Chain.Block.maybe_repair_block()
 
 b = Model.ChainSql.block(7505677)
 Chain.Block.state_consistent?(b)

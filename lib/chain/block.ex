@@ -54,6 +54,24 @@ defmodule Chain.Block do
     end)
   end
 
+  def maybe_repair_block(%Block{} = b) do
+    if not state_consistent?(b) do
+      Logger.error("Block #{Block.number(b)} is not consistent. Trying to fix...")
+
+      with %Block{} = b2 <- Chain.Block.validate(b, false),
+           true <- Chain.Block.state_equal(b, b2),
+           true <- Chain.Block.hash(b) == Chain.Block.hash(b2),
+           true <- Chain.Block.state_consistent?(b2) do
+        ChainSql.put_block(b2)
+        true
+      else
+        _ -> false
+      end
+    else
+      true
+    end
+  end
+
   def account_tree(%Block{} = block, account_id) do
     BlockProcess.maybe_cache(hash(block), {:account_tree, account_id}, fn ->
       state(block)

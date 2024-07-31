@@ -242,7 +242,7 @@ defmodule Chain do
         block = ChainSql.peak_block()
 
         block =
-          if not Chain.Block.state_consistent?(block) do
+          if not Chain.Block.maybe_repair_block(block) do
             {stored_hash, computed_hash} =
               {block.header.state_hash,
                MerkleTree.root_hash(Chain.State.tree(Chain.Block.state(block)))}
@@ -251,7 +251,7 @@ defmodule Chain do
               "Peak block #{Block.number(block)} state hash mismatch: #{Base16.encode(stored_hash)} != #{Base16.encode(computed_hash)}"
             )
 
-            good = find_last_good_block(Block.number(block)) - 100
+            good = find_last_good_block(Block.number(block))
             block = ChainSql.block(good)
 
             Logger.info(
@@ -276,7 +276,9 @@ defmodule Chain do
     step = min(step, 10000)
     number = number - step
 
-    if Block.state_consistent?(ChainSql.block(number)) do
+    block = ChainSql.block(number)
+
+    if Chain.Block.maybe_repair_block(block) do
       Logger.info("Previous block #{number} is consistent, searching for last good block...")
       find_last_good_block(number, number + step, number + div(step, 2))
     else
