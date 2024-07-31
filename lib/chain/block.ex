@@ -271,8 +271,21 @@ defmodule Chain.Block do
       Transaction.data(tx) == ABI.encode_call("blockReward", ["uint256", "uint256"], [used, fees])
   end
 
-  defp state_equal(sim_block, block) do
+  def state_equal(sim_block, block) do
     if state_hash(sim_block) != state_hash(block) do
+      # Workaround to detect inconsistent blocks stored in the
+      # main chain
+      if Chain.blockhash(number(block) - 1) == parent_hash(block) do
+        with_parent(block, fn parent ->
+          if not state_consistent?(parent) do
+            Logger.error("Parent state #{number(parent)} is not consistent. Trying to fix...")
+            ChainSql.put_peak(parent_hash(parent))
+            ChainSql.clear_alt_blocks()
+            System.halt()
+          end
+        end)
+      end
+
       # can inject code here to produce debug output
       # state_a = Block.state(sim_block)
       # state_b = Block.state(block)
