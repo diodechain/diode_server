@@ -273,34 +273,15 @@ defmodule Chain do
   end
 
   defp find_last_good_block(number, step \\ 1) do
-    step = min(step, 10000)
     number = number - step
-
     block = ChainSql.block(number)
 
     if Chain.Block.maybe_repair_block(block) do
-      Logger.info("Previous block #{number} is consistent, searching for last good block...")
-      find_last_good_block(number, number + step, number + div(step, 2))
+      Logger.info("Previous block #{number} is consistent done")
+      number
     else
       Logger.info("Previous block #{number} is inconsistent")
-      find_last_good_block(number, step * 10)
-    end
-  end
-
-  defp find_last_good_block(good, bad, test) do
-    if Block.state_consistent?(ChainSql.block(test)) do
-      Logger.info("Blocks <=#{test} are consistent")
-      good = test
-
-      if good + 1 == bad do
-        good
-      else
-        find_last_good_block(good, bad, div(good + bad, 2))
-      end
-    else
-      Logger.info("Blocks >=#{test} are inconsistent")
-      bad = test
-      find_last_good_block(good, bad, div(good + bad, 2))
+      find_last_good_block(number, step)
     end
   end
 
