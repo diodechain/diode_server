@@ -37,14 +37,14 @@ defmodule Mix.Tasks.Export do
     {:ok, []} =
       Sqlitex.Server.query(
         db,
-        "INSERT INTO blocks SELECT * FROM src.blocks WHERE ?1 <= number AND number <= ?2",
+        "REPLACE INTO blocks SELECT * FROM src.blocks WHERE ?1 <= number AND number <= ?2",
         bind: [from, to]
       )
 
     {:ok, []} =
       Sqlitex.Server.query(
         db,
-        "INSERT INTO transactions SELECT txs.* FROM src.transactions AS txs JOIN src.blocks ON (blocks.hash = txs.blhash) WHERE ?1 <= number AND number <= ?2",
+        "REPLACE INTO transactions SELECT txs.* FROM src.transactions AS txs JOIN src.blocks ON (blocks.hash = txs.blhash) WHERE ?1 <= number AND number <= ?2",
         bind: [from, to]
       )
   end
