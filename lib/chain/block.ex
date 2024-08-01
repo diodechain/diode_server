@@ -178,8 +178,7 @@ defmodule Chain.Block do
            test(:tx_hash_valid, fn ->
              Diode.hash(encode_transactions(transactions(block))) == txhash(block)
            end),
-         {_, sim_block} <- test_tc(:simulate, fn -> simulate(block) end),
-         {_, true} <- test_tc(:state_consistent, fn -> state_consistent?(sim_block) end),
+         {_, sim_block} <- test_tc(:simulate, fn -> simulate_and_check(block) end),
          {_, true} <- test_tc(:state_equal, fn -> state_equal(sim_block, block) end),
          {_, true} <- test_tc(:registry_tx, fn -> has_registry_tx?(sim_block) end) do
       # {:reply, self(),
@@ -451,12 +450,31 @@ defmodule Chain.Block do
     BertExt.encode!(Enum.map(transactions, &Transaction.to_rlp/1))
   end
 
-  @spec simulate(Chain.Block.t()) :: Chain.Block.t()
-  def simulate(%Block{} = block, fast_validation? \\ false) do
-    do_simulate(block, fast_validation?)
+  def simulate_and_check(%Block{} = block) do
+    sim_block = simulate(block)
+
+    if not state_equal(sim_block, block) do
+      Logger.warning("Block #{Block.number(block)} state not equal, trying variant")
+
+      parent_ref = ChainSql.block_by_hash(parent_hash(block))
+      state = ChainSql.state_variant(hash(parent_ref))
+      parent_ref = %Block{parent_ref | header: %{parent_ref.header | state_hash: state}}
+
+      create(
+        parent_ref,
+        transactions(block),
+        miner(block),
+        timestamp(block),
+        false,
+        false
+      )
+    else
+      sim_block
+    end
   end
 
-  defp do_simulate(%Block{} = block, fast_validation?) do
+  @spec simulate(Chain.Block.t()) :: Chain.Block.t()
+  def simulate(%Block{} = block, fast_validation? \\ false) do
     parent_ref =
       if Block.number(block) >= 1 do
         Block.parent_hash(block)

@@ -461,6 +461,17 @@ defmodule Model.ChainSql do
     end
   end
 
+  def state_variant(block_hash) do
+    case fetch!("SELECT state FROM blocks WHERE hash = ?1", block_hash) do
+      %Chain.State{} = state ->
+        state
+
+      {prev_hash, delta} ->
+        delta = Enum.filter(delta, fn {_id, report} -> map_size(report) > 0 end)
+        Chain.State.apply_difference(state(prev_hash), delta)
+    end
+  end
+
   def block_by_txhash(txhash) do
     fetch!(
       "SELECT data FROM blocks WHERE hash = (SELECT blhash FROM transactions WHERE txhash = ?1)",
