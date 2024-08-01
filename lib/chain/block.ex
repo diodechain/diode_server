@@ -295,11 +295,8 @@ defmodule Chain.Block do
       # main chain
       if Chain.blockhash(number(block) - 1) == parent_hash(block) do
         with_parent(block, fn parent ->
-          if not state_consistent?(parent) do
+          if maybe_repair_block(parent) do
             Logger.error("Parent state #{number(parent)} is not consistent. Trying to fix...")
-            ChainSql.put_peak(parent_hash(parent))
-            ChainSql.clear_alt_blocks()
-            System.halt()
           end
         end)
       end
