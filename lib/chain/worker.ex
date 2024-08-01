@@ -187,6 +187,7 @@ defmodule Chain.Worker do
   end
 
   @samples 1000
+  @dialyzer {:nowarn_function, do_work: 1}
   defp do_work(state) do
     state = generate_candidate(state)
     %{creds: creds, candidate: candidate, target: target} = state
