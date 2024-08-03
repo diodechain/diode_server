@@ -61,7 +61,13 @@ defmodule Diode do
         []
       end
 
-    {:ok, cache} = DetsPlus.open_file(:remoterpc_cache, file: data_dir("remoterpc.cache"))
+    {:ok, cache} =
+      DetsPlus.open_file(:remoterpc_cache,
+        file: data_dir("remoterpc.cache"),
+        auto_save_memory: 100_000_000,
+        page_cache_memory: 100_000_000
+      )
+
     cache = DetsPlus.LRU.new(cache, 1000, fn value -> value != nil end)
 
     if NodeAgent.available?() do
