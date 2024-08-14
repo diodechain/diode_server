@@ -32,6 +32,7 @@ case "$1" in
             -e COOKIE=$COOKIE \
             --env-file "$(pwd)/.env" \
             --mount type=bind,source="$(pwd)/data_prod",target=/app/data_prod \
+            --mount type=bind,source="/opt/diode_node",target=/opt/diode_node \
             --name diode \
             diode
         ;;
@@ -44,6 +45,7 @@ case "$1" in
             -e COOKIE=$COOKIE \
             --env-file "$(pwd)/.env" \
             --mount type=bind,source="$(pwd)/data_prod",target=/app/data_prod \
+            --mount type=bind,source="/opt/diode_node",target=/opt/diode_node \
             --name diode \
             diode
         ;;
