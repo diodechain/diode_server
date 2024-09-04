@@ -1,9 +1,30 @@
 # 1st Aug 2024
 
-block = 7505676
-Model.ChainSql.block(7505677) |> Chain.Block.maybe_repair_block()
+MIX_ENV=prod mix export 7505500 7596000 last_three_month.sq3
+MIX_ENV=prod mix export 7596001 7649600 last_three_month2.sq3
 
-b = Model.ChainSql.block(7505677)
+MIX_ENV=prod mix import 7505500 7596000 /root/last_three_month.sq3
+MIX_ENV=prod mix import 7596001 7649600 /root/last_three_month2.sq3
+
+
+
+export MIX_ENV=prod
+mix import 7558335 7596000 /root/last_three_month.sq3 && mix import 7596000 7649600 /root/last_three_month2.sq3
+
+
+
+
+
+mix export 7505500 7649619 last_three_month.sq3
+
+block = 7505676
+
+
+
+block = 7505676
+for x <- 7505677..(7505677+100), do: Model.ChainSql.block(x) |> Chain.Block.maybe_repair_block()
+
+b = Model.ChainSql.block()
 Chain.Block.state_consistent?(b)
 
 b2 = Chain.Block.validate(b, false)

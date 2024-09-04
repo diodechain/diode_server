@@ -2,6 +2,7 @@
 # Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
 defmodule Network.Rpc do
+  require Logger
   alias Chain.BlockCache, as: Block
   alias Chain.{Account, Transaction, State}
   alias Model.ChainSql
@@ -113,15 +114,26 @@ defmodule Network.Rpc do
   end
 
   def execute_rpc(method, params, opts) do
-    apis = [
-      {true, {__MODULE__, :execute_std}},
-      {true, {__MODULE__, :execute_dio}},
-      {Diode.dev_mode?(), {__MODULE__, :execute_dev}},
-      {opts[:private], {__MODULE__, :execute_private}},
-      {is_tuple(opts[:extra]), opts[:extra]}
-    ]
+    {time, value} =
+      :timer.tc(fn ->
+        apis = [
+          {true, {__MODULE__, :execute_std}},
+          {true, {__MODULE__, :execute_dio}},
+          {Diode.dev_mode?(), {__MODULE__, :execute_dev}},
+          {opts[:private], {__MODULE__, :execute_private}},
+          {is_tuple(opts[:extra]), opts[:extra]}
+        ]
 
-    execute(apis, [method, params])
+        execute(apis, [method, params])
+      end)
+
+    time_ms = div(time, 1000)
+
+    if time_ms > 3000 do
+      Logger.warning("RPC method: #{inspect({method, params})} took #{time_ms}ms")
+    end
+
+    value
   end
 
   def execute_std(method, params) do
