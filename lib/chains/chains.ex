@@ -11,7 +11,7 @@ defmodule Chains.Diode do
   def ws_endpoints(), do: ["wss://prenet.diode.io:8443/ws"]
   def registry_address(), do: Base16.decode("0x5000000000000000000000000000000000000000")
   def developer_fleet_address(), do: Base16.decode("0x6000000000000000000000000000000000000000")
-  def transaction_hash(), do: &Hash.sha3_256/1
+  def transaction_hash(), do: &Hash.sha2_256/1
 end
 
 defmodule Chains.DiodeStaging do
@@ -24,7 +24,7 @@ defmodule Chains.DiodeStaging do
   def ws_endpoints(), do: ["wss://staging.diode.io:8443/ws"]
   def registry_address(), do: Base16.decode("0x5000000000000000000000000000000000000000")
   def developer_fleet_address(), do: Base16.decode("0x6000000000000000000000000000000000000000")
-  def transaction_hash(), do: &Hash.sha3_256/1
+  def transaction_hash(), do: &Hash.sha2_256/1
 end
 
 defmodule Chains.DiodeDev do
@@ -37,7 +37,7 @@ defmodule Chains.DiodeDev do
   def ws_endpoints(), do: ["ws://localhost:8443/ws"]
   def registry_address(), do: Base16.decode("0x5000000000000000000000000000000000000000")
   def developer_fleet_address(), do: Base16.decode("0x6000000000000000000000000000000000000000")
-  def transaction_hash(), do: &Hash.sha3_256/1
+  def transaction_hash(), do: &Hash.sha2_256/1
 end
 
 defmodule Chains.Moonbeam do

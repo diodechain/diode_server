@@ -22,57 +22,51 @@ defmodule Chain.State do
     |> Map.delete(:store)
   end
 
-  def normalize_accounts(%Chain.State{accounts: accounts} = state) do
+  def uncompact(%Chain.State{accounts: accounts} = state) do
+    # IO.inspect(hash, label: "uncompact(state.hash)")
+
     accounts =
-      Stats.tc(:accs, fn ->
-        accounts
-        |> Enum.map(fn {id, acc} -> {id, Account.normalize(acc)} end)
-        |> Map.new()
+      Enum.reduce(accounts, %{}, fn {id, acc}, accounts ->
+        Map.put(accounts, id, Account.uncompact(acc))
       end)
 
-    %Chain.State{state | accounts: accounts}
+    state = %Chain.State{state | accounts: accounts}
+    tree = tree(state)
+    new_hash = CMerkleTree.root_hash(tree)
+
+    # if new_hash != hash do
+    #   Logger.error("Old hash != new_hash, label: "uncompact(new state.hash)")
+    # end
+
+    # store: can be non-existing because of later addition to the schema
+    %Chain.State{state | hash: new_hash}
+    |> Map.put(:store, tree)
   end
 
-  def normalize(%Chain.State{hash: nil} = state) do
-    state = normalize_accounts(state)
+  def normalize(%Chain.State{} = state) do
     tree = tree(state)
-    hash = MerkleTree.root_hash(tree)
-
+    hash = CMerkleTree.root_hash(tree)
     # store: can be non-existing because of later addition to the schema
     state = Map.put(state, :store, tree)
     %Chain.State{state | hash: hash}
   end
 
-  def normalize(%Chain.State{} = state) do
-    normalize_accounts(state)
-  end
-
   # store: can be non-existing because of later addition to the schema
-  def tree(%Chain.State{accounts: accounts, store: store}) when is_tuple(store) do
-    Enum.reduce(MerkleTree.to_list(store), store, fn {id, _hash}, store ->
-      if not Map.has_key?(accounts, id) do
-        MerkleTree.delete(store, id)
-      else
-        store
-      end
-    end)
-    |> do_tree(accounts)
+  def tree(%Chain.State{store: store}) when store != nil do
+    store
   end
 
   def tree(%Chain.State{accounts: accounts}) do
-    do_tree(MerkleTree.new(), accounts)
+    accounts
+    |> Enum.reduce(%{}, fn {id, acc}, map ->
+      hash = Account.hash(acc)
+      Map.put(map, id, hash)
+    end)
+    |> CMerkleTree.from_map()
   end
-
-  defp do_tree(store, accounts) do
-    items = hash_accounts(Map.to_list(accounts))
-    MerkleTree.insert_items(store, items)
-  end
-
-  def hash_accounts([]), do: []
-  def hash_accounts([{id, acc} | rest]), do: [{id, Account.hash(acc)} | hash_accounts(rest)]
 
   def hash(%Chain.State{hash: nil} = state) do
-    MerkleTree.root_hash(tree(state))
+    CMerkleTree.root_hash(tree(state))
   end
 
   def hash(%Chain.State{hash: hash}) do
@@ -107,27 +101,23 @@ defmodule Chain.State do
 
   @spec set_account(Chain.State.t(), binary(), Chain.Account.t()) :: Chain.State.t()
   def set_account(state = %Chain.State{accounts: accounts}, id = <<_::160>>, account) do
-    %{state | accounts: Map.put(accounts, id, account), hash: nil}
+    %{state | accounts: Map.put(accounts, id, account), hash: nil, store: nil}
   end
 
   @spec delete_account(Chain.State.t(), binary()) :: Chain.State.t()
   def delete_account(state = %Chain.State{accounts: accounts}, id = <<_::160>>) do
-    %{state | accounts: Map.delete(accounts, id), hash: nil}
+    %{state | accounts: Map.delete(accounts, id), hash: nil, store: nil}
   end
 
   def difference(
         %Chain.State{accounts: accounts_a} = state_a,
         %Chain.State{accounts: accounts_b} = state_b
       ) do
-    diff =
-      MerkleTree.difference(
-        MapMerkleTree.from_map(accounts_a),
-        MapMerkleTree.from_map(accounts_b)
-      )
+    diff = CMerkleTree.list_difference(accounts_a, accounts_b)
 
-    Enum.map(diff, fn {id, _} ->
-      acc_a = ensure_account(state_a, id)
-      acc_b = ensure_account(state_b, id)
+    Enum.map(diff, fn {id, {acc_a, acc_b}} ->
+      acc_a = acc_a || ensure_account(state_a, id)
+      acc_b = acc_b || ensure_account(state_b, id)
 
       {time, report} =
         :timer.tc(fn ->
@@ -146,7 +136,7 @@ defmodule Chain.State do
               end
             end)
 
-          state_diff = MerkleCache.difference(Account.tree(acc_a), Account.tree(acc_b))
+          state_diff = CMerkleTree.difference(Account.tree(acc_a), Account.tree(acc_b))
 
           if map_size(state_diff) > 0 do
             Map.merge(report, %{
@@ -159,15 +149,25 @@ defmodule Chain.State do
         end)
 
       if div(time, 1000) > 1000 do
-        trees = {Account.tree(acc_a) |> elem(0), Account.tree(acc_b) |> elem(0)}
-
         Logger.warning(
-          "State diff took longer than 1s #{inspect({Base16.encode(id), div(time, 1000), map_size(report), trees})}"
+          "State diff took longer than 1s #{inspect({Base16.encode(id), div(time, 1000), map_size(report)})}"
         )
       end
 
       {id, report}
     end)
+  end
+
+  def clone(%Chain.State{accounts: accounts} = state) do
+    new_state = %Chain.State{
+      state
+      | accounts: Enum.map(accounts, fn {id, acc} -> {id, Account.clone(acc)} end) |> Map.new()
+    }
+
+    case Map.get(state, :store) do
+      nil -> new_state
+      store -> %Chain.State{new_state | store: CMerkleTree.clone(store)}
+    end
   end
 
   def apply_difference(%Chain.State{} = state, difference) do
@@ -179,15 +179,31 @@ defmodule Chain.State do
       acc =
         Enum.reduce(state_update, acc, fn {key, {a, b}}, acc ->
           tree = Account.tree(acc)
-          ^a = MerkleTree.get(tree, key)
-          tree = MerkleTree.insert(tree, key, b)
+
+          # if a != CMerkleTree.get(tree, key) do
+          #   IO.inspect({key, {a, b}, CMerkleTree.to_list(tree), difference},
+          #     label: "apply_difference"
+          #   )
+          # end
+
+          ^a = CMerkleTree.get(tree, key)
+          tree = CMerkleTree.insert(tree, key, b)
           Account.put_tree(acc, tree)
         end)
 
       acc =
-        Enum.reduce(report, acc, fn {key, delta}, acc ->
+        report
+        # Removed root_hash from the %Account module
+        |> Enum.reject(fn {key, _delta} -> key == :root_hash end)
+        |> Enum.reduce(acc, fn {key, delta}, acc ->
           {a, b} = delta
-          ^a = apply(Account, key, [oacc])
+          ret = apply(Account, key, [oacc])
+
+          # if ret != a do
+          #   IO.inspect({key, {a, b}, ret}, label: "apply_difference(2)")
+          # end
+
+          ^a = ret
           %{acc | key => b}
         end)
 
@@ -204,7 +220,7 @@ defmodule Chain.State do
       Map.put(map, id, %{
         nonce: acc.nonce,
         balance: acc.balance,
-        data: Account.tree(acc) |> MerkleTree.to_list(),
+        data: Account.tree(acc) |> CMerkleTree.to_list(),
         code: acc.code
       })
     end)
@@ -218,7 +234,7 @@ defmodule Chain.State do
       set_account(state, id, %Chain.Account{
         nonce: acc.nonce,
         balance: acc.balance,
-        storage_root: MapMerkleTree.new() |> MerkleTree.insert_items(acc.data),
+        storage_root: CMerkleTree.new() |> CMerkleTree.insert_items(acc.data),
         code: acc.code
       })
     end)

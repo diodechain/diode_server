@@ -41,7 +41,7 @@ defmodule Evm do
 
     @type t :: %Evm.Task{}
 
-    @spec store(Evm.Task.t()) :: MerkleTree.merkle()
+    @spec store(Evm.Task.t()) :: CMerkleTree.t()
     def store(%Task{chain_state: state} = task) do
       State.ensure_account(state, address(task))
       |> Account.tree()
@@ -493,12 +493,12 @@ defmodule Evm do
       State.ensure_account(state, address)
       |> Chain.Account.tree()
 
-    # IO.puts("value size: #{MerkleTree.size(tree)}")
+    # IO.puts("value size: #{CMerkleTree.size(tree)}")
 
     cache =
-      if MerkleTree.size(tree) < 100 do
+      if CMerkleTree.size(tree) < 100 do
         values =
-          MerkleTree.to_list(tree)
+          CMerkleTree.to_list(tree)
           |> Enum.map(fn {k, v} -> [k, v] end)
 
         [
@@ -554,7 +554,7 @@ defmodule Evm do
     value =
       State.ensure_account(state(evm), addr)
       |> Chain.Account.tree()
-      |> MerkleTree.get(key)
+      |> CMerkleTree.get(key)
 
     if value == nil do
       # IO.puts("gs #{Base16.encode(key)} = nil")
@@ -747,7 +747,7 @@ defmodule Evm do
 
     Enum.reduce(updates, state, fn {addr, kvs}, state ->
       acc = State.ensure_account(state, addr)
-      root = MerkleTree.insert_items(Account.tree(acc), Map.to_list(kvs))
+      root = CMerkleTree.insert_items(Account.tree(acc), Map.to_list(kvs))
       acc = Chain.Account.put_tree(acc, root)
       State.set_account(state, addr, acc)
     end)

@@ -4,6 +4,9 @@
 /deps
 /*.ez
 /doc
+/c_src/main
+/c_src/test
+/priv/merkletree_nif.so
 
 *.pem
 *.o

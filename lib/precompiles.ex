@@ -36,7 +36,7 @@ defmodule PreCompiles do
   end
 
   def sha256(:run, bytes) do
-    Hash.sha3_256(bytes)
+    Hash.sha2_256(bytes)
   end
 
   def ripemd160(:gas, bytes) do

@@ -3,7 +3,7 @@ defmodule ChainDefinition.Pioneer do
 
   def apply(%State{} = state) do
     id = Base16.decode("0x5000000000000000000000000000000000000000")
-    acc = %Account{State.ensure_account(state, id) | code: code(), root_hash: nil}
+    acc = %Account{State.ensure_account(state, id) | code: code()}
     State.set_account(state, id, acc)
   end
 

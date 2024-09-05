@@ -20,6 +20,9 @@ defmodule Network.EdgeV2 do
 
   def handle_async_msg(msg) do
     case msg do
+      ["getblockpeak"] ->
+        response(Chain.peak())
+
       ["getblock", index] when is_binary(index) ->
         response(BlockProcess.with_block(to_num(index), &Chain.Block.export(&1)))
 
@@ -56,7 +59,7 @@ defmodule Network.EdgeV2 do
       ["getstateroots", index] ->
         BlockProcess.with_block(to_num(index), fn block ->
           Chain.Block.state_tree(block)
-          |> MerkleTree.root_hashes()
+          |> CMerkleTree.root_hashes()
         end)
         |> response()
 
@@ -69,8 +72,8 @@ defmodule Network.EdgeV2 do
               error("account does not exist")
 
             %Chain.Account{} ->
-              proof = Chain.Block.state_tree(block) |> MerkleTree.get_proofs(id)
-              root = MerkleTree.root_hash(Chain.Block.account_tree(block, id))
+              proof = Chain.Block.state_tree(block) |> CMerkleTree.get_proofs(id)
+              root = CMerkleTree.root_hash(Chain.Block.account_tree(block, id))
               response(root, proof)
           end
         end)
@@ -86,13 +89,13 @@ defmodule Network.EdgeV2 do
             account = %Chain.Account{} ->
               proof =
                 Chain.Block.state_tree(block)
-                |> MerkleTree.get_proofs(id)
+                |> CMerkleTree.get_proofs(id)
 
               response(
                 %{
                   nonce: account.nonce,
                   balance: account.balance,
-                  storage_root: MerkleTree.root_hash(Chain.Block.account_tree(block, id)),
+                  storage_root: CMerkleTree.root_hash(Chain.Block.account_tree(block, id)),
                   code: Chain.Account.codehash(account)
                 },
                 proof
@@ -103,13 +106,13 @@ defmodule Network.EdgeV2 do
       ["getaccountroots", index, id] ->
         BlockProcess.with_account_tree(to_num(index), id, fn
           nil -> error("account does not exist")
-          tree -> response(MerkleTree.root_hashes(tree))
+          tree -> response(CMerkleTree.root_hashes(tree))
         end)
 
       ["getaccountvalue", index, id, key] ->
         BlockProcess.with_account_tree(to_num(index), id, fn
           nil -> error("account does not exist")
-          tree -> response(MerkleTree.get_proofs(tree, key))
+          tree -> response(CMerkleTree.get_proofs(tree, key))
         end)
 
       ["getaccountvalues", index, id | keys] ->
@@ -120,7 +123,7 @@ defmodule Network.EdgeV2 do
           tree ->
             response(
               Enum.map(keys, fn key ->
-                MerkleTree.get_proofs(tree, key)
+                CMerkleTree.get_proofs(tree, key)
               end)
             )
         end)

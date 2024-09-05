@@ -46,14 +46,6 @@ defmodule Chain.Block do
     BlockProcess.maybe_cache(hash(block), :state, fn -> Model.ChainSql.state(hash(block)) end)
   end
 
-  def state_tree(%Block{} = block) do
-    BlockProcess.maybe_cache(hash(block), :state_tree, fn ->
-      state(block)
-      |> Chain.State.tree()
-      |> MerkleTree.merkle()
-    end)
-  end
-
   def maybe_repair_block(%Block{} = b) do
     if not state_consistent?(b) do
       Logger.error("Block #{Block.number(b)} is not consistent. Trying to fix...")
@@ -73,19 +65,14 @@ defmodule Chain.Block do
   end
 
   def account_tree(%Block{} = block, account_id) do
-    BlockProcess.maybe_cache(hash(block), {:account_tree, account_id}, fn ->
-      state(block)
-      |> Chain.State.account(account_id)
-      |> case do
-        nil ->
-          nil
+    case Chain.State.account(state(block), account_id) do
+      nil -> nil
+      acc -> acc |> Chain.Account.tree()
+    end
+  end
 
-        acc ->
-          acc
-          |> Chain.Account.tree()
-          |> MerkleTree.merkle()
-      end
-    end)
+  def state_tree(%Block{} = block) do
+    state(block) |> Chain.State.tree()
   end
 
   @doc "For snapshot exporting ensure the block has a full state object"
@@ -134,7 +121,7 @@ defmodule Chain.Block do
 
     hash = state_hash(block)
     hash2 = if is_binary(block.header.state_hash), do: block.header.state_hash, else: hash
-    hash3 = MerkleTree.root_hash(Chain.State.tree(state(block)))
+    hash3 = CMerkleTree.root_hash(Chain.State.tree(state(block)))
 
     consistent = hash2 == hash3 and (not is_binary(hash) or hash == hash2)
 
@@ -393,11 +380,19 @@ defmodule Chain.Block do
           previous_block: hash(parent),
           number: number(parent) + 1,
           timestamp: time,
-          state_hash: state(parent)
+          state_hash: Chain.State.clone(state(parent))
         },
         coinbase: miner
       }
     end)
+  end
+
+  def clone(%Block{header: %Header{state_hash: state_hash}} = block) when is_binary(state_hash) do
+    block
+  end
+
+  def clone(%Block{header: %Header{state_hash: state_hash}} = block) do
+    %Block{block | header: %Header{block.header | state_hash: Chain.State.clone(state_hash)}}
   end
 
   def append_transaction(%Block{transactions: txs, receipts: rcpts} = block, tx, trace? \\ false) do

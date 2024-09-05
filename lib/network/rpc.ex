@@ -274,7 +274,7 @@ defmodule Network.Rpc do
       "eth_getStorage" ->
         get_account(params)
         |> Chain.Account.tree()
-        |> MerkleTree.to_list()
+        |> CMerkleTree.to_list()
         |> result()
 
       "eth_estimateGas" ->

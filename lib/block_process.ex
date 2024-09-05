@@ -31,13 +31,6 @@ defmodule BlockProcess do
         %Worker{hash: Block.hash(block), timeout: 600_000}
         |> do_init(block)
 
-      # Prefetching the (normalized) state tree makes sense for serving all API requests
-      # (instead of making the first request suffer the cost of fetching the state tree)
-      # But when syncing the state tree doesn't need to be normalized here
-      unless Diode.syncing?() do
-        Chain.Block.state_tree(block)
-      end
-
       work(state)
     end
 
@@ -152,7 +145,7 @@ defmodule BlockProcess do
         queue: :queue.new(),
         waiting: :queue.new(),
         busy: MapSet.new(),
-        queue_limit: @queue_limit_max,
+        queue_limit: 50,
         req: 0
       },
       name: __MODULE__
@@ -202,9 +195,9 @@ defmodule BlockProcess do
     {:noreply, set_worker_mode(state, block_pid, block_hash, :ready)}
   end
 
-  def handle_cast({:i_am_ready, block_hash, {:total_heap_size, size}, pid}, state) do
+  def handle_cast({:i_am_ready, block_hash, {:total_heap_size, _size}, pid}, state) do
     {:noreply,
-     update_queue_size(state, size * get_os_wordsize())
+     update_queue_size(state)
      |> set_worker_mode(pid, block_hash, :ready)
      |> pop_waiting()}
   end
@@ -226,17 +219,33 @@ defmodule BlockProcess do
     {:noreply, pop_waiting(state)}
   end
 
-  defp update_queue_size(
-         state = %BlockProcess{queue: queue, queue_limit: prev_queue_limit},
-         process_size
-       ) do
-    with free when free != nil <- :memsup.get_system_memory_data()[:free_memory] do
-      used = :queue.len(queue) * process_size
-      available = trunc((used + free) * 0.8)
-      # find the new target queue limit
-      queue_limit = min(@queue_limit_max, max(5, div(available, process_size))) - prev_queue_limit
-      # adjust in steps of 1, since `process_size` is not an average
-      queue_limit = prev_queue_limit + div(queue_limit, max(1, abs(queue_limit)))
+  defp get_free_memory() do
+    if Kernel.function_exported?(:memsup, :get_system_memory_data, 0) do
+      apply(:memsup, :get_system_memory_data, [])[:free_memory]
+    else
+      nil
+    end
+  end
+
+  defp update_queue_size(state = %BlockProcess{queue: queue, queue_limit: prev_queue_limit}) do
+    with free when free != nil <- get_free_memory() do
+      queue_len = :queue.len(queue)
+      limit_reached? = queue_len >= prev_queue_limit
+      # IO.inspect({free, limit_reached?, prev_queue_limit, queue_len}, label: "limit_reached?")
+
+      queue_limit =
+        cond do
+          limit_reached? and free > 200_000_000 ->
+            max(trunc(prev_queue_limit * 1.2), prev_queue_limit + 10)
+            |> min(@queue_limit_max)
+
+          free < 50_000_000 ->
+            min(5, trunc(prev_queue_limit * 0.8))
+
+          true ->
+            prev_queue_limit
+        end
+
       %BlockProcess{state | queue_limit: queue_limit}
     else
       _ -> state
@@ -256,7 +265,9 @@ defmodule BlockProcess do
          pid,
          hash
        ) do
-    if :queue.len(queue) > queue_limit do
+    queue_len = :queue.len(queue)
+
+    if queue_len > queue_limit do
       {{:value, {remove_pid, remove_hash}}, queue} = :queue.out_r(queue)
       send(remove_pid, :stop)
       ready = map_delete_value(ready, remove_hash, remove_pid)
@@ -444,17 +455,5 @@ defmodule BlockProcess do
     {pid, _mon} = spawn_monitor(fn -> Worker.init(block_hash) end)
     send(pid, {:do_work, block_hash, fun, from})
     set_worker_mode(state, pid, block_hash, :busy)
-  end
-
-  defp get_os_wordsize() do
-    case :persistent_term.get(:os_wordsize, nil) do
-      nil ->
-        wordsize = :memsup.get_os_wordsize()
-        :persistent_term.put(:os_wordsize, wordsize)
-        wordsize
-
-      wordsize ->
-        wordsize
-    end
   end
 end

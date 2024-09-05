@@ -108,7 +108,7 @@ defmodule RpcTest do
               "id" => 1,
               "jsonrpc" => "2.0",
               "result" => %{
-                "blockNumber" => "0x3",
+                "blockNumber" => blockNum,
                 "contractAddress" => nil,
                 "cumulativeGasUsed" => _variable,
                 "from" => ^from,

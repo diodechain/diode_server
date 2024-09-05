@@ -78,7 +78,6 @@ defmodule Diode do
 
     base_children = [
       worker(Stats, []),
-      worker(MerkleCache, []),
       supervisor(Model.Sql),
       worker(Chain.BlockCache, [ets_extra]),
       worker(Chain, [ets_extra]),
@@ -259,7 +258,9 @@ defmodule Diode do
   @spec hash(binary()) :: binary()
   def hash(bin) do
     # Ethereum is using KEC instead ...
-    Hash.sha3_256(bin)
+    # IO.inspect("#{Base16.encode(bin)} #{Base16.encode(Hash.sha2_256(bin))}", label: "input/output")
+    # IO.inspect(Profiler.stacktrace())
+    Hash.sha2_256(bin)
   end
 
   @spec miner() :: Wallet.t()

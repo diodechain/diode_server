@@ -454,10 +454,13 @@ defmodule Model.ChainSql do
   def state(block_hash) do
     case fetch!("SELECT state FROM blocks WHERE hash = ?1", block_hash) do
       %Chain.State{} = state ->
-        state
+        # IO.inspect(state, label: "preuncompact")
+        IO.puts("uncompact()")
+        Chain.State.uncompact(state)
 
       {prev_hash, delta} ->
         Chain.State.apply_difference(state(prev_hash), delta)
+        |> Chain.State.normalize()
     end
   end
 

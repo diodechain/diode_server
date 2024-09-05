@@ -228,7 +228,7 @@ defmodule Secp256k1 do
   end
 
   defp hash(:sha, msg) do
-    Hash.sha3_256(msg)
+    Hash.sha2_256(msg)
   end
 
   defp hash(:kec, msg) do

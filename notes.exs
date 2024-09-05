@@ -1,5 +1,8 @@
 # 1st Aug 2024
 
+Network.Rpc.handle_jsonrpc(%{"id" => 0, "method" => "dio_edgev2", "params" => ["0xe48a6765746163636f756e7483775cf8947318de0ec12e06c701544e7afdf7b74ac22dfd9a"]})
+
+
 MIX_ENV=prod mix export 7505500 7596000 last_three_month.sq3
 MIX_ENV=prod mix export 7596001 7649600 last_three_month2.sq3
 
@@ -55,7 +58,7 @@ test = fn block ->
   delta = Chain.State.difference(prev, new_state)
   new_state2 = Chain.State.apply_difference(prev, delta)
 
-  MerkleTree.root_hash(Chain.State.tree(new_state2)) == MerkleTree.root_hash(Chain.State.tree(new_state))
+  CMerkleTree.root_hash(Chain.State.tree(new_state2)) == CMerkleTree.root_hash(Chain.State.tree(new_state))
 end
 
 # 29th Jul 2024
@@ -74,7 +77,7 @@ test = fn block ->
     |> BertInt.encode!()
     |> BertInt.decode!()
 
-  MerkleTree.root_hash(Chain.State.tree(new_state2)) == good_hash
+  CMerkleTree.root_hash(Chain.State.tree(new_state2)) == good_hash
 end
 
 b_state = Chain.Block.state(b)
@@ -92,18 +95,18 @@ end)
 
 check = fn state ->
   state2 = %{state | hash: nil, accounts: Enum.map(state.accounts, fn {key, acc} -> {key, %{acc | root_hash: nil}} end) |> Map.new()} |> Map.delete(:store)
-  {MerkleTree.root_hash(Chain.State.tree(state)), Chain.State.hash(state2)}
+  {CMerkleTree.root_hash(Chain.State.tree(state)), Chain.State.hash(state2)}
 end
 
 # 26th Jul 2024
 
 Setting 7506000 (0x00004263f49ab73418a8e6f282a116c6f733b324ed0ac6f6fd0c0d3aa215b02b)
 
-BlockProcess.with_block(7505999, fn block -> {Chain.Block.state_hash(block), block.header.state_hash, MerkleTree.root_hash(Chain.State.tree(Chain.Block.state(block)))} end)
+BlockProcess.with_block(7505999, fn block -> {Chain.Block.state_hash(block), block.header.state_hash, CMerkleTree.root_hash(Chain.State.tree(Chain.Block.state(block)))} end)
 BlockProcess.with_block(7506000, fn block ->
   state = Chain.Block.state(block)
   state2 = %{state | hash: nil, accounts: Enum.map(state.accounts, fn {key, acc} -> {key, %{acc | root_hash: nil}} end) |> Map.new()} |> Map.delete(:store)
-  {block.header.state_hash, MerkleTree.root_hash(Chain.State.tree(state)), Chain.State.hash(state2)}
+  {block.header.state_hash, CMerkleTree.root_hash(Chain.State.tree(state)), Chain.State.hash(state2)}
 end)
 
 
@@ -326,21 +329,21 @@ accs = ~w(bns_account_7144000.etf bns_account_7144224.etf bns_account_7144861.et
   bns_account_7145072.etf bns_account_7145706.etf) |> Enum.map(&File.read!(&1) |> :erlang.binary_to_term() |> Map.put(:root_hash, nil))
 
 check = fn acc ->
-  {time1, root1} = :timer.tc(fn -> MerkleTree.copy(Chain.Account.tree(acc), MerkleTree2) |> MerkleTree.root_hash() end)
+  {time1, root1} = :timer.tc(fn -> CMerkleTree.copy(Chain.Account.tree(acc), MerkleTree2) |> CMerkleTree.root_hash() end)
   {time2, root2} = :timer.tc(fn -> Chain.Account.root_hash(acc) end)
   ^root1 = root2
   {div(time1, 1000), div(time2, 1000), time1 / time2}
 end
 
 check2 = fn acc ->
-  {time1, root1} = :timer.tc(fn -> MerkleTree.copy(Chain.Account.tree(acc), MerkleTree2) |> MerkleTree.root_hash() end)
+  {time1, root1} = :timer.tc(fn -> CMerkleTree.copy(Chain.Account.tree(acc), MerkleTree2) |> CMerkleTree.root_hash() end)
   {time2, root2} = :timer.tc(fn -> MerkleCache.root_hash(Chain.Account.tree(acc)) end)
   ^root1 = root2
   {div(time1, 1000), div(time2, 1000), time1 / time2}
 end
 
 check_diff = fn acc, acc2 ->
-  {time1, diff1} = :timer.tc(fn -> MerkleTree.difference(Chain.Account.tree(acc), Chain.Account.tree(acc2)) end)
+  {time1, diff1} = :timer.tc(fn -> CMerkleTree.difference(Chain.Account.tree(acc), Chain.Account.tree(acc2)) end)
   {time2, diff2} = :timer.tc(fn -> MerkleCache.difference(Chain.Account.tree(acc), Chain.Account.tree(acc2)) end)
   ^diff1 = diff2
   {div(time1, 1000), div(time2, 1000), time1 / time2}

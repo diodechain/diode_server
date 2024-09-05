@@ -6,7 +6,7 @@ defmodule ChainDefinition.Ulysses do
       id = Base16.decode(account["addr"])
       code = Base16.decode(account["code"])
       acc = State.ensure_account(state, id)
-      acc = %Account{acc | code: code, root_hash: nil}
+      acc = %Account{acc | code: code}
       State.set_account(state, id, acc)
     end)
   end

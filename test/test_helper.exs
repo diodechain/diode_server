@@ -5,9 +5,11 @@ import While
 
 ExUnit.start(seed: 0)
 
-while Stages.stage() < 1 do
-  IO.puts("Waiting for RPC")
-  Process.sleep(1_000)
+if Process.whereis(Stages) != nil do
+  while Stages.stage() < 1 do
+    IO.puts("Waiting for RPC")
+    Process.sleep(1_000)
+  end
 end
 
 defmodule TestHelper do

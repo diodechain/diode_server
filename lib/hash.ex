@@ -43,7 +43,7 @@ defmodule Hash do
     :keccakf1600.hash(:sha3_256, string)
   end
 
-  def sha3_256(string) do
+  def sha2_256(string) do
     :crypto.hash(:sha256, string)
   end
 

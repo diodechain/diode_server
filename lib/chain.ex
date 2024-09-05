@@ -245,7 +245,7 @@ defmodule Chain do
           if not Chain.Block.maybe_repair_block(block) do
             {stored_hash, computed_hash} =
               {block.header.state_hash,
-               MerkleTree.root_hash(Chain.State.tree(Chain.Block.state(block)))}
+               CMerkleTree.root_hash(Chain.State.tree(Chain.Block.state(block)))}
 
             Logger.error(
               "Peak block #{Block.number(block)} state hash mismatch: #{Base16.encode(stored_hash)} != #{Base16.encode(computed_hash)}"
@@ -443,35 +443,38 @@ defmodule Chain do
   defp do_import_blocks(blocks, validate_fast?) do
     # replay block backup list
     {lastblock, _count} =
-      Enum.reduce_while(blocks, {:ok, 0}, fn nextblock, {_status, count} ->
-        block_hash = Block.hash(nextblock)
-
-        if block_by_hash?(block_hash) do
-          {:cont, {block_hash, count + 1}}
-        else
-          validate_fast? =
-            validate_fast? and count > 10 and rem(Block.number(nextblock), 100) != 0
-
-          Stats.tc(:vldt, fn -> Block.validate(nextblock, validate_fast?) end)
-          |> case do
-            %Chain.Block{} = block ->
-              <<block_hash::binary-size(32)>> = Block.hash(block)
-              add_block(block_hash, false, false)
-              {:cont, {block_hash, count + 1}}
-
-            nonblock ->
-              :io.format("Chain.import_blocks(2): Failed with ~p on: ~p~n", [
-                nonblock,
-                Block.printable(nextblock)
-              ])
-
-              {:halt, {nonblock, count}}
-          end
-        end
-      end)
+      Enum.reduce_while(blocks, {:ok, 0}, &do_import_blocks_reduce(&1, validate_fast?, &2))
 
     finish_sync()
     lastblock
+  end
+
+  defp do_import_blocks_reduce(nextblock, validate_fast?, {_status, count}) do
+    :erlang.garbage_collect()
+    block_hash = Block.hash(nextblock)
+
+    if block_by_hash?(block_hash) do
+      {:cont, {block_hash, count + 1}}
+    else
+      validate_fast? =
+        validate_fast? and count > 10 and rem(Block.number(nextblock), 100) != 0
+
+      Stats.tc(:vldt, fn -> Block.validate(nextblock, validate_fast?) end)
+      |> case do
+        %Chain.Block{} = block ->
+          <<block_hash::binary-size(32)>> = Block.hash(block)
+          add_block(block_hash, false, false)
+          {:cont, {block_hash, count + 1}}
+
+        nonblock ->
+          :io.format("Chain.import_blocks(2): Failed with ~p on: ~p~n", [
+            nonblock,
+            Block.printable(nextblock)
+          ])
+
+          {:halt, {nonblock, count}}
+      end
+    end
   end
 
   def is_active_sync(register \\ false) do

@@ -13,16 +13,16 @@ defmodule ChainTest do
 
   test "length" do
     peak = Chain.peak()
-    peak_block = Chain.with_peak(fn block -> block end)
-    other = BlockProcess.with_block(peak, fn block -> block end)
+    peak_block = Chain.with_peak(fn block -> block end) |> Block.strip_state()
+    other = BlockProcess.with_block(peak, fn block -> block end) |> Block.strip_state()
     assert peak_block == other
 
     Chain.Worker.work()
 
     assert peak + 1 == Chain.peak()
     peak = Chain.peak()
-    peak_block = Chain.with_peak(fn block -> block end)
-    other = BlockProcess.with_block(peak, fn block -> block end)
+    peak_block = Chain.with_peak(fn block -> block end) |> Block.strip_state()
+    other = BlockProcess.with_block(peak, fn block -> block end) |> Block.strip_state()
     assert peak_block == other
   end
 
@@ -36,8 +36,8 @@ defmodule ChainTest do
          code: Rlpx.bin2addr(state["code"]),
          nonce: Rlpx.bin2num(state["nonce"]),
          storage_root:
-           Enum.reduce(state["storage"], MerkleTree.new(), fn {key, value}, tree ->
-             MerkleTree.insert(tree, Rlpx.hex2num(key), Rlpx.bin2num(value))
+           Enum.reduce(state["storage"], CMerkleTree.new(), fn {key, value}, tree ->
+             CMerkleTree.insert(tree, Rlpx.hex2num(key), Rlpx.bin2num(value))
            end)
        }}
     end)
@@ -272,7 +272,7 @@ defmodule ChainTest do
   end
 
   defp to_list(tree) do
-    MerkleTree.to_list(tree)
+    CMerkleTree.to_list(tree)
     |> Enum.map(fn {key, value} -> {compress(key), compress(value)} end)
     |> Enum.sort()
   end

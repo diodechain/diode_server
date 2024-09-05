@@ -7,7 +7,7 @@ defmodule ChainDefinition.Voyager do
       code = Base16.decode(account["code"])
       {balance, ""} = Integer.parse(account["balance"])
       acc = State.ensure_account(state, id)
-      acc = %Account{acc | balance: balance, code: code, root_hash: nil}
+      acc = %Account{acc | balance: balance, code: code}
 
       acc =
         if Map.has_key?(account, "state_patch") do
