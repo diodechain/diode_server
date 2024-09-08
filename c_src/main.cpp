@@ -124,8 +124,9 @@ int bench(int size, std::string ref) {
 
     for (int i = 0; i < 3; i++) {
         auto start = std::chrono::steady_clock::now();
+        auto ops = 1000000/size;
 
-        for (int j = 0; j < 1000000/size; j++) {
+        for (int j = 0; j < ops; j++) {
             Tree tree;
 
             for (uint256_t &key : testdata) {
@@ -142,7 +143,7 @@ int bench(int size, std::string ref) {
 
         auto end = std::chrono::steady_clock::now();
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-        std::cout << "Run(" << size << ") " << i << ": " << ms.count() << "ms " << std::endl;
+        std::cout << "Run(" << size << " inserts / " << ops << " ops) " << i << ": " << ms.count() << "ms " << std::endl;
     }
 
     std::cout << "bench done!" << std::endl;
@@ -152,7 +153,7 @@ int bench(int size, std::string ref) {
 int main(int argc, char *argv[]) {
     if (argc > 1 && argv[1] == std::string("bench")) {
         // bench(10000, "0x96c2b5d03aa8e52230e74d9a08359c38c7608e5d9aba18773f3c90baf3806ccb");
-        bench(1, "0x5d70256ffdf5745e05fd4917ab229d27b690fa7f587918c7494c93520bd1e284");
+        bench(2, "0x11a6cda360858987ff9def01a2f8ab3dd66013a871a1e51c7c64ffadee460e15");
         bench(100, "0x784330a04291e879b7893ce55534d390931e6047bdf8b7fdc56e0d0f8a5b4c52");
         bench(100000, "0x3b99d56aa16278d50e85a8ea0939e62180c4f0305b773775f1844c3303a41897");
         return 0;

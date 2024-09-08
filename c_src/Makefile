@@ -3,12 +3,12 @@ ERL_INCLUDE_PATH = $(shell erl -eval 'io:format("~s", [lists:concat([code:root_d
 
 .PHONY: test
 test:
-	gcc -o test main.cpp ${OPTS} -fopenmp
+	gcc -o test main.cpp ${OPTS}
 	./test
 
 .PHONY: bench
 bench:
-	gcc -o test main.cpp ${OPTS} -fopenmp
+	gcc -o test main.cpp ${OPTS}
 	./test bench
 
 

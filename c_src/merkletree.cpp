@@ -343,18 +343,18 @@ uint256_t Tree::root_hash() {
     if (root.is_leaf) {
         update_merkle_hash_count(root, binary_buffer);
     } else { 
-        #pragma omp parallel sections
-        {
-            #pragma omp section
-            {
-                update_merkle_hash_count(*root.node_left, binary_buffer);
-            }
-            #pragma omp section
-            {
-                bin_t binary_buffer_right;
-                update_merkle_hash_count(*root.node_right, binary_buffer_right);
-            }
-        }
+        // #pragma omp parallel sections
+        // {
+        //     #pragma omp section
+        //     {
+        //         update_merkle_hash_count(*root.node_left, binary_buffer);
+        //     }
+        //     #pragma omp section
+        //     {
+        //         bin_t binary_buffer_right;
+        //         update_merkle_hash_count(*root.node_right, binary_buffer_right);
+        //     }
+        // }
         update_merkle_hash_count(root, binary_buffer);
     }
 
