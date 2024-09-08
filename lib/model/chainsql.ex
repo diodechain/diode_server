@@ -184,6 +184,7 @@ defmodule Model.ChainSql do
   def init() do
     Ets.init(Model.ChainSql.Writer)
     EtsLru.new(__MODULE__, 1024)
+    EtsLru.new(__MODULE__.JumpState, 5)
 
     with_transaction(__MODULE__, &init_tables/1)
 
@@ -455,11 +456,19 @@ defmodule Model.ChainSql do
     case fetch!("SELECT state FROM blocks WHERE hash = ?1", block_hash) do
       %Chain.State{} = state ->
         # IO.inspect(state, label: "preuncompact")
-        IO.puts("uncompact()")
+        # if Base16.encode(block_hash) ==
+        #      "0x000001134c7d9061db42392110d51896442ed9202b330d9776e1a2ea4cf4e8a8" do
+        #   IO.inspect(Profiler.stacktrace())
+        # end
+
+        IO.puts("uncompact(#{Base16.encode(block_hash)})")
         Chain.State.uncompact(state)
 
       {prev_hash, delta} ->
-        Chain.State.apply_difference(state(prev_hash), delta)
+        # For non-jump blocks we assume the jump block is cached for performance
+        EtsLru.fetch(__MODULE__.JumpState, {:state, prev_hash}, fn -> state(prev_hash) end)
+        |> Chain.State.clone()
+        |> Chain.State.apply_difference(delta)
         |> Chain.State.normalize()
     end
   end

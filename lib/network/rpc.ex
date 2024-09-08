@@ -129,7 +129,7 @@ defmodule Network.Rpc do
 
     time_ms = div(time, 1000)
 
-    if time_ms > 3000 do
+    if time_ms > 2000 do
       Logger.warning("RPC method: #{inspect({method, params})} took #{time_ms}ms")
     end
 

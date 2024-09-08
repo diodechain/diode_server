@@ -101,6 +101,10 @@ defmodule CMerkleTree do
   def get_proofs_raw(_tree, _key), do: error()
   defp error, do: :erlang.nif_error(:nif_not_loaded)
 
+  defp to_bytes32(nil) do
+    <<0::unsigned-size(256)>>
+  end
+
   defp to_bytes32(int) when is_integer(int) do
     <<int::unsigned-size(256)>>
   end

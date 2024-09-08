@@ -147,7 +147,7 @@ defmodule Chain do
   end
 
   def with_final(fun) do
-    final = with_peak(&Block.last_final/1, :infinity)
+    final = with_peak(&Block.last_final/1)
     # Block.last_final(peak_hash())
     BlockProcess.with_block(final, fun)
   end
@@ -162,8 +162,8 @@ defmodule Chain do
     call(fn state, _from -> {:reply, state.peak_num, state} end)
   end
 
-  def with_peak(fun, timeout \\ 120_000) do
-    BlockProcess.with_block(peak(), fun, timeout)
+  def with_peak(fun) do
+    BlockProcess.with_block(peak(), fun)
   end
 
   def with_peak_state(fun) do

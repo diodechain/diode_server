@@ -43,7 +43,7 @@ defmodule Chain.Block do
   end
 
   def state(%Block{} = block) do
-    BlockProcess.maybe_cache(hash(block), :state, fn -> Model.ChainSql.state(hash(block)) end)
+    BlockProcess.fetch_state(hash(block))
   end
 
   def maybe_repair_block(%Block{} = b) do
@@ -173,7 +173,7 @@ defmodule Chain.Block do
       block = %{sim_block | header: %{block.header | state_hash: sim_block.header.state_hash}}
       tc(:put_new_block, fn -> ChainSql.put_new_block(block) end)
       tc(:ets_add_alt, fn -> Chain.ets_add_alt(block) end)
-      tc(:start_block, fn -> BlockProcess.start_block(block) end)
+      tc(:start_block, fn -> BlockProcess.cache_block(block) end)
       block
     else
       {nr, error} -> {nr, error}
@@ -214,7 +214,7 @@ defmodule Chain.Block do
 
       tc(:put_new_block, fn -> ChainSql.put_new_block(block) end)
       tc(:ets_add_alt, fn -> Chain.ets_add_alt(block) end)
-      tc(:start_block, fn -> BlockProcess.start_block(block) end)
+      tc(:start_block, fn -> BlockProcess.cache_block(block) end)
       block
     else
       {nr, error} -> {nr, error}
@@ -223,7 +223,7 @@ defmodule Chain.Block do
 
   def with_parent(block = %Block{}, fun) do
     # These can be recursive and very long time, so we use a timeout
-    BlockProcess.with_block(parent_hash(block), fun, :infinity)
+    BlockProcess.with_block(parent_hash(block), fun)
   end
 
   defp conforms_min_tx_fee?(block) do
