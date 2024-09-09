@@ -65,9 +65,14 @@ defmodule NodeAgent do
   end
 
   def stop() do
-    case System.cmd(cmd(), ["pid"], env: unset_env()) do
-      {_pid, 0} -> {"", 0} = System.cmd(cmd(), ["stop"], env: unset_env())
-      {_error, 1} -> :ok
+    if System.find_executable("pkill") do
+      base = cmd() |> Path.basename() |> Path.basename()
+      System.cmd("pkill", ["-9", "-f", "#{base}/.*/bin/beam.smp"])
+    else
+      case System.cmd(cmd(), ["pid"], env: unset_env()) do
+        {_pid, 0} -> {"", 0} = System.cmd(cmd(), ["stop"], env: unset_env())
+        {_error, 1} -> :ok
+      end
     end
   end
 
