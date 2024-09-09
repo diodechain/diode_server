@@ -170,6 +170,18 @@ defmodule Chain.State do
     end
   end
 
+  def lock(%Chain.State{accounts: accounts} = state) do
+    for {_id, %Chain.Account{storage_root: root}} <- accounts do
+      do_lock(root)
+    end
+
+    do_lock(Map.get(state, :store))
+    state
+  end
+
+  defp do_lock(nil), do: nil
+  defp do_lock(root), do: CMerkleTree.lock(root)
+
   def apply_difference(%Chain.State{} = state, difference) do
     Enum.reduce(difference, state, fn {id, report}, state ->
       oacc = acc = ensure_account(state, id)

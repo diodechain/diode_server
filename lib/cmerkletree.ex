@@ -98,6 +98,7 @@ defmodule CMerkleTree do
   def to_list(_tree), do: error()
   def import_map(_tree, _map), do: error()
   def difference_raw(_tree, _map), do: error()
+  def lock(_tree), do: error()
   def get_proofs_raw(_tree, _key), do: error()
   defp error, do: :erlang.nif_error(:nif_not_loaded)
 

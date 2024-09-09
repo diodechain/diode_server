@@ -25,7 +25,7 @@ defmodule BlockProcess do
 
   def cache_block(block) do
     EtsLru.put(__MODULE__, Block.hash(block), Block.strip_state(block))
-    EtsLru.put(__MODULE__.State, Block.hash(block), Block.state(block))
+    EtsLru.put(__MODULE__.State, Block.hash(block), Chain.State.lock(Block.state(block)))
   end
 
   def with_account_tree(block_ref, account_id, fun) do

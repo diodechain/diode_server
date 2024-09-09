@@ -18,9 +18,11 @@ class SharedState {
 public:
     ErlNifMutex *mtx;
     int has_clone;
+    bool locked;
     SharedState() {
         mtx = enif_mutex_create((char*)"merkletree_mutex");
         has_clone = 0;
+        locked = false;
     }
 
     ~SharedState() {
@@ -122,6 +124,7 @@ merkletree_insert_item(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     Lock lock(mt);
     make_writeable(mt);
+    if (mt->shared_state->locked) return enif_make_badarg(env);
 
     bin_t key;
     key.insert(key.end(), key_binary.data, key_binary.data + key_binary.size);
@@ -213,6 +216,18 @@ merkletree_to_list(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 }
 
 static ERL_NIF_TERM
+merkletree_lock(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    merkletree *mt;
+
+    if (argc != 1) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
+    Lock lock(mt);
+    mt->shared_state->locked = true;
+    return argv[0];
+}
+
+static ERL_NIF_TERM
 merkletree_difference(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
     merkletree *mt1;
@@ -260,6 +275,7 @@ merkletree_import_map(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     Lock lock(mt);
     make_writeable(mt);
+    if (mt->shared_state->locked) return enif_make_badarg(env);
 
     ERL_NIF_TERM key, value;
     ErlNifMapIterator iter;
@@ -380,6 +396,7 @@ static ErlNifFunc nif_funcs[] = {
     {"get_item", 2, merkletree_get_item, 0},
     {"get_proofs_raw", 2, merkletree_get_proofs, 0},
     {"difference_raw", 2, merkletree_difference, 0},
+    {"lock", 1, merkletree_lock, 0},
     {"to_list", 1, merkletree_to_list, 0},
     {"import_map", 2, merkletree_import_map, 0},
     {"root_hash", 1, merkletree_root_hash, 0},
