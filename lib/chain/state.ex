@@ -192,11 +192,11 @@ defmodule Chain.State do
         Enum.reduce(state_update, acc, fn {key, {a, b}}, acc ->
           tree = Account.tree(acc)
 
-          if a != CMerkleTree.get(tree, key) do
-            IO.inspect({key, {a, b}, CMerkleTree.get(tree, key), difference},
-              label: "apply_difference"
-            )
-          end
+          # if a != CMerkleTree.get(tree, key) do
+          #   IO.inspect({key, {a, b}, CMerkleTree.get(tree, key), difference},
+          #     label: "apply_difference"
+          #   )
+          # end
 
           ^a = CMerkleTree.get(tree, key)
           tree = CMerkleTree.insert(tree, key, b)

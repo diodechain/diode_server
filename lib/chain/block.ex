@@ -252,6 +252,17 @@ defmodule Chain.Block do
     wallet = miner(block)
     tx = hd(transactions(block))
 
+    # IO.inspect(
+    #   [
+    #     {Wallet.address!(Transaction.origin(tx)), Wallet.address!(wallet)},
+    #     {Transaction.gas_price(tx), 0},
+    #     {Transaction.gas_limit(tx), 1_000_000_000},
+    #     {Transaction.to(tx), Diode.registry_address()},
+    #     {Transaction.data(tx), ABI.encode_call("blockReward")}
+    #   ],
+    #   label: "has_registry_tx?(:first, block)"
+    # )
+
     Wallet.equal?(Transaction.origin(tx), wallet) and
       Transaction.gas_price(tx) == 0 and
       Transaction.gas_limit(tx) == 1_000_000_000 and
@@ -268,6 +279,18 @@ defmodule Chain.Block do
     used = gas_used(block) - rcpt.gas_used
     # - rcpt.gas_used * tx.gas_price (always 0)
     fees = gas_fees(block)
+
+    # IO.inspect(
+    #   [
+    #     {Wallet.address!(Transaction.origin(tx)), Wallet.address!(wallet)},
+    #     {Transaction.gas_price(tx), 0},
+    #     {Transaction.gas_limit(tx), 1_000_000_000},
+    #     {Transaction.to(tx), Diode.registry_address()},
+    #     {Transaction.data(tx),
+    #      ABI.encode_call("blockReward", ["uint256", "uint256"], [used, fees])}
+    #   ],
+    #   label: "has_registry_tx?(:last, block)"
+    # )
 
     Wallet.equal?(Transaction.origin(tx), wallet) and
       Transaction.gas_price(tx) == 0 and
