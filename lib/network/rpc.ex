@@ -88,7 +88,7 @@ defmodule Network.Rpc do
     envelope =
       %{"id" => {:raw, id}, "jsonrpc" => "2.0"}
       |> Map.merge(ret)
-      |> Json.prepare!(all_hex: method == "dio_edgev2")
+      |> Json.prepare!()
 
     {code, envelope}
   end

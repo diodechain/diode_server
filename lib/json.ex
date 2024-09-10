@@ -12,7 +12,7 @@ defmodule Json do
   end
 
   defp conv_validate(conv) do
-    Keyword.merge([all_hex: false], conv)
+    conv
   end
 
   def decode!(binary) do
@@ -61,8 +61,8 @@ defmodule Json do
     "0x"
   end
 
-  defp do_encode(bin, conv) when is_binary(bin) do
-    if conv[:all_hex] == false and String.printable?(bin) do
+  defp do_encode(bin, _conv) when is_binary(bin) do
+    if String.printable?(bin) do
       bin
     else
       Base16.encode(bin, false)
