@@ -80,6 +80,7 @@ defmodule Network.PeerHandler do
 
   def handle_cast({:sync_done, ret}, state = %{blocks: blocks}) do
     state = %{state | job: nil}
+    if Process.whereis(:active_sync) == self(), do: Process.unregister(:active_sync)
 
     case ret do
       <<block_hash::binary-size(32)>> ->
