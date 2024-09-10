@@ -19,7 +19,14 @@ public:
     ErlNifMutex *mtx;
     int has_clone;
     bool locked;
-    SharedState() {
+    Tree tree;
+    SharedState() : tree() {
+        mtx = enif_mutex_create((char*)"merkletree_mutex");
+        has_clone = 0;
+        locked = false;
+    }
+
+    SharedState(SharedState &other) : tree(other.tree) {
         mtx = enif_mutex_create((char*)"merkletree_mutex");
         has_clone = 0;
         locked = false;
@@ -31,7 +38,6 @@ public:
 };
 
 struct  merkletree {
-    Tree *tree;
     SharedState *shared_state;
 };
 
@@ -74,7 +80,6 @@ merkletree_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM[] /*argv[]*/)
 {
     if (argc != 0) return enif_make_badarg(env);
     merkletree *mt = (merkletree*)enif_alloc_resource(merkletree_type, sizeof(merkletree));
-    mt->tree = new Tree();
     mt->shared_state = new SharedState();
     print("CREATING", alive++);
     ERL_NIF_TERM res = enif_make_resource(env, mt);
@@ -86,8 +91,7 @@ void make_writeable(merkletree *mt)
 {
     if (mt->shared_state->has_clone > 0) {
         mt->shared_state->has_clone -= 1;
-        mt->tree = new Tree(*mt->tree);
-        mt->shared_state = new SharedState();
+        mt->shared_state = new SharedState(*mt->shared_state);
         print("CLONING", alive++);
     }
 }
@@ -101,7 +105,6 @@ merkletree_clone(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     Lock lock(mt);
     merkletree *clone = (merkletree*)enif_alloc_resource(merkletree_type, sizeof(merkletree));
-    clone->tree = mt->tree;
     clone->shared_state = mt->shared_state;
     clone->shared_state->has_clone += 1;
     ERL_NIF_TERM res = enif_make_resource(env, clone);
@@ -129,7 +132,7 @@ merkletree_insert_item(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     bin_t key;
     key.insert(key.end(), key_binary.data, key_binary.data + key_binary.size);
     uint256_t value = (char*)value_binary.data;
-    mt->tree->insert_item(key, value);
+    mt->shared_state->tree.insert_item(key, value);
     return argv[0];
 }
 
@@ -146,7 +149,7 @@ merkletree_get_item(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     bin_t key;
     key.insert(key.end(), key_binary.data, key_binary.data + key_binary.size);
-    pair_t pair = mt->tree->get_item(key);
+    pair_t pair = mt->shared_state->tree.get_item(key);
     enif_release_binary(&key_binary);
 
 
@@ -193,7 +196,7 @@ merkletree_get_proofs(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     bin_t key;
     key.insert(key.end(), key_binary.data, key_binary.data + key_binary.size);
     enif_release_binary(&key_binary);
-    proof_t proof = mt->tree->get_proofs(key);
+    proof_t proof = mt->shared_state->tree.get_proofs(key);
     return make_proof(env, proof);
 }
 
@@ -206,7 +209,7 @@ merkletree_to_list(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
     Lock lock(mt);
     ERL_NIF_TERM list = enif_make_list(env, 0);
-    mt->tree->each([&](pair_t &pair) {
+    mt->shared_state->tree.each([&](pair_t &pair) {
         ERL_NIF_TERM key_term = make_binary(env, pair.key.data(), pair.key.size());
         ERL_NIF_TERM value_term = make_binary(env, pair.value.data(), 32);
         ERL_NIF_TERM tuple = enif_make_tuple2(env, key_term, value_term);
@@ -238,22 +241,22 @@ merkletree_difference(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (!enif_get_resource(env, argv[1], merkletree_type, (void **) &mt2)) return enif_make_badarg(env);
 
     Lock lock1(mt1);
-    if (mt1->tree == mt2->tree) {
+    if (&mt1->shared_state->tree == &mt2->shared_state->tree) {
         return enif_make_list(env, 0);
     }
 
     Lock lock2(mt2);
 
     Tree output;
-    mt1->tree->difference(*mt2->tree, output);
-    mt2->tree->difference(*mt1->tree, output);
+    mt1->shared_state->tree.difference(mt2->shared_state->tree, output);
+    mt2->shared_state->tree.difference(mt1->shared_state->tree, output);
 
     ERL_NIF_TERM list = enif_make_list(env, 0);
     output.each([&](pair_t &pair) {
         ERL_NIF_TERM key_term = make_binary(env, pair.key.data(), pair.key.size());
 
-        auto pair1 = mt1->tree->get_item(pair);
-        auto pair2 = mt2->tree->get_item(pair);
+        auto pair1 = mt1->shared_state->tree.get_item(pair);
+        auto pair2 = mt2->shared_state->tree.get_item(pair);
 
         ERL_NIF_TERM value1_term = make_binary(env, pair1.value.data(), 32);
         ERL_NIF_TERM value2_term = make_binary(env, pair2.value.data(), 32);
@@ -289,7 +292,7 @@ merkletree_import_map(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
         bin_t key;
         key.insert(key.end(), key_binary.data, key_binary.data + key_binary.size);
         uint256_t value = (char*)value_binary.data;
-        mt->tree->insert_item(key, value);
+        mt->shared_state->tree.insert_item(key, value);
         enif_map_iterator_next(env, &iter);
     }
     enif_map_iterator_destroy(env, &iter);
@@ -303,7 +306,7 @@ merkletree_root_hash(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (argc != 1) return enif_make_badarg(env);
     if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
     Lock lock(mt);
-    auto root_hash = mt->tree->root_hash();
+    auto root_hash = mt->shared_state->tree.root_hash();
     return make_binary(env, root_hash.data(), 32);
 }
 
@@ -327,7 +330,7 @@ merkletree_root_hashes(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (argc != 1) return enif_make_badarg(env);
     if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
     Lock lock(mt);
-    auto root_hashes = mt->tree->root_hashes();
+    auto root_hashes = mt->shared_state->tree.root_hashes();
     return make_binary(env, (uint8_t*)root_hashes, 32*16);
 }
 
@@ -338,7 +341,7 @@ merkletree_size(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (argc != 1) return enif_make_badarg(env);
     if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
     Lock lock(mt);
-    auto size = mt->tree->size();
+    auto size = mt->shared_state->tree.size();
     return enif_make_uint(env, size);
 }
 
@@ -349,7 +352,7 @@ merkletree_bucket_count(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (argc != 1) return enif_make_badarg(env);
     if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
     Lock lock(mt);
-    auto size = mt->tree->leaf_count();
+    auto size = mt->shared_state->tree.leaf_count();
     return enif_make_uint(env, size);
 }
 
@@ -359,12 +362,10 @@ destruct_merkletree_type(ErlNifEnv* /*env*/, void *arg)
     merkletree *mt = (merkletree *) arg;
     if (mt->shared_state->has_clone == 0) {  
         print("DESTROYING", alive--);
-        delete(mt->tree);
         delete(mt->shared_state);
     } else {
         mt->shared_state->has_clone -= 1;
     }
-    mt->tree = NULL;
     mt->shared_state = NULL;
 }
 

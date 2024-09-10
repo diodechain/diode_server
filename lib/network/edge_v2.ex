@@ -134,7 +134,7 @@ defmodule Network.EdgeV2 do
 
         err =
           Chain.with_peak(fn peak ->
-            state = Chain.Block.state(peak)
+            state = Chain.Block.state(peak) |> Chain.State.clone()
 
             case Chain.Transaction.apply(tx, peak, state) do
               {:ok, _state, %{msg: :ok}} -> nil
