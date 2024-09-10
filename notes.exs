@@ -1,4 +1,17 @@
-# 1st Aug 2024
+# 11th Sept 2024
+
+mon = fn mon ->
+  IO.inspect(NaiveDateTime.utc_now)
+  IO.inspect(:erlang.memory())
+  Process.sleep(10_000)
+  mon.(mon)
+end
+
+pid = spawn(fn -> mon.(mon) end)
+
+# 10th Sept 2024
+
+Network.Rpc.handle_jsonrpc(%{"id" => 0, "method" => "dio_edgev2", "params" => ["0xd48f676574626c6f636b686561646572328377d5f1"]})
 
 Profiler.fprof(fn ->
   Network.Rpc.handle_jsonrpc(%{"id" => 0, "method" => "dio_edgev2", "params" => ["0xe48a6765746163636f756e7483775cf8947318de0ec12e06c701544e7afdf7b74ac22dfd9a"]})
@@ -7,6 +20,8 @@ end)
 Profiler.fprof(fn ->
   Network.Rpc.handle_jsonrpc(%{"id" => 0, "method" => "dio_edgev2", "params" => ["0xe48a6765746163636f756e748377cf10946d1e44ce490245910b7a134b6152f34f21d5f90d"]})
 end)
+
+# 1st Aug 2024
 
 MIX_ENV=prod mix export 7505500 7596000 last_three_month.sq3
 MIX_ENV=prod mix export 7596001 7649600 last_three_month2.sq3
