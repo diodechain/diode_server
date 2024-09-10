@@ -5,12 +5,12 @@ defmodule Chain.State do
   require Logger
   alias Chain.Account
 
-  # @enforce_keys [:store]
+  @enforce_keys [:accounts]
   defstruct accounts: %{}, hash: nil, store: nil
-  @type t :: %Chain.State{accounts: %{}, hash: nil}
+  @type t :: %Chain.State{accounts: nil, hash: nil}
 
   def new() do
-    %Chain.State{}
+    %Chain.State{accounts: MutableMap.new()}
   end
 
   def compact(%Chain.State{accounts: accounts} = state) do
@@ -22,13 +22,12 @@ defmodule Chain.State do
     |> Map.delete(:store)
   end
 
-  def uncompact(%Chain.State{accounts: accounts} = state) do
-    # IO.inspect(hash, label: "uncompact(state.hash)")
+  def uncompact(%Chain.State{accounts: old_accounts} = state) do
+    accounts = MutableMap.new()
 
-    accounts =
-      Enum.reduce(accounts, %{}, fn {id, acc}, accounts ->
-        Map.put(accounts, id, Account.uncompact(acc))
-      end)
+    for {id, acc} <- old_accounts do
+      MutableMap.put(accounts, id, Account.uncompact(acc))
+    end
 
     state = %Chain.State{state | accounts: accounts}
     tree = tree(state)
@@ -57,8 +56,7 @@ defmodule Chain.State do
   end
 
   def tree(%Chain.State{accounts: accounts}) do
-    accounts
-    |> Enum.reduce(%{}, fn {id, acc}, map ->
+    Enum.reduce(accounts, %{}, fn {id, acc}, map ->
       hash = Account.hash(acc)
       Map.put(map, id, hash)
     end)
@@ -79,7 +77,7 @@ defmodule Chain.State do
 
   @spec account(Chain.State.t(), <<_::160>>) :: Chain.Account.t() | nil
   def account(%Chain.State{accounts: accounts}, id = <<_::160>>) do
-    Map.get(accounts, id)
+    MutableMap.get(accounts, id)
   end
 
   @spec ensure_account(Chain.State.t(), <<_::160>> | Wallet.t() | non_neg_integer()) ::
@@ -101,12 +99,12 @@ defmodule Chain.State do
 
   @spec set_account(Chain.State.t(), binary(), Chain.Account.t()) :: Chain.State.t()
   def set_account(state = %Chain.State{accounts: accounts}, id = <<_::160>>, account) do
-    %{state | accounts: Map.put(accounts, id, account), hash: nil, store: nil}
+    %{state | accounts: MutableMap.put(accounts, id, account), hash: nil, store: nil}
   end
 
   @spec delete_account(Chain.State.t(), binary()) :: Chain.State.t()
   def delete_account(state = %Chain.State{accounts: accounts}, id = <<_::160>>) do
-    %{state | accounts: Map.delete(accounts, id), hash: nil, store: nil}
+    %{state | accounts: MutableMap.delete(accounts, id), hash: nil, store: nil}
   end
 
   def difference(
@@ -159,10 +157,10 @@ defmodule Chain.State do
   end
 
   def clone(%Chain.State{accounts: accounts} = state) do
-    new_state = %Chain.State{
-      state
-      | accounts: Enum.map(accounts, fn {id, acc} -> {id, Account.clone(acc)} end) |> Map.new()
-    }
+    accounts =
+      Enum.map(accounts, fn {id, acc} -> {id, Account.clone(acc)} end) |> MutableMap.new()
+
+    new_state = %Chain.State{state | accounts: accounts}
 
     case Map.get(state, :store) do
       nil -> new_state

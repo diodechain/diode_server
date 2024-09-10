@@ -34,6 +34,7 @@
   "mimerl": {:hex, :mimerl, "1.3.0", "d0cd9fc04b9061f82490f6581e0128379830e78535e017f7780f37fea7545726", [:rebar3], [], "hexpm", "a1e15a50d1887217de95f0b9b0793e32853f7c258a5cd227650889b38839fe9d"},
   "mix_erlang_tasks": {:hex, :mix_erlang_tasks, "0.1.0", "36819fec60b80689eb1380938675af215565a89320a9e29c72c70d97512e4649", [:mix], [], "hexpm", "95d2839c422c482a70c08a8702da8242f86b773f8ab6e8602a4eb72da8da04ed"},
   "mix_rebar3": {:hex, :mix_rebar3, "0.2.0", "b33656ef3047f21a19fac3254cb30a1d2c75ea419a3ad28c4b88f42c62a4202d", [:mix], [], "hexpm", "11eabb70c0a7ead9aa3631f048c3d7d5e868172b87b6493d0dc6f6d591c1afae"},
+  "mutable_map": {:hex, :mutable_map, "1.0.1", "f0733aa17f089aa863f0682f33fd77d5ee3f1f8cc3dfd3046bce6fdbd80c8b4d", [:mix], [{:weak_ref, "~> 1.0.0", [hex: :weak_ref, repo: "hexpm", optional: false]}], "hexpm", "3f53bddf2d62ee0153d52101dd4e997546e031aa3017ad907938c623d409ec2a"},
   "niffler": {:hex, :niffler, "0.3.0", "e82b5d348ed22060b5200ca381f4102b749d9fd238002e703d005d8e22ccf33d", [:mix, :rebar3], [{:mix_rebar3, "~> 0.2", [hex: :mix_rebar3, repo: "hexpm", optional: false]}], "hexpm", "abf45448f88d3fbb74797883397931e2940cbbb1b400d938658affb4fb2a5ff1"},
   "nimble_parsec": {:hex, :nimble_parsec, "1.4.0", "51f9b613ea62cfa97b25ccc2c1b4216e81df970acd8e16e8d1bdc58fef21370d", [:mix], [], "hexpm", "9c565862810fb383e9838c1dd2d7d2c437b3d13b267414ba6af33e50d2d1cf28"},
   "oncrash": {:hex, :oncrash, "0.1.0", "9cf4ae8eba4ea250b579470172c5e9b8c75418b2264de7dbcf42e408d62e30fb", [:mix], [], "hexpm", "6968e775491cd857f9b6ff940bf2574fd1c2fab84fa7e14d5f56c39174c00018"},
@@ -51,6 +52,7 @@
   "statistex": {:hex, :statistex, "1.0.0", "f3dc93f3c0c6c92e5f291704cf62b99b553253d7969e9a5fa713e5481cd858a5", [:mix], [], "hexpm", "ff9d8bee7035028ab4742ff52fc80a2aa35cece833cf5319009b52f1b5a86c27"},
   "telemetry": {:hex, :telemetry, "1.2.1", "68fdfe8d8f05a8428483a97d7aab2f268aaff24b49e0f599faa091f1d4e7f61c", [:rebar3], [], "hexpm", "dad9ce9d8effc621708f99eac538ef1cbe05d6a874dd741de2e689c47feafed5"},
   "unicode_util_compat": {:hex, :unicode_util_compat, "0.7.0", "bc84380c9ab48177092f43ac89e4dfa2c6d62b40b8bd132b1059ecc7232f9a78", [:rebar3], [], "hexpm", "25eee6d67df61960cf6a794239566599b09e17e668d3700247bc498638152521"},
+  "weak_ref": {:hex, :weak_ref, "1.0.2", "d283f9624d3993f378cb782750bc59f1bcdd6537114e8823ced76010098a25b5", [:mix], [], "hexpm", "bf38c8f541c4698c34edb1518a147a59112401527e28e62e7a7da81afb570ae8"},
   "websockex": {:git, "https://github.com/Azolo/websockex.git", "4a94f6870528f45d64cdd47bd4374faf52528466", []},
   "while": {:hex, :while, "0.2.4", "f4d10d39704f9ed257d13054f64ccdd6de4b3068e0ce6ecc6ce6d3f0b3b4b6e3", [:mix], [], "hexpm", "62659f89c2cdb4b90d48eadc2fb967c59c96bdeff6506f345139f0558eedb9d5"},
 }

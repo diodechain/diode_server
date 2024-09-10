@@ -107,6 +107,8 @@ defmodule Diode.Mixfile do
       {:sqlitex, github: "diodechain/sqlitex"},
       {:websockex, github: "Azolo/websockex"},
       {:while, "~> 0.2"},
+      {:mutable_map, "~> 1.0"},
+      # {:mutable_map, path: "../../mutable_map"},
 
       # linting
       {:dialyxir, "~> 1.1", only: [:dev], runtime: false},
