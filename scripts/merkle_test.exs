@@ -1,6 +1,7 @@
 :persistent_term.put(:env, :prod)
 # System.put_env("DATA_DIR", "data_prod")
 {:ok, _db} = Model.Sql.start_database(Db.Default, Db.Default)
+{:ok, _} = Application.ensure_all_started(:mutable_map)
 
 block_number = 7554001
 

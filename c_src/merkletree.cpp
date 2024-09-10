@@ -232,7 +232,7 @@ void Tree::insert_item(bin_t &key, uint256_t &value) {
 }
 
 void Tree::insert_item(pair_t &pair) {
-    Item &leaf = update_bucket(this->root, pair);
+    Item &leaf = update_bucket(*root, pair);
     if (pair.value.is_null()) {
         map_delete(leaf.leaf_bucket, pair.key);
     } else {
@@ -325,7 +325,9 @@ void Tree::update_merkle_hash_count(Item &item, bin_t &binary_buffer) {
                 map_put(item.leaf_bucket, pair);
             });
             // TODO: delete node_left and node_right
+            destroy_item(item.node_left);
             item.node_left = 0;
+            destroy_item(item.node_right);
             item.node_right = 0;
             item.is_leaf = true;
             bucket_to_leafes(item, binary_buffer);
@@ -340,8 +342,8 @@ void Tree::update_merkle_hash_count(Item &item, bin_t &binary_buffer) {
 
 uint256_t Tree::root_hash() {
     bin_t binary_buffer;
-    if (root.is_leaf) {
-        update_merkle_hash_count(root, binary_buffer);
+    if (root->is_leaf) {
+        update_merkle_hash_count(*root, binary_buffer);
     } else { 
         // #pragma omp parallel sections
         // {
@@ -355,23 +357,23 @@ uint256_t Tree::root_hash() {
         //         update_merkle_hash_count(*root.node_right, binary_buffer_right);
         //     }
         // }
-        update_merkle_hash_count(root, binary_buffer);
+        update_merkle_hash_count(*root, binary_buffer);
     }
 
     binary_buffer.clear();
-    to_erl_ext(binary_buffer, root.hash_values);
+    to_erl_ext(binary_buffer, root->hash_values);
     return hash(binary_buffer);
 }
 
 uint256_t* Tree::root_hashes() {
     bin_t binary_buffer;
-    update_merkle_hash_count(root, binary_buffer);
-    return root.hash_values;
+    update_merkle_hash_count(*root, binary_buffer);
+    return root->hash_values;
 }
 
 size_t Tree::size() {
     size_t count = 0;
-    root.each([&count](pair_t &) {
+    root->each([&count](pair_t &) {
         count++;
     });
     return count;
@@ -379,8 +381,8 @@ size_t Tree::size() {
 
 size_t Tree::leaf_count() {
     bin_t binary_buffer;
-    update_merkle_hash_count(root, binary_buffer);
-    return root.leaf_count();
+    update_merkle_hash_count(*root, binary_buffer);
+    return root->leaf_count();
 }
 
 proof_t make_hash_proof(uint256_t &hash) {
@@ -416,8 +418,8 @@ proof_t do_get_proofs(Item &item, pair_t &pair) {
 proof_t Tree::get_proofs(bin_t& key) {
     pair_t pair = {key, uint256_t(), hash(key)};
     bin_t binary_buffer;
-    update_merkle_hash_count(root, binary_buffer);
-    return do_get_proofs(root, pair);
+    update_merkle_hash_count(*root, binary_buffer);
+    return do_get_proofs(*root, pair);
 }
 
 pair_t Tree::get_item(bin_t &key) {
@@ -426,7 +428,7 @@ pair_t Tree::get_item(bin_t &key) {
 }
 
 pair_t Tree::get_item(pair_t &pair) {
-    return map_get(get_bucket(root, pair).leaf_bucket, pair.key);
+    return map_get(get_bucket(*root, pair).leaf_bucket, pair.key);
 }
 
 void Tree::difference(Tree &other, Tree &into) {

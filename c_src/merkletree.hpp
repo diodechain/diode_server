@@ -122,7 +122,8 @@ public:
 
 uint256_t hash(bin_t &input);
 
-struct pair_t {
+class pair_t {
+public:
     bin_t key;
     uint256_t value;
     uint256_t key_hash;
@@ -178,7 +179,7 @@ public:
 
 struct Item {
     Item() : is_leaf(true), dirty(true), hash_count(0), prefix(), leaf_bucket(), node_left(nullptr), node_right(nullptr) { };
-    ~Item() { };
+    ~Item() = default;
     Item(const Item &other) = delete;
     Item& operator=(const Item &other) = delete;
 
@@ -235,43 +236,51 @@ class Tree {
     std::list<uint8_t*> m_stripes;
     size_t m_item_count;
     std::list<Item*> m_backbuffer;
-    Item root;
+    Item *root;
 
     Item* new_item() {
         if (!m_backbuffer.empty()) {
             Item* item = m_backbuffer.front();
             m_backbuffer.pop_front();
-            return new (item) Item();
+            return item;
         }
 
         if (m_item_count + 1 > m_stripes.size() * STRIPE_SIZE) {
             m_stripes.push_back((uint8_t*)malloc(STRIPE_SIZE * sizeof(Item)));
         }
 
-        Item* item = reinterpret_cast<Item*>(&m_stripes.back()[m_item_count % STRIPE_SIZE * sizeof(Item)]);
+        Item* item = reinterpret_cast<Item*>(&m_stripes.back()[(m_item_count % STRIPE_SIZE) * sizeof(Item)]);
         m_item_count++;
         return new (item) Item();
     }
 
     void destroy_item(Item* item) {
-        m_backbuffer.push_back(item);
+        item->~Item();
+        m_backbuffer.push_back(new (item) Item());
     }
 
     void split_node(Item &tree);
     void update_merkle_hash_count(Item &item, bin_t &binary_buffer);
 
 public:
-    Tree() : m_stripes(), m_item_count(0), m_backbuffer(), root() { };
-    Tree(const Tree &other) : m_stripes(), m_item_count(0), m_backbuffer(), root() {
-        ((Tree &)other).root.each([&](pair_t &pair) {
+    Tree() : m_stripes(), m_item_count(0), m_backbuffer(), root(new_item()) { };
+    Tree(const Tree &other) : m_stripes(), m_item_count(0), m_backbuffer(), root(new_item()) {
+        ((Tree &)other).each([&](pair_t &pair) {
             insert_item(pair);
         });
     }
     Tree& operator=(const Tree &other) = delete;
     ~Tree() {
         for (uint8_t *stripe : m_stripes) {
+            auto len = std::min(STRIPE_SIZE, m_item_count);
+            for (size_t i = 0; i < len; i++) {
+                Item* item = reinterpret_cast<Item*>(&stripe[(i % STRIPE_SIZE) * sizeof(Item)]);
+                item->~Item();
+            }
+            m_item_count -= len;
             free(stripe);
         }
+        root = nullptr;
     }
     void insert_item(pair_t &pair);
     void insert_item(bin_t &key, uint256_t &value);
@@ -288,7 +297,7 @@ public:
     size_t size();
     size_t leaf_count();
     void each(std::function<void(pair_t &)> func) {
-        root.each(func);
+        root->each(func);
     }
     void difference(Tree &other, Tree &into);
 };

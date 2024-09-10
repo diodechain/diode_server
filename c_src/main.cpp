@@ -167,7 +167,10 @@ int main(int argc, char *argv[]) {
     if (test2(1024, "0xcad280c10f8529ad36bce8e3b03a464987c6d4286c21bfcba0a76acd237e9025")) return 1;
     if (test3(1024, "0xcad280c10f8529ad36bce8e3b03a464987c6d4286c21bfcba0a76acd237e9025", 18)) return 1;
     if (test3(1024, "0xcad280c10f8529ad36bce8e3b03a464987c6d4286c21bfcba0a76acd237e9025", 128)) return 1;
-    // if (test2(1000000, "0x3f7fc2e10181d3936167cf16dbb8efd40f9d8703402c630a95eb1182bd0dcc70")) return 1;
+    if (test3(1024, "0xcad280c10f8529ad36bce8e3b03a464987c6d4286c21bfcba0a76acd237e9025", 129)) return 1;
+    if (test3(1025, "0x23afa4dc1f603f310cda771d74b8ed1e52fb9ab244df44eea057a202f774bb62", 129)) return 1;
+    if (test3(1024, "0xcad280c10f8529ad36bce8e3b03a464987c6d4286c21bfcba0a76acd237e9025", 512)) return 1;
+    if (test2(1000000, "0x3f7fc2e10181d3936167cf16dbb8efd40f9d8703402c630a95eb1182bd0dcc70")) return 1;
     // printf("hash_count: %d\n", hash_count);
     return 0;
 }
