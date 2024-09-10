@@ -88,7 +88,7 @@ defmodule Network.Rpc do
     envelope =
       %{"id" => {:raw, id}, "jsonrpc" => "2.0"}
       |> Map.merge(ret)
-      |> Json.prepare!(big_x: false)
+      |> Json.prepare!(all_hex: method == "dio_edgev2")
 
     {code, envelope}
   end
@@ -531,7 +531,6 @@ defmodule Network.Rpc do
           |> Enum.reduce(%{}, fn hash, map ->
             Map.update(map, hash, 1, fn x -> x + 1 end)
           end)
-          |> Json.prepare!(big_x: false)
           |> result()
         end)
 

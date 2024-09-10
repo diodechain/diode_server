@@ -12,7 +12,7 @@ defmodule Json do
   end
 
   defp conv_validate(conv) do
-    Keyword.merge([big_x: true, all_hex: false], conv)
+    Keyword.merge([all_hex: false], conv)
   end
 
   def decode!(binary) do
@@ -50,8 +50,8 @@ defmodule Json do
     |> Enum.map(&do_encode(&1, conv))
   end
 
-  defp do_encode(int, conv) when is_integer(int) and int >= 0 do
-    case Base16.encode(int, conv[:big_x]) do
+  defp do_encode(int, _conv) when is_integer(int) and int >= 0 do
+    case Base16.encode(int, false) do
       "0x0" <> rest -> "0x" <> rest
       other -> other
     end
@@ -65,15 +65,15 @@ defmodule Json do
     if conv[:all_hex] == false and String.printable?(bin) do
       bin
     else
-      Base16.encode(bin, conv[:big_x])
+      Base16.encode(bin, false)
     end
   end
 
-  defp do_encode(bits, _big_x) when is_bitstring(bits) do
+  defp do_encode(bits, _conv) when is_bitstring(bits) do
     for <<x::size(1) <- bits>>, do: if(x == 1, do: "1", else: "0"), into: ""
   end
 
-  defp do_encode(other, _big_x) do
+  defp do_encode(other, _conv) do
     other
   end
 
