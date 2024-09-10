@@ -48,8 +48,15 @@ public:
         enif_mutex_lock(mtx);
     }
 
-    ~Lock() {
+    void unlock() {
         enif_mutex_unlock(mtx);
+        mtx = 0;
+    }
+
+    ~Lock() {
+        if (mtx) {
+            enif_mutex_unlock(mtx);
+        }
     }
 };
 
@@ -360,8 +367,10 @@ static void
 destruct_merkletree_type(ErlNifEnv* /*env*/, void *arg)
 {
     merkletree *mt = (merkletree *) arg;
+    Lock lock(mt);
     if (mt->shared_state->has_clone == 0) {  
         print("DESTROYING", alive--);
+        lock.unlock();
         delete(mt->shared_state);
     } else {
         mt->shared_state->has_clone -= 1;
