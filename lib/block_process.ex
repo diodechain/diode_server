@@ -44,7 +44,13 @@ defmodule BlockProcess do
   end
 
   def fetch_state(block_hash) do
-    EtsLru.fetch(__MODULE__.State, block_hash, fn -> ChainSql.state(block_hash) end)
+    EtsLru.fetch(__MODULE__.State, block_hash, fn ->
+      ret = ChainSql.state(block_hash)
+      :erlang.garbage_collect()
+      :erlang.garbage_collect(Process.whereis(BlockProcess))
+      :erlang.garbage_collect(Process.whereis(Model.Sql))
+      ret
+    end)
   end
 
   def with_block(<<block_hash::binary-size(32)>>, fun) do

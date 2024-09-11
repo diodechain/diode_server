@@ -3,7 +3,7 @@
 mon = fn mon ->
   IO.inspect(NaiveDateTime.utc_now)
   IO.inspect(:erlang.memory())
-  Process.sleep(10_000)
+  Process.sleep(1_000)
   mon.(mon)
 end
 
