@@ -7,7 +7,7 @@ defmodule Chain.State do
 
   @enforce_keys [:accounts]
   defstruct accounts: %{}, hash: nil, store: nil
-  @type t :: %Chain.State{accounts: nil, hash: nil}
+  @type t :: %Chain.State{accounts: any(), hash: any(), store: any()}
 
   def new() do
     %Chain.State{accounts: MutableMap.new()}

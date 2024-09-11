@@ -492,8 +492,21 @@ defmodule Chain do
       ^me ->
         true
 
-      _other ->
-        false
+      other ->
+        if Process.whereis(:active_sync_job) == nil and
+             Process.info(other, :current_function) ==
+               {:current_function, {:erlang, :hibernate, 3}} do
+          Process.unregister(:active_sync)
+
+          if register do
+            Process.register(self(), :active_sync)
+            PubSub.publish(:rpc, {:rpc, :syncing, true})
+          end
+
+          true
+        else
+          false
+        end
     end
   end
 
