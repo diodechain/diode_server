@@ -5,14 +5,16 @@ extern "C" {
 
 #include "merkletree.hpp"
 
-static void print(const char *msg, int value) {
-    if (value % 10000 == 0) {
-        fprintf(stderr, "%s [%d]\n", msg, value); fflush(stderr);
+static ErlNifResourceType *merkletree_type = NULL;
+static volatile int ops = 0;
+static volatile int shared_states = 0;
+static volatile int resources = 0;
+
+static void print(const char *msg) {
+    if (ops++ % 10000 == 0) {
+        fprintf(stderr, "%s [shared_states=%d] [resources=%d]\n", msg, shared_states, resources); fflush(stderr);
     }
 }
-
-static ErlNifResourceType *merkletree_type = NULL;
-static int alive = 0;
 
 class SharedState {
 public:
@@ -22,14 +24,20 @@ public:
     SharedState() : tree() {
         mtx = enif_mutex_create((char*)"merkletree_mutex");
         has_clone = 0;
+        shared_states++;
+        print("CREATE");
     }
 
     SharedState(SharedState &other) : tree(other.tree) {
         mtx = enif_mutex_create((char*)"merkletree_mutex");
         has_clone = 0;
+        shared_states++;
+        print("CLONE");
     }
 
     ~SharedState() {
+        shared_states--;
+        print("DESTROY");
         enif_mutex_destroy(mtx);
     }
 };
@@ -85,9 +93,9 @@ merkletree_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM[] /*argv[]*/)
 {
     if (argc != 0) return enif_make_badarg(env);
     merkletree *mt = (merkletree*)enif_alloc_resource(merkletree_type, sizeof(merkletree));
+    resources++;
     mt->shared_state = new SharedState();
     mt->locked = false;
-    print("CREATING", alive++);
     ERL_NIF_TERM res = enif_make_resource(env, mt);
     enif_release_resource(mt);
     return res;
@@ -100,7 +108,7 @@ bool make_writeable(merkletree *mt)
     if (mt->shared_state->has_clone > 0) {
         mt->shared_state->has_clone -= 1;
         mt->shared_state = new SharedState(*mt->shared_state);
-        print("CLONING", alive++);
+        print("CREATING (UNCLONING)");
     }
     return true;
 }
@@ -114,6 +122,7 @@ merkletree_clone(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     Lock lock(mt);
     merkletree *clone = (merkletree*)enif_alloc_resource(merkletree_type, sizeof(merkletree));
+    resources++;
     clone->shared_state = mt->shared_state;
     clone->locked = false;
     clone->shared_state->has_clone += 1;
@@ -368,9 +377,9 @@ static void
 destruct_merkletree_type(ErlNifEnv* /*env*/, void *arg)
 {
     merkletree *mt = (merkletree *) arg;
+    resources--;
     Lock lock(mt);
     if (mt->shared_state->has_clone == 0) {  
-        print("DESTROYING", alive--);
         lock.unlock();
         delete(mt->shared_state);
     } else {
