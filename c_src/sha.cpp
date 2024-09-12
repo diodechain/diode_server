@@ -1,4 +1,5 @@
 #include <stdint.h>
+extern "C" {
 #ifdef __SHA__
 #include "sha256_asm.c"
 
@@ -22,4 +23,5 @@ void sha(const uint8_t *message, uint64_t len, uint8_t *digest)
 }
 
 #endif
+}
 

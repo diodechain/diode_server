@@ -7,6 +7,8 @@
 #include <iomanip>  // Also add this for std::setfill and std::setw
 #include <list>
 
+#include "preallocator.hpp"
+
 const int LEAF_SIZE = 16;
 const int LEFT = 0;
 const int RIGHT = 1;
@@ -124,6 +126,13 @@ uint256_t hash(bin_t &input);
 
 class pair_t {
 public:
+    pair_t() = default;
+    pair_t(bin_t &key, uint256_t &value, uint256_t &key_hash) : key(key), value(value), key_hash(key_hash) { }
+    pair_t(bin_t &key, uint256_t &value) : key(key), value(value), key_hash(hash(key)) { }
+    pair_t(bin_t &key) : key(key), value(), key_hash(hash(key)) { }
+    pair_t(Tree& /*tree*/) : key(), value(), key_hash() { }
+    pair_t(const pair_t &other) = default;
+    pair_t& operator=(const pair_t &other) = default;
     bin_t key;
     uint256_t value;
     uint256_t key_hash;
@@ -131,26 +140,34 @@ public:
 
 // typedef std::vector<pair_t> pair_list_t;
 struct pair_list_t {
-    pair_t m_pairs[LEAF_SIZE + 1];
+    PreAllocator<pair_t> &m_allocator;
+    pair_t* m_pairs[LEAF_SIZE + 1];
     size_t m_size;
 
 public:
-    // pair_list_t() : m_size(0) {}
+    pair_list_t(Tree &tree);
+    ~pair_list_t() { clear(); }
 
-    void push_back(pair_t &pair) {
+    void push_back_no_delete(pair_t *pair) {
         m_pairs[m_size++] = pair;
     }
 
-    pair_t *begin() {
+    void push_back(pair_t &pair) {
+        auto new_pair = m_allocator.new_item();
+        *new_pair = pair;
+        m_pairs[m_size++] = new_pair;
+    }
+
+    pair_t **begin() {
         return m_pairs;
     }
 
-    pair_t *end() {
+    pair_t **end() {
         return m_pairs + m_size;
     }
 
     pair_t &operator[](size_t index) {
-        return m_pairs[index];
+        return *m_pairs[index];
     }
 
     size_t size() {
@@ -158,6 +175,7 @@ public:
     }
 
     void erase(size_t index) {
+        m_allocator.destroy_item(m_pairs[index]);
         for (size_t i = index; i < m_size - 1; i++) {
             m_pairs[i] = m_pairs[i + 1];
         }
@@ -168,25 +186,34 @@ public:
         for (size_t i = m_size; i > index; i--) {
             m_pairs[i] = m_pairs[i - 1];
         }
-        m_pairs[index] = pair;
+        m_pairs[index] = m_allocator.new_item();
+        *m_pairs[index] = pair;
         m_size++;
     }
 
     void clear() {
+        for (size_t i = 0; i < m_size; i++) {
+            m_allocator.destroy_item(m_pairs[i]);
+        }
+        
+        m_size = 0;
+    }
+
+    void clear_no_delete() {
         m_size = 0;
     }
 };
 
 struct Item {
-    Item() : is_leaf(true), dirty(true), hash_count(0), prefix(), leaf_bucket(), node_left(nullptr), node_right(nullptr) { };
+    Item(Tree &tree) : is_leaf(true), dirty(true), hash_count(0), prefix(), leaf_bucket(tree), node_left(nullptr), node_right(nullptr) { };
     ~Item() = default;
     Item(const Item &other) = delete;
     Item& operator=(const Item &other) = delete;
 
     void each(std::function<void(pair_t &)> func) {
         if (this->is_leaf) {
-            for (pair_t &pair : leaf_bucket) {
-                func(pair);
+            for (pair_t *pair : leaf_bucket) {
+                func(*pair);
             }
         } else {
             node_left->each(func);
@@ -232,56 +259,26 @@ struct proof_t {
 };
 
 class Tree {
-    static const size_t STRIPE_SIZE = 128;
-    std::list<uint8_t*> m_stripes;
-    size_t m_item_count;
-    std::list<Item*> m_backbuffer;
+public:
+    PreAllocator<pair_t> m_pair_allocator;
+    PreAllocator<Item> m_allocator;
     Item *root;
 
-    Item* new_item() {
-        if (!m_backbuffer.empty()) {
-            Item* item = m_backbuffer.front();
-            m_backbuffer.pop_front();
-            return item;
-        }
-
-        if (m_item_count + 1 > m_stripes.size() * STRIPE_SIZE) {
-            m_stripes.push_back((uint8_t*)malloc(STRIPE_SIZE * sizeof(Item)));
-        }
-
-        Item* item = reinterpret_cast<Item*>(&m_stripes.back()[(m_item_count % STRIPE_SIZE) * sizeof(Item)]);
-        m_item_count++;
-        return new (item) Item();
-    }
-
-    void destroy_item(Item* item) {
-        item->~Item();
-        m_backbuffer.push_back(new (item) Item());
-    }
-
+    Item* new_item() { return m_allocator.new_item(); }
+    void destroy_item(Item* item) { m_allocator.destroy_item(item); }
     void split_node(Item &tree);
     void update_merkle_hash_count(Item &item, bin_t &binary_buffer);
+    void bucket_to_leafes(Item &item, bin_t &binary_buffer);
 
-public:
-    Tree() : m_stripes(), m_item_count(0), m_backbuffer(), root(new_item()) { };
-    Tree(const Tree &other) : m_stripes(), m_item_count(0), m_backbuffer(), root(new_item()) {
+    Tree() : m_pair_allocator(*this), m_allocator(*this), root(new_item()) { };
+    Tree(const Tree &other) : m_pair_allocator(*this), m_allocator(*this), root(new_item()) {
         ((Tree &)other).each([&](pair_t &pair) {
             insert_item(pair);
         });
     }
     Tree& operator=(const Tree &other) = delete;
-    ~Tree() {
-        for (uint8_t *stripe : m_stripes) {
-            auto len = std::min(STRIPE_SIZE, m_item_count);
-            for (size_t i = 0; i < len; i++) {
-                Item* item = reinterpret_cast<Item*>(&stripe[(i % STRIPE_SIZE) * sizeof(Item)]);
-                item->~Item();
-            }
-            m_item_count -= len;
-            free(stripe);
-        }
-        root = nullptr;
-    }
+    ~Tree() { root = nullptr; }
+
     void insert_item(pair_t &pair);
     void insert_item(bin_t &key, uint256_t &value);
     void insert_items(pair_list_t &items);

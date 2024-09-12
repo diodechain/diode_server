@@ -49,7 +49,7 @@ struct Leaf {
     bits_t *prefix;
     pair_list_t bucket;
 
-    Leaf() : num(0), prefix(nullptr), bucket(pair_list_t()) {}
+    Leaf(Tree &tree) : num(0), prefix(nullptr), bucket(tree) {}
 
     void to_erl_ext(bin_t &binary) {
         // [prefix, num, {key, value}]
@@ -83,15 +83,15 @@ struct Leaf {
         binary.push_back(97);
         binary.push_back(num);
         
-        for (pair_t &pair : bucket) {
+        for (pair_t *pair : bucket) {
             // bucket encoded as SMALL_TUPLE_EXT with two elemens
             binary.push_back(104);
             binary.push_back(2);
 
             // key encoded as BINARY_EXT
-            to_erl(binary, pair.key);
+            to_erl(binary, pair->key);
             // value encoded as BINARY_EXT
-            to_erl(binary, pair.value);
+            to_erl(binary, pair->value);
         }
 
         binary.push_back(106);
@@ -171,8 +171,8 @@ void map_delete(pair_list_t &map, bin_t &key) {
 }
 
 bool map_contains(pair_list_t &map, bin_t &key) {
-    for (pair_t &pair : map) {
-        if (pair.key == key) {
+    for (pair_t *pair : map) {
+        if (pair->key == key) {
             return true;
         }
     }
@@ -180,9 +180,9 @@ bool map_contains(pair_list_t &map, bin_t &key) {
 }
 
 pair_t map_get(pair_list_t &map, bin_t &key) {
-    for (pair_t &pair : map) {
-        if (pair.key == key) {
-            return pair;
+    for (pair_t *pair : map) {
+        if (pair->key == key) {
+            return *pair;
         }
     }
     return pair_t();
@@ -227,7 +227,7 @@ Item &get_bucket(Item &item, pair_t &pair) {
 }
 
 void Tree::insert_item(bin_t &key, uint256_t &value) {
-    pair_t pair = {key, value, hash(key)};
+    pair_t pair(key, value);
     insert_item(pair);
 }
 
@@ -242,8 +242,8 @@ void Tree::insert_item(pair_t &pair) {
 }
 
 void Tree::insert_items(pair_list_t &items) {
-    for (pair_t &pair : items) {
-        insert_item(pair);
+    for (pair_t *pair : items) {
+        insert_item(*pair);
     }
 }
 
@@ -256,16 +256,16 @@ void bucket_to_leaf(Item &item, Leaf& leaf, int i) {
     leaf.num = i;
     leaf.bucket.clear();
 
-    for (pair_t &pair : item.leaf_bucket) {
-        int index = hash_to_leafindex(pair);
+    for (pair_t *pair : item.leaf_bucket) {
+        int index = hash_to_leafindex(*pair);
         if (index == i) {
-            leaf.bucket.push_back(pair);
+            leaf.bucket.push_back(*pair);
         }
     }
 }
 
-void bucket_to_leafes(Item &item, bin_t &binary_buffer) {
-    Leaf leaf;
+void Tree::bucket_to_leafes(Item &item, bin_t &binary_buffer) {
+    Leaf leaf(*this);
     leaf.prefix = &item.prefix;
 
     for (int i = 0; i < LEAF_SIZE; i++) {
@@ -287,18 +287,18 @@ void Tree::split_node(Item &tree) {
     tree.node_right->prefix = tree.prefix;
     tree.node_right->prefix.push_back(RIGHT);
 
-    for (pair_t &pair : tree.leaf_bucket) {
-        if (decide(pair, tree.prefix.size())) {
-            tree.node_left->leaf_bucket.push_back(pair);
+    for (pair_t *pair : tree.leaf_bucket) {
+        if (decide(*pair, tree.prefix.size())) {
+            tree.node_left->leaf_bucket.push_back_no_delete(pair);
         } else {
-            tree.node_right->leaf_bucket.push_back(pair);
+            tree.node_right->leaf_bucket.push_back_no_delete(pair);
         }
     }
 
     split_node(*tree.node_left);
     split_node(*tree.node_right);
 
-    tree.leaf_bucket.clear();
+    tree.leaf_bucket.clear_no_delete();
     tree.is_leaf = false;
     tree.dirty = true;
 }
@@ -392,10 +392,10 @@ proof_t make_hash_proof(uint256_t &hash) {
     return ret;
 }
 
-proof_t do_get_proofs(Item &item, pair_t &pair) {
+proof_t do_get_proofs(Tree &tree, Item &item, pair_t &pair) {
     proof_t ret;
     if (item.is_leaf) {
-        Leaf leaf; 
+        Leaf leaf(tree); 
         bucket_to_leaf(item, leaf, hash_to_leafindex(pair));
 
         ret.type = 2;
@@ -405,25 +405,25 @@ proof_t do_get_proofs(Item &item, pair_t &pair) {
 
     ret.type = 0;
     if (decide(pair, item.prefix.size())) {
-        ret.left = std::make_unique<proof_t>(do_get_proofs(*item.node_left, pair));
+        ret.left = std::make_unique<proof_t>(do_get_proofs(tree, *item.node_left, pair));
         ret.right = std::make_unique<proof_t>(make_hash_proof(item.node_right->hash_values[hash_to_leafindex(pair)]));
     } else {
         ret.left = std::make_unique<proof_t>(make_hash_proof(item.node_left->hash_values[hash_to_leafindex(pair)]));
-        ret.right = std::make_unique<proof_t>(do_get_proofs(*item.node_right, pair));
+        ret.right = std::make_unique<proof_t>(do_get_proofs(tree, *item.node_right, pair));
     }
 
     return ret;
 }
 
 proof_t Tree::get_proofs(bin_t& key) {
-    pair_t pair = {key, uint256_t(), hash(key)};
+    pair_t pair(key);
     bin_t binary_buffer;
     update_merkle_hash_count(*root, binary_buffer);
-    return do_get_proofs(*root, pair);
+    return do_get_proofs(*this, *root, pair);
 }
 
 pair_t Tree::get_item(bin_t &key) {
-    pair_t pair = {key, uint256_t(), hash(key)};
+    pair_t pair(key);
     return get_item(pair);
 }
 
@@ -439,3 +439,5 @@ void Tree::difference(Tree &other, Tree &into) {
         }
     });
 }
+
+pair_list_t::pair_list_t(Tree &tree) : m_allocator(tree.m_pair_allocator), m_size(0) {}
