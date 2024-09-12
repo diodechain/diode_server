@@ -1,6 +1,18 @@
 # 11th Sept 2024
 
 mon = fn mon ->
+  before = :erlang.memory()
+  for pid <- Process.list() do
+    :erlang.garbage_collect(pid)
+  end
+  IO.inspect({before, :erlang.memory()}, label: "GC")
+  Process.sleep(60_000)
+  mon.(mon)
+end
+
+pid = spawn(fn -> mon.(mon) end)
+
+mon = fn mon ->
   IO.inspect(NaiveDateTime.utc_now)
   IO.inspect(:erlang.memory())
   Process.sleep(1_000)

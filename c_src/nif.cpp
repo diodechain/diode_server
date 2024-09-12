@@ -18,18 +18,15 @@ class SharedState {
 public:
     ErlNifMutex *mtx;
     int has_clone;
-    bool locked;
     Tree tree;
     SharedState() : tree() {
         mtx = enif_mutex_create((char*)"merkletree_mutex");
         has_clone = 0;
-        locked = false;
     }
 
     SharedState(SharedState &other) : tree(other.tree) {
         mtx = enif_mutex_create((char*)"merkletree_mutex");
         has_clone = 0;
-        locked = false;
     }
 
     ~SharedState() {
@@ -38,6 +35,7 @@ public:
 };
 
 struct  merkletree {
+    bool locked;
     SharedState *shared_state;
 };
 
@@ -88,19 +86,23 @@ merkletree_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM[] /*argv[]*/)
     if (argc != 0) return enif_make_badarg(env);
     merkletree *mt = (merkletree*)enif_alloc_resource(merkletree_type, sizeof(merkletree));
     mt->shared_state = new SharedState();
+    mt->locked = false;
     print("CREATING", alive++);
     ERL_NIF_TERM res = enif_make_resource(env, mt);
     enif_release_resource(mt);
     return res;
 }
 
-void make_writeable(merkletree *mt)
+bool make_writeable(merkletree *mt)
 {
+    if (mt->locked) return false;
+
     if (mt->shared_state->has_clone > 0) {
         mt->shared_state->has_clone -= 1;
         mt->shared_state = new SharedState(*mt->shared_state);
         print("CLONING", alive++);
     }
+    return true;
 }
 
 static ERL_NIF_TERM
@@ -113,6 +115,7 @@ merkletree_clone(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     Lock lock(mt);
     merkletree *clone = (merkletree*)enif_alloc_resource(merkletree_type, sizeof(merkletree));
     clone->shared_state = mt->shared_state;
+    clone->locked = false;
     clone->shared_state->has_clone += 1;
     ERL_NIF_TERM res = enif_make_resource(env, clone);
     enif_release_resource(clone);
@@ -133,8 +136,7 @@ merkletree_insert_item(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (value_binary.size != 32) return enif_make_badarg(env);
 
     Lock lock(mt);
-    make_writeable(mt);
-    if (mt->shared_state->locked) return enif_make_badarg(env);
+    if (!make_writeable(mt)) return enif_make_badarg(env);
 
     bin_t key;
     key.insert(key.end(), key_binary.data, key_binary.data + key_binary.size);
@@ -233,7 +235,7 @@ merkletree_lock(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (argc != 1) return enif_make_badarg(env);
     if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
     Lock lock(mt);
-    mt->shared_state->locked = true;
+    mt->locked = true;
     return argv[0];
 }
 
@@ -284,8 +286,7 @@ merkletree_import_map(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (!enif_is_map(env, argv[1])) return enif_make_badarg(env);
 
     Lock lock(mt);
-    make_writeable(mt);
-    if (mt->shared_state->locked) return enif_make_badarg(env);
+    if (!make_writeable(mt)) return enif_make_badarg(env);
 
     ERL_NIF_TERM key, value;
     ErlNifMapIterator iter;
