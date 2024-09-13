@@ -167,14 +167,18 @@ merkletree_get_item(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     bin_t key;
     key.insert(key.end(), key_binary.data, key_binary.data + key_binary.size);
-    pair_t pair = mt->shared_state->tree.get_item(key);
+    pair_t* pair = mt->shared_state->tree.get_item(std::move(key));
     enif_release_binary(&key_binary);
 
 
+    if (pair == nullptr) {
+        return make_atom(env, "nil");
+    }
+
     // Should return {key, value, hash}
     ERL_NIF_TERM key_term = argv[1];
-    ERL_NIF_TERM value_term = make_binary(env, pair.value.data(), 32);
-    ERL_NIF_TERM hash_term = make_binary(env, pair.key_hash.data(), 32);
+    ERL_NIF_TERM value_term = make_binary(env, pair->value.data(), 32);
+    ERL_NIF_TERM hash_term = make_binary(env, pair->key_hash.data(), 32);
     ERL_NIF_TERM tuple = enif_make_tuple3(env, key_term, value_term, hash_term);
     return tuple;
 }
@@ -276,8 +280,8 @@ merkletree_difference(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
         auto pair1 = mt1->shared_state->tree.get_item(pair);
         auto pair2 = mt2->shared_state->tree.get_item(pair);
 
-        ERL_NIF_TERM value1_term = make_binary(env, pair1.value.data(), 32);
-        ERL_NIF_TERM value2_term = make_binary(env, pair2.value.data(), 32);
+        ERL_NIF_TERM value1_term = pair1 == nullptr ? make_atom(env, "nil") : make_binary(env, pair1->value.data(), 32);
+        ERL_NIF_TERM value2_term = pair2 == nullptr ? make_atom(env, "nil") : make_binary(env, pair2->value.data(), 32);
         ERL_NIF_TERM tuple = enif_make_tuple2(env, value1_term, value2_term);
         tuple = enif_make_tuple2(env, key_term, tuple);
         list = enif_make_list_cell(env, tuple, list);

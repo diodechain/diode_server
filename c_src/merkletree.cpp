@@ -179,13 +179,13 @@ bool map_contains(pair_list_t &map, bin_t &key) {
     return false;
 }
 
-pair_t map_get(pair_list_t &map, bin_t &key) {
+pair_t* map_get(pair_list_t &map, bin_t &key) {
     for (pair_t *pair : map) {
         if (pair->key == key) {
-            return *pair;
+            return pair;
         }
     }
-    return pair_t();
+    return nullptr;
 }
 
 void map_put(pair_list_t &map, pair_t &new_pair) {
@@ -422,19 +422,19 @@ proof_t Tree::get_proofs(bin_t& key) {
     return do_get_proofs(*this, *root, pair);
 }
 
-pair_t Tree::get_item(bin_t &key) {
+pair_t* Tree::get_item(bin_t &&key) {
     pair_t pair(key);
     return get_item(pair);
 }
 
-pair_t Tree::get_item(pair_t &pair) {
+pair_t* Tree::get_item(pair_t &pair) {
     return map_get(get_bucket(*root, pair).leaf_bucket, pair.key);
 }
 
 void Tree::difference(Tree &other, Tree &into) {
     each([&other, &into](pair_t &pair) {
-        pair_t other_pair = other.get_item(pair);
-        if (other_pair.value != pair.value) {
+        pair_t* other_pair = other.get_item(pair);
+        if (other_pair == nullptr || other_pair->value != pair.value) {
             into.insert_item(pair);
         }
     });

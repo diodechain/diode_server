@@ -128,8 +128,9 @@ class pair_t {
 public:
     pair_t() = default;
     pair_t(bin_t &key, uint256_t &value, uint256_t &key_hash) : key(key), value(value), key_hash(key_hash) { }
-    pair_t(bin_t &key, uint256_t &value) : key(key), value(value), key_hash(hash(key)) { }
-    pair_t(bin_t &key) : key(key), value(), key_hash(hash(key)) { }
+    pair_t(bin_t &_key, uint256_t &value) : key(_key), value(value), key_hash(hash(key)) { }
+    pair_t(bin_t &_key) : key(_key), value(), key_hash(hash(key)) { }
+    pair_t(bin_t &&_key) : key(_key), value(), key_hash(hash(key)) { }
     pair_t(Tree& /*tree*/) : key(), value(), key_hash() { }
     pair_t(const pair_t &other) = default;
     pair_t& operator=(const pair_t &other) = default;
@@ -286,8 +287,8 @@ public:
         uint256_t null_value = {};
         insert_item(key, null_value); 
     }
-    pair_t get_item(bin_t &key);
-    pair_t get_item(pair_t &key);
+    pair_t* get_item(bin_t &&key);
+    pair_t* get_item(pair_t &key);
     proof_t get_proofs(bin_t &key);
     uint256_t root_hash();
     uint256_t* root_hashes();

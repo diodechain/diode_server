@@ -108,8 +108,8 @@ int test3(int size, std::string ref, int change_size) {
 
     for (uint256_t &key : changes) {
         auto bkey = bin_t(key.data(), key.data() + 32);
-        pair_t ret = tree.get_item(bkey);
-        if (ret.key != bkey) {
+        pair_t* ret = tree.get_item(std::move(bkey));
+        if (ret == nullptr || ret->key != bkey) {
             std::cout << "tree.get_item(" << key.hex() << ") != " << key.hex() << std::endl;
             return 1;
         }

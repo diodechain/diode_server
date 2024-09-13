@@ -71,6 +71,7 @@ defmodule CMerkleTree do
 
   def get(tree, key) do
     case get_item(tree, to_bytes32(key)) do
+      nil -> nil
       {_key, @null, _hash} -> nil
       {_key, value, _hash} -> value
     end
