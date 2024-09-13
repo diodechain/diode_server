@@ -77,13 +77,12 @@ make_atom(ErlNifEnv *env, const char *atom_name)
 static ERL_NIF_TERM
 make_binary(ErlNifEnv *env, uint8_t *data, size_t size)
 {
-    ErlNifBinary blob;
-    if (!enif_alloc_binary(size, &blob)) {
+    ERL_NIF_TERM term;
+    unsigned char *blob = enif_make_new_binary(env, size, &term);
+    if (!blob) {
         return make_atom(env, "error");
     }
-    memcpy(blob.data, data, size);
-    ERL_NIF_TERM term = enif_make_binary(env, &blob);
-    enif_release_binary(&blob);
+    memcpy(blob, data, size);
     return term;
 }
 
@@ -168,8 +167,6 @@ merkletree_get_item(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     bin_t key;
     key.insert(key.end(), key_binary.data, key_binary.data + key_binary.size);
     pair_t* pair = mt->shared_state->tree.get_item(std::move(key));
-    enif_release_binary(&key_binary);
-
 
     if (pair == nullptr) {
         return make_atom(env, "nil");
@@ -217,7 +214,6 @@ merkletree_get_proofs(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     bin_t key;
     key.insert(key.end(), key_binary.data, key_binary.data + key_binary.size);
-    enif_release_binary(&key_binary);
     proof_t proof = mt->shared_state->tree.get_proofs(key);
     return make_proof(env, proof);
 }
