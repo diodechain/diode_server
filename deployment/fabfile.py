@@ -2,27 +2,42 @@
 # Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
 import binascii
-from fabric.api import env, run, cd, local
+from fabric.api import env, run, cd, local, parallel
 from fabric.contrib.files import exists
 
+env.gateway="root@eu1.prenet.diode.io"
 env.diode="/opt/diode"
+if env.hosts == []:
+  env.hosts = [
+    "root@eu1.prenet.diode.io", "root@eu2.prenet.diode.io",
+    "root@us1.prenet.diode.io", "root@us2.prenet.diode.io",
+    "root@as1.prenet.diode.io", "root@as2.prenet.diode.io",
+  ]
 
 # Install on Ubuntu 18.04
-def install():
-  #with lcd("~"):
-    #put(".inputrc", "~")
+@parallel
+def install_base():
+  run("DEBIAN_FRONTEND=noninteractive apt update")
+  run("DEBIAN_FRONTEND=noninteractive apt upgrade -y")
+  run("DEBIAN_FRONTEND=noninteractive apt install -y libncurses-dev screen git snap g++ make unzip autoconf libtool libgmp-dev daemontools libboost-system-dev libsqlite3-dev libssl-dev")
+  run("DEBIAN_FRONTEND=noninteractive apt autoremove -y")
 
-  # Elixir + Base System
+  install_erlang()
+
+@parallel
+def install_erlang():
   if not exists("~/.asdf/asdf.sh"):
-    run("apt update")
-    run("apt upgrade -y")
-    run("apt install -y libncurses-dev screen git snap g++ make unzip autoconf libtool libgmp-dev daemontools libboost-system-dev libsqlite3-dev")
-    run("apt autoremove")
-
     run("git clone https://github.com/asdf-vm/asdf.git ~/.asdf")
     run("echo '. ~/.asdf/asdf.sh' >> ~/.bashrc")
     run(". ~/.asdf/asdf.sh && asdf plugin add erlang")
     run(". ~/.asdf/asdf.sh && asdf plugin add elixir")
+
+  run(". ~/.asdf/asdf.sh && asdf install elixir 1.15.7")
+  run(". ~/.asdf/asdf.sh && asdf install erlang 25.3.2.13")
+
+def install():
+  if not exists("~/.asdf/asdf.sh"):
+    install_base()
 
   # Application
   run("mkdir -p {}".format(env.diode))

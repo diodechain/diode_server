@@ -10,11 +10,17 @@ static volatile int ops = 0;
 static volatile int shared_states = 0;
 static volatile int resources = 0;
 
+
+#ifdef DEBUG
 static void print(const char *msg) {
     if (ops++ % 10000 == 0) {
         fprintf(stderr, "%s [shared_states=%d] [resources=%d]\n", msg, shared_states, resources); fflush(stderr);
     }
 }
+#else
+static void print(const char */*msg*/) {}
+#endif
+
 
 class SharedState {
 public:

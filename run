@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Diode Server
 # Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
@@ -6,12 +6,19 @@ ulimit -n 120000
 export ERL_CRASH_DUMP_BYTES=5000000000
 export ERL_EPMD_ADDRESS=127.0.0.1
 export MIX_ENV=${MIX_ENV:-prod}
+
+REAL_HOME=$(eval echo "~$(whoami)")
+if [ -f ${REAL_HOME}/.asdf/asdf.sh ]; then
+    export ASDF_DATA_DIR=${REAL_HOME}/.asdf
+    . ${REAL_HOME}/.asdf/asdf.sh
+fi
+
 mix deps.get
-export ELIXIR_ERL_OPTIONS='+sbwt none -noinput -noshell -sname diode +A 8'
 mix git_version
 
 if [ -f ./.env ]; then
     export `cat ./.env`
 fi
 
+export ELIXIR_ERL_OPTIONS='+sbwt none -noinput -noshell -sname diode +A 8'
 exec elixir -S mix run --no-halt

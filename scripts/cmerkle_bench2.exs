@@ -23,6 +23,7 @@ for i <- 1..1000000 do
       end
       for {key, value} <- test_data do
         ^value = CMerkleTree.get(tree, key)
+        CMerkleTree.get_proofs(tree, key) != nil
       end
       ^tree_size = length(CMerkleTree.to_list(tree))
 
