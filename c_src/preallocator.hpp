@@ -8,7 +8,7 @@ class Tree;
 
 template<typename T>
 class PreAllocator {
-    static const size_t STRIPE_SIZE = 128;
+    static const size_t STRIPE_SIZE = 8;
     Tree &m_tree;
     std::list<uint8_t*> m_stripes;
     size_t m_item_count;

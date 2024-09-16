@@ -385,7 +385,7 @@ destruct_merkletree_type(ErlNifEnv* /*env*/, void *arg)
     merkletree *mt = (merkletree *) arg;
     resources--;
     Lock lock(mt);
-    if (mt->shared_state->has_clone == 0) {  
+    if (mt->shared_state->has_clone == 0) {
         lock.unlock();
         delete(mt->shared_state);
     } else {

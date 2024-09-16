@@ -1,4 +1,5 @@
-OPTS=merkletree.cpp sha.cpp -O3 -march=native -msha -Wall -Wextra -pedantic -lstdc++ 
+# OPTS=merkletree.cpp sha.cpp -O3 -march=native -msha -Wall -Wextra -pedantic -lstdc++ -fsanitize=address -ggdb3
+OPTS=merkletree.cpp sha.cpp -O3 -march=native -msha -Wall -Wextra -pedantic -lstdc++
 ERL_INCLUDE_PATH = $(shell erl -eval 'io:format("~s", [lists:concat([code:root_dir(), "/erts-", erlang:system_info(version), "/include"])])' -s init stop -noshell)
 
 .PHONY: test
@@ -14,7 +15,7 @@ bench:
 .PHONY: nif
 nif: ../priv/merkletree_nif.so
 
-../priv/merkletree_nif.so: nif.cpp merkletree.hpp merkletree.cpp sha.cpp
+../priv/merkletree_nif.so: nif.cpp merkletree.hpp merkletree.cpp sha.cpp Makefile
 	echo ${ERL_INCLUDE_PATH}
 	mkdir -p ../priv
 	gcc -I${ERL_INCLUDE_PATH} -o ../priv/merkletree_nif.so -shared -fPIC nif.cpp ${OPTS}
