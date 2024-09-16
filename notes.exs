@@ -1,3 +1,7 @@
+# 16th Sept 2024
+
+:ets.all |> Enum.map(fn e -> :ets.info(e, :name) end) |> Enum.filter(fn n -> n == MutableMap.Beacon end) |> length
+
 # 11th Sept 2024
 
 mon = fn mon ->
