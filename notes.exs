@@ -1,5 +1,9 @@
 # 16th Sept 2024
 
+:timer.tc(fn ->
+  Network.Rpc.handle_jsonrpc(%{"id" => 0, "method" => "dio_edgev2", "params" => ["0xe48a6765746163636f756e7483784db894e0e606e0fb5788ee0691b7119f2d0eaa528d4935"]})
+end)
+
 :ets.all |> Enum.map(fn e -> :ets.info(e, :name) end) |> Enum.filter(fn n -> n == MutableMap.Beacon end) |> length
 
 # 11th Sept 2024
