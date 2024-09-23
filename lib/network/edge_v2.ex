@@ -80,6 +80,8 @@ defmodule Network.EdgeV2 do
 
       ["getaccount", index, id] ->
         BlockProcess.with_block(to_num(index), fn block ->
+          if block == nil, do: check_block(to_num(index))
+
           Chain.Block.state(block)
           |> Chain.State.account(id)
           |> case do
