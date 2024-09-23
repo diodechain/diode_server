@@ -29,16 +29,23 @@ defmodule BlockProcess do
   end
 
   def with_account_tree(block_ref, account_id, fun) do
-    with_block(block_ref, fn block -> fun.(Block.account_tree(block, account_id)) end)
+    with_block(block_ref, fn
+      nil -> fun.(nil)
+      block -> fun.(Block.account_tree(block, account_id))
+    end)
   end
 
   def with_account(block_ref, account_id, fun) do
-    with_state(block_ref, fn state -> fun.(Chain.State.account(state, account_id)) end)
+    with_state(block_ref, fn
+      nil -> fun.(nil)
+      state -> fun.(Chain.State.account(state, account_id))
+    end)
   end
 
   def with_state(block_ref, fun) do
-    with_block(block_ref, fn block ->
-      fetch_state(Block.hash(block))
+    with_block(block_ref, fn
+      nil -> nil
+      block -> fetch_state(Block.hash(block))
     end)
     |> fun.()
   end
