@@ -1,4 +1,9 @@
 # 23rd Sept 2024
+
+EtsLru.max_size(BlockProcess.State, 100)
+EtsLru.set_max_size(BlockProcess.State, 75)
+
+# 23rd Sept 2024
 DetsPlus.delete_all_objects(:remoterpc_cache)
 
 block_hash = Chain.blockhash(7919610)
@@ -10,7 +15,13 @@ b = Model.ChainSql.state(block_hash)
 
 block_hash2 = Chain.blockhash(7919871)
 {_prev_hash2, delta2} = Model.ChainSql.fetch!("SELECT state FROM blocks WHERE hash = ?1", [block_hash2])
+length(delta2)
 
+Model.ChainSql.recompress_block(7919871)
+
+block_hash2 = Chain.blockhash(7919871)
+{_prev_hash2, delta2} = Model.ChainSql.fetch!("SELECT state FROM blocks WHERE hash = ?1", [block_hash2])
+length(delta2)
 
 for _ <- 1..10 do
   :timer.tc(fn ->

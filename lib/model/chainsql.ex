@@ -481,6 +481,13 @@ defmodule Model.ChainSql do
         {:uncompact, Chain.State.uncompact(state)}
 
       {prev_hash, delta} ->
+        # Fix bug on demand
+        if length(delta) > 10_000 do
+          Debouncer.apply({__MODULE__, :fix_bug}, fn ->
+            recompress_block(Chain.blocknumber(block_hash))
+          end)
+        end
+
         # For non-jump blocks we assume the jump block is cached for performance
         result =
           EtsLru.fetch(__MODULE__.JumpState, {:state, prev_hash}, fn -> state(prev_hash) end)
