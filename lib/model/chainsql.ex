@@ -455,6 +455,21 @@ defmodule Model.ChainSql do
   def state(block_hash) do
     Writer.wait_for_flush(block_hash, "state")
 
+    {time, {type, result}} =
+      :timer.tc(fn ->
+        do_state(block_hash)
+      end)
+
+    time_ms = div(time, 1000)
+
+    if time_ms > 2000 do
+      Logger.warning("state(#{type}:#{Base16.encode(block_hash)}) took #{time_ms}ms")
+    end
+
+    result
+  end
+
+  defp do_state(block_hash) do
     case fetch!("SELECT state FROM blocks WHERE hash = ?1", block_hash) do
       %Chain.State{} = state ->
         # IO.inspect(state, label: "preuncompact")
@@ -463,15 +478,17 @@ defmodule Model.ChainSql do
         #   IO.inspect(Profiler.stacktrace())
         # end
 
-        IO.puts("uncompact(#{Base16.encode(block_hash)})")
-        Chain.State.uncompact(state)
+        {:uncompact, Chain.State.uncompact(state)}
 
       {prev_hash, delta} ->
         # For non-jump blocks we assume the jump block is cached for performance
-        EtsLru.fetch(__MODULE__.JumpState, {:state, prev_hash}, fn -> state(prev_hash) end)
-        |> Chain.State.clone()
-        |> Chain.State.apply_difference(delta)
-        |> Chain.State.normalize()
+        result =
+          EtsLru.fetch(__MODULE__.JumpState, {:state, prev_hash}, fn -> state(prev_hash) end)
+          |> Chain.State.clone()
+          |> Chain.State.apply_difference(delta)
+          |> Chain.State.normalize()
+
+        {:delta, result}
     end
   end
 

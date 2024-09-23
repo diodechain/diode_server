@@ -1,3 +1,47 @@
+# 23rd Sept 2024
+DetsPlus.delete_all_objects(:remoterpc_cache)
+
+block_hash = Chain.blockhash(7919610)
+{prev_hash, delta} = Model.ChainSql.fetch!("SELECT state FROM blocks WHERE hash = ?1", [block_hash])
+
+a = Model.ChainSql.state(prev_hash)
+b = Model.ChainSql.state(block_hash)
+
+
+block_hash2 = Chain.blockhash(7919871)
+{_prev_hash2, delta2} = Model.ChainSql.fetch!("SELECT state FROM blocks WHERE hash = ?1", [block_hash2])
+
+
+for _ <- 1..10 do
+  :timer.tc(fn ->
+    Model.ChainSql.state(block_hash2)
+  end) |> elem(0) |> div(1000)
+end
+
+
+
+CMerkleTree.list_difference(a.accounts, b.accounts)
+
+Profiler.fprof(fn ->
+  Model.ChainSql.state(block_hash)
+end)
+
+for _ <- 1..10 do
+  :timer.tc(fn ->
+    Model.ChainSql.state(block_hash)
+  end) |> elem(0) |> div(1000)
+end
+
+Profiler.fprof(fn ->
+  Network.Rpc.handle_jsonrpc(%{"id" => 0, "method" => "dio_edgev2", "params" => ["0xe48a6765746163636f756e748378d80a94107bd776052f1fc9a1e28e7d4bb999440b0bab11"]})
+end)
+
+for _ <- 1..10 do
+:timer.tc(fn ->
+  Network.Rpc.handle_jsonrpc(%{"id" => 0, "method" => "dio_edgev2", "params" => ["0xe48a6765746163636f756e748378d76d94cd1a719c177d80f06bcdf0c617c20e48afc7b25f"]})
+end) |> elem(0) |> div(1000)
+end
+
 # 16th Sept 2024
 
 :timer.tc(fn ->

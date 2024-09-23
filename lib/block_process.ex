@@ -13,7 +13,7 @@ defmodule BlockProcess do
   @impl true
   def init(state) do
     EtsLru.new(__MODULE__, 300)
-    EtsLru.new(__MODULE__.State, 15)
+    EtsLru.new(__MODULE__.State, 20)
     {:ok, state}
   end
 

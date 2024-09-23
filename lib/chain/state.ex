@@ -99,7 +99,8 @@ defmodule Chain.State do
 
   @spec set_account(Chain.State.t(), binary(), Chain.Account.t()) :: Chain.State.t()
   def set_account(state = %Chain.State{accounts: accounts}, id = <<_::160>>, account) do
-    %{state | accounts: MutableMap.put(accounts, id, account), hash: nil, store: nil}
+    tree = CMerkleTree.insert(tree(state), id, Account.hash(account))
+    %{state | accounts: MutableMap.put(accounts, id, account), hash: nil, store: tree}
   end
 
   @spec delete_account(Chain.State.t(), binary()) :: Chain.State.t()

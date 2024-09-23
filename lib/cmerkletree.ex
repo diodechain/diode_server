@@ -27,9 +27,17 @@ defmodule CMerkleTree do
 
     Enum.reduce(b, a_diffmap, fn {key, bvalue}, acc ->
       case Map.get(acc, key) do
-        nil -> Map.put(acc, key, {nil, bvalue})
-        {^bvalue, nil} -> Map.delete(acc, key)
-        {avalue, nil} -> Map.put(acc, key, {avalue, bvalue})
+        nil ->
+          Map.put(acc, key, {nil, bvalue})
+
+        {avalue, nil} ->
+          if avalue.nonce == bvalue.nonce && avalue.balance == bvalue.balance &&
+               avalue.code == bvalue.code &&
+               Chain.Account.root_hash(avalue) == Chain.Account.root_hash(bvalue) do
+            Map.delete(acc, key)
+          else
+            Map.put(acc, key, {avalue, bvalue})
+          end
       end
     end)
   end
