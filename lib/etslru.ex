@@ -35,12 +35,12 @@ defmodule EtsLru do
       del = n - max_size
 
       if del > 0 do
-        [{^del, key}] = :ets.lookup(lru, del)
-        :ets.delete(lru, del)
+        with [{^del, key}] <- :ets.lookup(lru, del) do
+          :ets.delete(lru, del)
 
-        case :ets.lookup(lru, key) do
-          [{^key, _value, ^del}] -> :ets.delete(lru, key)
-          _ -> :ok
+          with [{^key, _value, ^del}] <- :ets.lookup(lru, key) do
+            :ets.delete(lru, key)
+          end
         end
       end
     end
@@ -103,6 +103,10 @@ defmodule EtsLru do
 
   def max_size(lru) do
     :ets.lookup_element(lru, :meta, 3)
+  end
+
+  def set_max_size(lru, max_size) do
+    :ets.update_element(lru, :meta, [{3, max_size}])
   end
 
   def flush(lru) do

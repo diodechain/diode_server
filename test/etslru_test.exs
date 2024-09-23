@@ -41,6 +41,14 @@ defmodule EtsLruTest do
     assert EtsLru.get(lru, "d") == "dvalue"
   end
 
+  test "set_max_size" do
+    lru = EtsLru.new(nil, 3)
+    assert EtsLru.max_size(lru) == 3
+
+    EtsLru.set_max_size(lru, 10)
+    assert EtsLru.max_size(lru) == 10
+  end
+
   test "repeat" do
     lru = EtsLru.new(nil, 3)
     assert EtsLru.size(lru) == 0

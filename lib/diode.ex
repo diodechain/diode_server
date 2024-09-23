@@ -351,6 +351,10 @@ defmodule Diode do
     get_env_int("PEER_PORT", 51054)
   end
 
+  def state_cache_size() do
+    get_env_int("STATE_CACHE_SIZE", 20)
+  end
+
   def seeds() do
     case get_env("SEED") do
       nil ->

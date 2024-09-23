@@ -13,7 +13,7 @@ defmodule BlockProcess do
   @impl true
   def init(state) do
     EtsLru.new(__MODULE__, 300)
-    EtsLru.new(__MODULE__.State, 20)
+    EtsLru.new(__MODULE__.State, Diode.state_cache_size())
     {:ok, state}
   end
 
