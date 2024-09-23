@@ -453,6 +453,8 @@ defmodule Model.ChainSql do
   end
 
   def state(block_hash) do
+    Writer.wait_for_flush(block_hash, "state")
+
     case fetch!("SELECT state FROM blocks WHERE hash = ?1", block_hash) do
       %Chain.State{} = state ->
         # IO.inspect(state, label: "preuncompact")
