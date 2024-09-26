@@ -280,7 +280,7 @@ defmodule Chain do
       Logger.info("Previous block #{number} is consistent done")
       number
     else
-      Logger.info("Previous block #{number} is inconsistent")
+      Logger.warning("Previous block #{number} is inconsistent")
       find_last_good_block(number, step)
     end
   end
@@ -319,7 +319,7 @@ defmodule Chain do
 
     cond do
       number < 1 ->
-        IO.puts("Chain.add_block: Rejected invalid genesis block")
+        Logger.info("Chain.add_block: Rejected invalid genesis block")
         :rejected
 
       true ->
@@ -361,7 +361,7 @@ defmodule Chain do
 
       cond do
         peak_hash != parent_hash and total_difficulty <= peak_total_difficulty ->
-          IO.puts("Chain.add_block: Extended   alt #{info} | (@#{peak_info}")
+          Logger.info("Chain.add_block: Extended   alt #{info} | (@#{peak_info}")
           {:reply, :stored, state}
 
         true ->
@@ -369,14 +369,14 @@ defmodule Chain do
           [number, epoch] = BlockProcess.fetch(block_hash, [:number, :epoch])
 
           if peak_hash == parent_hash do
-            IO.puts("Chain.add_block: Extending main #{info}")
+            Logger.info("Chain.add_block: Extending main #{info}")
 
             Stats.incr(:block_cnt)
             ChainSql.put_block_number(block_hash)
             ets_add_placeholder(block_hash, number)
           else
-            IO.puts("Chain.add_block: Replacing main #{info}")
-            IO.puts("Old Peak: #{peak_info}: #{total_difficulty} > #{peak_total_difficulty}")
+            Logger.info("Chain.add_block: Replacing main #{info}")
+            Logger.info("Old Peak: #{peak_info}: #{total_difficulty} > #{peak_total_difficulty}")
 
             # Recursively makes a new branch normative
             ChainSql.put_peak(block_hash)
