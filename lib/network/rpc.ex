@@ -157,8 +157,7 @@ defmodule Network.Rpc do
         # Testing transaction
         {res, code, err} =
           Chain.with_peak(fn peak ->
-            state = Block.state(peak)
-            apply_transaction(tx, peak, state)
+            apply_transaction(tx, peak)
           end)
 
         # Adding transacton, even when :nonce_too_high
@@ -301,8 +300,7 @@ defmodule Network.Rpc do
         tx = create_transaction(wallet, data, opts, false)
 
         with_block(ref, fn block ->
-          state = Block.state(block)
-          apply_transaction(tx, block, state)
+          apply_transaction(tx, block)
         end)
 
       "eth_getTransactionReceipt" ->
@@ -849,7 +847,9 @@ defmodule Network.Rpc do
     }
   end
 
-  defp apply_transaction(tx, block, state) do
+  defp apply_transaction(tx, block) do
+    state = Block.state(block) |> Chain.State.clone()
+
     case Chain.Transaction.apply(tx, block, state) do
       {:ok, _state, rcpt = %{msg: :ok}} ->
         result(rcpt.evmout, 200)
