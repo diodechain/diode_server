@@ -62,6 +62,18 @@ To submit the transaction to stake 5 dio:
 Shell.submit_from(Diode.miner, Diode.registry_address, "MinerStake", [], [], value: Shell.ether(5))
 ```
 
+To convert stake back to 5 dio balance. First you need to unstake the amount and wait for the time-lock to expire:
+
+```elixir
+Shell.submit_from(Diode.miner, Diode.registry_address, "MinerUnstake", [:uint256], [Shell.ether(5)])
+```
+
+After the time-lock has expired, you can withdraw the amount to balance. The node explorer at https://diode.io/prenet/#/address/__(0x your node_address)__ will show the amount as `Withdrawable` once available for withdrawing.
+
+```elixir
+Shell.submit_from(Diode.miner, Diode.registry_address, "MinerWithdraw")
+```
+
 ### Flushing the transaction pool
 
 All transactions that are received as "to be processed" are stored in the transaction pool. This pool can be flushed, if for example too many future nonce transactions (`nonce too high`) occur.
