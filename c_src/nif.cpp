@@ -4,12 +4,12 @@ extern "C" {
 }
 
 #include "merkletree.hpp"
+#include <unordered_map>
 
 static ErlNifResourceType *merkletree_type = NULL;
 static volatile int ops = 0;
 static volatile int shared_states = 0;
 static volatile int resources = 0;
-
 
 #ifdef DEBUG
 static void print(const char *msg) {
@@ -72,6 +72,52 @@ public:
     }
 };
 
+static void destroy_shared_state(merkletree *mt, Lock &lock);
+
+class LockedStates {
+public:
+    std::unordered_map<uint256_t, SharedState*> states;
+    ErlNifMutex *mtx;
+    LockedStates() {
+        mtx = enif_mutex_create((char*)"locked_states_mutex");
+    }
+
+    void enter_lock(merkletree *mt) {
+        Lock lock(mt);
+        enif_mutex_lock(mtx);
+
+        mt->locked = true;
+        uint256_t root_hash = mt->shared_state->tree.root_hash();
+        auto it = states.find(root_hash);
+        if (it != states.end()) {
+            destroy_shared_state(mt, lock);
+            mt->shared_state = it->second;
+            mt->shared_state->has_clone += 1;
+        } else {
+            states[root_hash] = mt->shared_state;
+        }
+        enif_mutex_unlock(mtx);
+    }
+
+    void leave_lock(merkletree *mt) {
+        if (!mt->locked) return;
+
+        enif_mutex_lock(mtx);
+        uint256_t root_hash = mt->shared_state->tree.root_hash();
+
+        auto it = states.find(root_hash);
+        if (it != states.end()) {
+            if (it->second == mt->shared_state) {
+                states.erase(it);
+            }
+        }
+        enif_mutex_unlock(mtx);
+    }
+};
+
+static LockedStates* locked_states;
+
+
 static ERL_NIF_TERM
 make_atom(ErlNifEnv *env, const char *atom_name)
 {
@@ -106,18 +152,6 @@ merkletree_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM[] /*argv[]*/)
     return res;
 }
 
-bool make_writeable(merkletree *mt)
-{
-    if (mt->locked) return false;
-
-    if (mt->shared_state->has_clone > 0) {
-        mt->shared_state->has_clone -= 1;
-        mt->shared_state = new SharedState(*mt->shared_state);
-        print("CREATING (UNCLONING)");
-    }
-    return true;
-}
-
 static ERL_NIF_TERM
 merkletree_clone(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
@@ -134,6 +168,19 @@ merkletree_clone(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     ERL_NIF_TERM res = enif_make_resource(env, clone);
     enif_release_resource(clone);
     return res;
+}
+
+
+bool make_writeable(merkletree *mt)
+{
+    if (mt->locked) return false;
+
+    if (mt->shared_state->has_clone > 0) {
+        mt->shared_state->has_clone -= 1;
+        mt->shared_state = new SharedState(*mt->shared_state);
+        print("CREATING (UNCLONING)");
+    }
+    return true;
 }
 
 static ERL_NIF_TERM
@@ -249,8 +296,7 @@ merkletree_lock(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     if (argc != 1) return enif_make_badarg(env);
     if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
-    Lock lock(mt);
-    mt->locked = true;
+    locked_states->enter_lock(mt);
     return argv[0];
 }
 
@@ -379,12 +425,7 @@ merkletree_bucket_count(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     return enif_make_uint(env, size);
 }
 
-static void
-destruct_merkletree_type(ErlNifEnv* /*env*/, void *arg)
-{
-    merkletree *mt = (merkletree *) arg;
-    resources--;
-    Lock lock(mt);
+static void destroy_shared_state(merkletree *mt, Lock &lock) {
     if (mt->shared_state->has_clone == 0) {
         lock.unlock();
         delete(mt->shared_state);
@@ -393,6 +434,17 @@ destruct_merkletree_type(ErlNifEnv* /*env*/, void *arg)
     }
     mt->shared_state = NULL;
 }
+
+static void
+destruct_merkletree_type(ErlNifEnv* /*env*/, void *arg)
+{
+    merkletree *mt = (merkletree *) arg;
+    resources--;
+    Lock lock(mt);
+    locked_states->leave_lock(mt);
+    destroy_shared_state(mt, lock);
+}
+
 
 static int
 on_load(ErlNifEnv* env, void** /*priv*/, ERL_NIF_TERM /*info*/)
@@ -403,6 +455,8 @@ on_load(ErlNifEnv* env, void** /*priv*/, ERL_NIF_TERM /*info*/)
             destruct_merkletree_type, ERL_NIF_RT_CREATE, NULL);
     if(!rt) return -1;
     merkletree_type = rt;
+
+    locked_states = new LockedStates();
     return 0;
 }
 

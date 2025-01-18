@@ -1,3 +1,32 @@
+# 18th Jan 2025
+
+mon = fn mon ->
+  before = :erlang.memory()
+  for pid <- Process.list() do
+    :erlang.garbage_collect(pid)
+  end
+  IO.inspect({before, :erlang.memory()}, label: "GC")
+  Process.sleep(60_000)
+  mon.(mon)
+end
+
+pid = spawn(fn -> mon.(mon) end)
+
+
+clear = fn ->
+  EtsLru.flush(BlockProcess)
+  EtsLru.flush(Model.ChainSql.JumpState)
+  for pid <- Process.list() do
+    :erlang.garbage_collect(pid)
+  end
+
+  size = :ets.all |> Enum.map(fn e -> :ets.info(e, :name) end) |> Enum.filter(fn n -> n == MutableMap.Beacon end) |> length
+  IO.puts("#{EtsLru.size(BlockProcess)} #{EtsLru.size(Model.ChainSql.JumpState)} #{size}")
+end
+
+clear.()
+
+
 # 23rd Sept 2024
 
 EtsLru.max_size(BlockProcess.State, 100)

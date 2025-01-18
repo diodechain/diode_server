@@ -122,6 +122,21 @@ public:
     }
 };
 
+// Start Generation Here
+namespace std {
+    template<>
+    struct hash<uint256_t> {
+        std::size_t operator()(const uint256_t& k) const {
+            std::size_t res = 0;
+            for (size_t i = 0; i < sizeof(k.value); ++i) {
+                res ^= std::hash<unsigned char>()(k.value[i]) + 0x9e3779b9 + (res << 6) + (res >> 2);
+            }
+            return res;
+        }
+    };
+}
+
+
 uint256_t hash(bin_t &input);
 
 class pair_t {
