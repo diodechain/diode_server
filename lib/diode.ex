@@ -78,6 +78,7 @@ defmodule Diode do
 
     base_children = [
       worker(Stats, []),
+      worker(Cron, []),
       supervisor(Model.Sql),
       worker(Chain.BlockCache, [ets_extra]),
       worker(Chain, [ets_extra]),
@@ -445,5 +446,15 @@ defmodule Diode do
   def uptime() do
     {uptime, _} = :erlang.statistics(:wall_clock)
     uptime
+  end
+
+  def garbage_collect() do
+    before = :erlang.memory(:total)
+
+    for pid <- Process.list() do
+      :erlang.garbage_collect(pid)
+    end
+
+    Logger.info("Garbage collect before: #{before} after: #{:erlang.memory(:total)}")
   end
 end

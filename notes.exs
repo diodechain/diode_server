@@ -1,11 +1,11 @@
 # 18th Jan 2025
 
 mon = fn mon ->
-  before = :erlang.memory()
+  before = :erlang.memory(:total)
   for pid <- Process.list() do
     :erlang.garbage_collect(pid)
   end
-  IO.inspect({before, :erlang.memory()}, label: "GC")
+  IO.inspect({before, :erlang.memory(:total)}, label: "GC")
   Process.sleep(60_000)
   mon.(mon)
 end
@@ -14,8 +14,8 @@ pid = spawn(fn -> mon.(mon) end)
 
 
 clear = fn ->
-  EtsLru.flush(BlockProcess)
-  EtsLru.flush(Model.ChainSql.JumpState)
+  # EtsLru.flush(BlockProcess)
+  # EtsLru.flush(Model.ChainSql.JumpState)
   for pid <- Process.list() do
     :erlang.garbage_collect(pid)
   end
@@ -29,7 +29,7 @@ clear.()
 
 # 23rd Sept 2024
 
-EtsLru.max_size(BlockProcess.State, 100)
+EtsLru.max_size(BlockProcess.State)
 EtsLru.set_max_size(BlockProcess.State, 75)
 
 # 23rd Sept 2024
