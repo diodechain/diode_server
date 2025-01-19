@@ -26,6 +26,7 @@ for i <- 1..1000000 do
         CMerkleTree.get_proofs(tree, key) != nil
       end
       ^tree_size = length(CMerkleTree.to_list(tree))
+      CMerkleTree.lock(tree)
 
       if CMerkleTree.root_hash(tree) != ref do
         raise("Error #{Base16.encode(CMerkleTree.root_hash(tree))} != #{Base16.encode(ref)}")
