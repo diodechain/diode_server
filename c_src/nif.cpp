@@ -441,7 +441,9 @@ destruct_merkletree_type(ErlNifEnv* /*env*/, void *arg)
     merkletree *mt = (merkletree *) arg;
     resources--;
     Lock lock(mt);
-    locked_states->leave_lock(mt);
+    if (mt->shared_state->has_clone == 0) {
+        locked_states->leave_lock(mt);
+    }
     destroy_shared_state(mt, lock);
 }
 
