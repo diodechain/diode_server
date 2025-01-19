@@ -91,11 +91,14 @@ public:
         auto it = states.find(root_hash);
         if (it != states.end()) {
             destroy_shared_state(mt, lock);
+            enif_mutex_lock(it->second->mtx);
             mt->shared_state = it->second;
             mt->shared_state->has_clone += 1;
+            enif_mutex_unlock(it->second->mtx);
         } else {
             states[root_hash] = mt->shared_state;
         }
+
         enif_mutex_unlock(mtx);
     }
 
@@ -106,11 +109,10 @@ public:
         uint256_t root_hash = mt->shared_state->tree.root_hash();
 
         auto it = states.find(root_hash);
-        if (it != states.end()) {
-            if (it->second == mt->shared_state) {
-                states.erase(it);
-            }
+        if (it != states.end() && it->second == mt->shared_state) {
+            states.erase(it);
         }
+
         enif_mutex_unlock(mtx);
     }
 };
