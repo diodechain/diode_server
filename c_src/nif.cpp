@@ -61,14 +61,14 @@ public:
     }
 
     void unlock() {
-        enif_mutex_unlock(mtx);
-        mtx = 0;
+        if (mtx) {
+            enif_mutex_unlock(mtx);
+            mtx = 0;
+        }
     }
 
     ~Lock() {
-        if (mtx) {
-            enif_mutex_unlock(mtx);
-        }
+        unlock();
     }
 };
 
@@ -83,36 +83,44 @@ public:
     }
 
     void enter_lock(merkletree *mt) {
-        Lock lock(mt);
         enif_mutex_lock(mtx);
+        Lock lock(mt);
 
         mt->locked = true;
         uint256_t root_hash = mt->shared_state->tree.root_hash();
         auto it = states.find(root_hash);
         if (it != states.end()) {
-            destroy_shared_state(mt, lock);
-            enif_mutex_lock(it->second->mtx);
-            mt->shared_state = it->second;
-            mt->shared_state->has_clone += 1;
-            enif_mutex_unlock(it->second->mtx);
+            if (it->second != mt->shared_state) {
+                destroy_shared_state(mt, lock);
+                enif_mutex_lock(it->second->mtx);
+                mt->shared_state = it->second;
+                mt->shared_state->has_clone += 1;
+                enif_mutex_unlock(it->second->mtx);
+            }
         } else {
             states[root_hash] = mt->shared_state;
         }
 
+        lock.unlock();
         enif_mutex_unlock(mtx);
     }
 
     void leave_lock(merkletree *mt) {
-        if (!mt->locked) return;
-
         enif_mutex_lock(mtx);
-        uint256_t root_hash = mt->shared_state->tree.root_hash();
+        Lock lock(mt);
 
-        auto it = states.find(root_hash);
-        if (it != states.end() && it->second == mt->shared_state) {
-            states.erase(it);
+        if (mt->shared_state->has_clone == 0) {
+            uint256_t root_hash = mt->shared_state->tree.root_hash();
+
+            auto it = states.find(root_hash);
+            if (it != states.end() && it->second == mt->shared_state) {
+                states.erase(it);
+            }
+
+            destroy_shared_state(mt, lock);
         }
 
+        lock.unlock();
         enif_mutex_unlock(mtx);
     }
 };
@@ -295,7 +303,6 @@ static ERL_NIF_TERM
 merkletree_lock(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
     merkletree *mt;
-
     if (argc != 1) return enif_make_badarg(env);
     if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
     locked_states->enter_lock(mt);
@@ -442,11 +449,7 @@ destruct_merkletree_type(ErlNifEnv* /*env*/, void *arg)
 {
     merkletree *mt = (merkletree *) arg;
     resources--;
-    Lock lock(mt);
-    if (mt->shared_state->has_clone == 0) {
-        locked_states->leave_lock(mt);
-    }
-    destroy_shared_state(mt, lock);
+    locked_states->leave_lock(mt);
 }
 
 
