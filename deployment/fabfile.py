@@ -3,7 +3,7 @@
 # Licensed under the Diode License, Version 1.1
 import binascii
 from fabric.api import env, run, cd, local, parallel
-from fabric.contrib.files import exists
+from fabric.contrib.files import exists, append
 
 env.gateway="root@eu1.prenet.diode.io"
 env.diode="/opt/diode"
@@ -48,7 +48,7 @@ def install():
     run("git checkout master")
     #run("echo 'elixir 1.14' > .tool-versions")
     #run("echo 'erlang 24.0.4' >> .tool-versions")
-    #run("export KERL_CONFIGURE_OPTIONS=--without-wx && . ~/.asdf/asdf.sh && asdf install")
+    #run("export KERL_CONFIGURE_OPTIONS=--without-wx CFLAGS=\"-O3 -march=native\" && . ~/.asdf/asdf.sh && asdf install")
     run("cp githooks/post-receive .git/hooks/")
     run("cp deployment/diode.service /etc/systemd/system/diode.service")
     run("HOME=`pwd` mix local.hex --force")
@@ -84,15 +84,27 @@ def setkey(key):
     run("systemctl start diode")
 
 def optimize():
-  # https://access.redhat.com/solutions/30453
-  settings =[
-    "net.core.default_qdisc=fq", 
-    "net.ipv4.tcp_congestion_control=bbr",
-    "net.core.somaxconn=16384",
-    "net.ipv4.tcp_max_syn_backlog=512"
-    ]
+  if not exists("/etc/sysctl.d/99-diode.conf"):
+    # https://access.redhat.com/solutions/30453
+    settings =[
+      "net.core.default_qdisc=fq", 
+      "net.ipv4.tcp_congestion_control=bbr",
+      "net.core.somaxconn=16384",
+      "net.ipv4.tcp_max_syn_backlog=512"
+      ]
+    
+    for setting in settings:
+      run("echo {} >> /etc/sysctl.d/99-diode.conf".format(setting))
   
-  for setting in settings:
-    run("echo {} >> /etc/sysctl.conf".format(setting))
+    run("sysctl --system")
 
-  run("sysctl --system")
+  if not exists("/etc/modules-load.d/zswap_modules.conf"):
+    run("echo z3fold >> /etc/modules-load.d/zswap_modules.conf")
+    run("echo lz4 >> /etc/modules-load.d/zswap_modules.conf")
+    run("echo lz4_compress >> /etc/modules-load.d/zswap_modules.conf")
+    run("echo z3fold >> /etc/initramfs-tools/modules")
+    run("echo lz4 >> /etc/initramfs-tools/modules")
+    run("echo lz4_compress >> /etc/initramfs-tools/modules")
+    run("update-initramfs -u -k all")
+    append("/etc/default/grub", "GRUB_CMDLINE_LINUX=\"nomodeset zswap.enabled=1 zswap.compressor=lz4 zswap.max_pool_percent=25 zswap.zpool=z3fold\"")
+    run("update-grub")
