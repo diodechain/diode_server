@@ -3,6 +3,7 @@
 # Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
 ulimit -n 120000
+ulimit -c unlimited
 export ERL_CRASH_DUMP_BYTES=5000000000
 export ERL_EPMD_ADDRESS=127.0.0.1
 export MIX_ENV=${MIX_ENV:-prod}
