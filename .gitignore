@@ -23,13 +23,13 @@ fprof.trace
 blocks.dat
 perf.data
 /test/curl/out.json
-
+*.asc
 # Generated on crash by the VM
 erl_crash.dump
 
 /states
 /binlogs
-/.vscode
+.vscode
 /config/*.secret.exs
 .elixir_ls/
 clones
