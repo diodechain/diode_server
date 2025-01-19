@@ -11,6 +11,10 @@ REAL_HOME=$(eval echo "~$(whoami)")
 if [ -f ${REAL_HOME}/.asdf/asdf.sh ]; then
     export ASDF_DATA_DIR=${REAL_HOME}/.asdf
     . ${REAL_HOME}/.asdf/asdf.sh
+
+    export CFLAGS="-O3 -march=native"
+    asdf install erlang
+    asdf install elixir
 fi
 
 mix deps.get
