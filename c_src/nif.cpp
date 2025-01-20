@@ -8,11 +8,14 @@ extern "C" {
 
 static void print(const char *msg);
 static ErlNifResourceType *merkletree_type = NULL;
+static ErlNifMutex *stats_mutex = NULL;
 static volatile int shared_states = 0;
 static volatile int resources = 0;
 static int locked_states_cnt = 0;
 
+
 #ifdef DEBUG
+#define STAT(cmd) { enif_mutex_lock(stats_mutex); cmd; enif_mutex_unlock(stats_mutex); }
 static void print(const char *msg) {
     static int ops = 0;
     
@@ -21,6 +24,7 @@ static void print(const char *msg) {
     }
 }
 #else
+#define STAT(cmd) {}
 static void print(const char */*msg*/) {}
 #endif
 
@@ -32,19 +36,19 @@ public:
     SharedState() : tree() {
         mtx = enif_mutex_create((char*)"merkletree_mutex");
         has_clone = 0;
-        shared_states++;
+        STAT(shared_states++);
         print("CREATE");
     }
 
     SharedState(SharedState &other) : tree(other.tree) {
         mtx = enif_mutex_create((char*)"merkletree_mutex");
         has_clone = 0;
-        shared_states++;
+        STAT(shared_states++);
         print("CLONE");
     }
 
     ~SharedState() {
-        shared_states--;
+        STAT(shared_states--);
         print("DESTROY");
         enif_mutex_destroy(mtx);
     }
@@ -164,7 +168,7 @@ merkletree_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM[] /*argv[]*/)
 {
     if (argc != 0) return enif_make_badarg(env);
     merkletree *mt = (merkletree*)enif_alloc_resource(merkletree_type, sizeof(merkletree));
-    resources++;
+    STAT(resources++);
     mt->shared_state = new SharedState();
     mt->locked = false;
     ERL_NIF_TERM res = enif_make_resource(env, mt);
@@ -181,7 +185,7 @@ merkletree_clone(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     Lock lock(mt);
     merkletree *clone = (merkletree*)enif_alloc_resource(merkletree_type, sizeof(merkletree));
-    resources++;
+    STAT(resources++);
     clone->shared_state = mt->shared_state;
     clone->locked = false;
     clone->shared_state->has_clone += 1;
@@ -458,7 +462,7 @@ static void
 destruct_merkletree_type(ErlNifEnv* /*env*/, void *arg)
 {
     merkletree *mt = (merkletree *) arg;
-    resources--;
+    STAT(resources--);
     locked_states->leave_lock(mt);
 }
 
@@ -474,6 +478,7 @@ on_load(ErlNifEnv* env, void** /*priv*/, ERL_NIF_TERM /*info*/)
     merkletree_type = rt;
 
     locked_states = new LockedStates();
+    stats_mutex = enif_mutex_create((char*)"stats_mutex");
     return 0;
 }
 
