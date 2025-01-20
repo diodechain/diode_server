@@ -116,10 +116,9 @@ public:
             if (it != states.end() && it->second == mt->shared_state) {
                 states.erase(it);
             }
-
-            destroy_shared_state(mt, lock);
         }
-
+        
+        destroy_shared_state(mt, lock);
         lock.unlock();
         enif_mutex_unlock(mtx);
     }
