@@ -6,21 +6,23 @@ extern "C" {
 #include "merkletree.hpp"
 #include <unordered_map>
 
+static void print(const char *msg);
 static ErlNifResourceType *merkletree_type = NULL;
-static volatile int ops = 0;
 static volatile int shared_states = 0;
 static volatile int resources = 0;
+static int locked_states_cnt = 0;
 
 #ifdef DEBUG
 static void print(const char *msg) {
+    static int ops = 0;
+    
     if (ops++ % 10000 == 0) {
-        fprintf(stderr, "%s [shared_states=%d] [resources=%d]\n", msg, shared_states, resources); fflush(stderr);
+        fprintf(stderr, "%s [shared_states=%d] [locked_states=%d] [resources=%d]\n", msg, shared_states, locked_states_cnt, resources); fflush(stderr);
     }
 }
 #else
 static void print(const char */*msg*/) {}
 #endif
-
 
 class SharedState {
 public:
@@ -87,6 +89,9 @@ public:
     }
 
     void enter_lock(merkletree *mt) {
+        locked_states_cnt = states.size();
+        print("ENTER_LOCK");
+
         enif_mutex_lock(mtx);
         Lock lock(mt);
 
@@ -110,6 +115,9 @@ public:
     }
 
     void leave_lock(merkletree *mt) {
+        locked_states_cnt = states.size();
+        print("LEAVE_LOCK");
+
         enif_mutex_lock(mtx);
         Lock lock(mt);
 
@@ -129,7 +137,6 @@ public:
 };
 
 static LockedStates* locked_states;
-
 
 static ERL_NIF_TERM
 make_atom(ErlNifEnv *env, const char *atom_name)
