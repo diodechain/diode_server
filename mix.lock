@@ -52,7 +52,7 @@
   "statistex": {:hex, :statistex, "1.0.0", "f3dc93f3c0c6c92e5f291704cf62b99b553253d7969e9a5fa713e5481cd858a5", [:mix], [], "hexpm", "ff9d8bee7035028ab4742ff52fc80a2aa35cece833cf5319009b52f1b5a86c27"},
   "telemetry": {:hex, :telemetry, "1.2.1", "68fdfe8d8f05a8428483a97d7aab2f268aaff24b49e0f599faa091f1d4e7f61c", [:rebar3], [], "hexpm", "dad9ce9d8effc621708f99eac538ef1cbe05d6a874dd741de2e689c47feafed5"},
   "unicode_util_compat": {:hex, :unicode_util_compat, "0.7.0", "bc84380c9ab48177092f43ac89e4dfa2c6d62b40b8bd132b1059ecc7232f9a78", [:rebar3], [], "hexpm", "25eee6d67df61960cf6a794239566599b09e17e668d3700247bc498638152521"},
-  "weak_ref": {:hex, :weak_ref, "1.0.2", "d283f9624d3993f378cb782750bc59f1bcdd6537114e8823ced76010098a25b5", [:mix], [], "hexpm", "bf38c8f541c4698c34edb1518a147a59112401527e28e62e7a7da81afb570ae8"},
+  "weak_ref": {:hex, :weak_ref, "1.0.3", "1451a93323cfa8701ad75e9bc83d0a8f5ba85283925177f07f678ef31b6a0370", [:mix], [], "hexpm", "9d25e524efa8fa0205703394af465d627c894df74ceb1e5c1e66f947007779bb"},
   "websockex": {:git, "https://github.com/Azolo/websockex.git", "4a94f6870528f45d64cdd47bd4374faf52528466", []},
   "while": {:hex, :while, "0.2.4", "f4d10d39704f9ed257d13054f64ccdd6de4b3068e0ce6ecc6ce6d3f0b3b4b6e3", [:mix], [], "hexpm", "62659f89c2cdb4b90d48eadc2fb967c59c96bdeff6506f345139f0558eedb9d5"},
 }
