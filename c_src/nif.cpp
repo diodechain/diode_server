@@ -82,6 +82,10 @@ public:
         mtx = enif_mutex_create((char*)"locked_states_mutex");
     }
 
+    ~LockedStates() {
+        enif_mutex_destroy(mtx);
+    }
+
     void enter_lock(merkletree *mt) {
         enif_mutex_lock(mtx);
         Lock lock(mt);
@@ -117,7 +121,7 @@ public:
                 states.erase(it);
             }
         }
-        
+
         destroy_shared_state(mt, lock);
         lock.unlock();
         enif_mutex_unlock(mtx);
