@@ -14,8 +14,8 @@ pid = spawn(fn -> mon.(mon) end)
 
 
 clear = fn ->
-  # EtsLru.flush(BlockProcess)
-  # EtsLru.flush(Model.ChainSql.JumpState)
+  EtsLru.flush(BlockProcess)
+  EtsLru.flush(Model.ChainSql.JumpState)
   for pid <- Process.list() do
     :erlang.garbage_collect(pid)
   end
