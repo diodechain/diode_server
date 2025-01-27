@@ -1,3 +1,28 @@
+# 27th Jan 2025
+
+accounts = Chain.with_peak_state(fn state -> state.accounts end)
+# accounts2 = :timer.tc(fn -> Enum.map(accounts, fn {id, acc} -> {id, Account.clone(acc)} end) |> MutableMap.new() end)
+
+:timer.tc(fn -> Enum.map(accounts, fn {id, acc} -> {id, Chain.Account.clone(acc)} end) |> MutableMap.new() end) |> elem(0)
+
+mapit = fn accs ->
+  map = Map.new(accs)
+  :maps.merge_with(fn _, acc, _v2 -> Chain.Account.clone(acc) end, map, map)
+  |> MutableMap.new()
+end
+:timer.tc(fn -> mapit.(accounts) end) |> elem(0)
+
+mapit = fn accs ->
+  :ets.foldl(fn {id, acc}, new ->
+    MutableMap.put(new, id, Chain.Account.clone(acc))
+  end, MutableMap.new(), accs.table)
+end
+
+:timer.tc(fn -> mapit.(accounts) end) |> elem(0)
+
+
+
+
 # 18th Jan 2025
 
 mon = fn mon ->

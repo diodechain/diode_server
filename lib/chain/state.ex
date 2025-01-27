@@ -159,7 +159,9 @@ defmodule Chain.State do
 
   def clone(%Chain.State{accounts: accounts} = state) do
     accounts =
-      Enum.map(accounts, fn {id, acc} -> {id, Account.clone(acc)} end) |> MutableMap.new()
+      MutableMap.reduce(accounts, MutableMap.new(), fn {id, acc}, new ->
+        MutableMap.put(new, id, Chain.Account.clone(acc))
+      end)
 
     new_state = %Chain.State{state | accounts: accounts}
 
