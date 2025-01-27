@@ -17,12 +17,16 @@ if env.hosts == []:
 # Install on Ubuntu 18.04
 @parallel
 def install_base():
-  run("DEBIAN_FRONTEND=noninteractive apt update")
-  run("DEBIAN_FRONTEND=noninteractive apt upgrade -y")
+  update()
   run("DEBIAN_FRONTEND=noninteractive apt install -y libncurses-dev screen git snap g++ make unzip autoconf libtool libgmp-dev daemontools libboost-system-dev libsqlite3-dev libssl-dev")
   run("DEBIAN_FRONTEND=noninteractive apt autoremove -y")
 
   install_erlang()
+
+@parallel
+def update():
+  run("DEBIAN_FRONTEND=noninteractive apt update")
+  run("DEBIAN_FRONTEND=noninteractive apt upgrade -y")
 
 @parallel
 def install_erlang():
