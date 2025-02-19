@@ -2,7 +2,7 @@ defmodule Model.File do
   def load(filename, default \\ nil) do
     case File.read(filename) do
       {:ok, content} ->
-        BertInt.decode_unsafe!(content)
+        BertInt.decode!(content)
 
       {:error, _} ->
         case default do

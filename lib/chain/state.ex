@@ -227,19 +227,6 @@ defmodule Chain.State do
   # ========================================================
   # File Import / Export
   # ========================================================
-  @spec to_binary(Chain.State.t()) :: binary
-  def to_binary(state) do
-    Enum.reduce(accounts(state), Map.new(), fn {id, acc}, map ->
-      Map.put(map, id, %{
-        nonce: acc.nonce,
-        balance: acc.balance,
-        data: Account.tree(acc) |> CMerkleTree.to_list(),
-        code: acc.code
-      })
-    end)
-    |> BertInt.encode!()
-  end
-
   def from_binary(bin) do
     map = BertInt.decode!(bin)
 

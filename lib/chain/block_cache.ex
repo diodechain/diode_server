@@ -70,7 +70,7 @@ defmodule Chain.BlockCache do
     with_transaction(fn db ->
       for {hash, cache} <- buffer do
         Sql.query!(db, "REPLACE INTO blockcache (hash, data) VALUES(?1, ?2)",
-          bind: [hash, BertInt.encode!(cache)]
+          bind: [hash, BertInt.encode_zstd!(cache)]
         )
       end
     end)

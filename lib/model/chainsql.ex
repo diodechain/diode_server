@@ -314,7 +314,7 @@ defmodule Model.ChainSql do
             Block.hash(block),
             Block.parent_hash(block),
             Block.miner(block) |> Wallet.pubkey!(),
-            Block.strip_state(block) |> BertInt.encode!(),
+            Block.strip_state(block) |> BertInt.encode_zstd!(),
             encoded_state
           ]
         )
@@ -332,6 +332,7 @@ defmodule Model.ChainSql do
 
   @spec put_block(Chain.Block.t()) :: Chain.Block.t()
   def put_block(block) do
+    encoded_data = prepare_data(block)
     encoded_state = prepare_state(block)
     Writer.wait_for_flush(Block.hash(block), "put_block")
 
@@ -346,7 +347,7 @@ defmodule Model.ChainSql do
             Block.parent_hash(block),
             Block.miner(block) |> Wallet.pubkey!(),
             Block.number(block),
-            Block.strip_state(block) |> BertInt.encode!(),
+            encoded_data,
             encoded_state
           ]
         )
@@ -621,78 +622,102 @@ defmodule Model.ChainSql do
     nr <= @jump_size or rem(nr, @jump_size) == 1
   end
 
-  def prepare_state(block) do
+  def prepare_state(block, level \\ 11) do
     state = %Chain.State{} = Block.state(block)
 
     if is_jumpblock(block) do
       state
       |> Chain.State.normalize()
       |> Chain.State.compact()
-      |> BertInt.encode!()
+      |> BertInt.encode_zstd!(level)
     else
-      do_compress_state(block, state)
+      nr = Block.number(block)
+
+      prev =
+        case rem(nr, @jump_size) do
+          0 -> nr - (@jump_size - 1)
+          x -> nr - x + 1
+        end
+
+      [prev_hash, prev_state] = BlockProcess.fetch(prev, [:hash, :state])
+
+      {prev_hash, Chain.State.difference(prev_state, state)}
+      |> BertInt.encode_zstd!(level)
     end
   end
 
-  defp compress_state(db, block, state, async) do
-    if is_jumpblock(block) do
-      :nop
-    else
-      if async do
-        spawn(fn -> do_compress_state(db, block, state) end)
-      else
-        do_compress_state(db, block, state)
-      end
-    end
+  def prepare_data(block, level \\ 11) do
+    Block.strip_state(block) |> BertInt.encode_zstd!(level)
   end
 
-  defp do_compress_state(db, block, state) do
-    Sql.query_async!(db, "UPDATE blocks SET state = ?2 WHERE hash = ?1",
-      bind: [Block.hash(block), do_compress_state(block, state)]
+  defp compress_state(db, block, level) when is_integer(level) do
+    encoded_data = prepare_data(block, level)
+    encoded_state = prepare_state(block, level)
+
+    Sql.query_async!(db, "UPDATE blocks SET data = ?2, state = ?3 WHERE hash = ?1",
+      bind: [Block.hash(block), encoded_data, encoded_state]
     )
-  end
 
-  defp do_compress_state(block, state) do
-    nr = Block.number(block)
-
-    prev =
-      case rem(nr, @jump_size) do
-        0 -> nr - (@jump_size - 1)
-        x -> nr - x + 1
-      end
-
-    [prev_hash, prev_state] = BlockProcess.fetch(prev, [:hash, :state])
-
-    {prev_hash, Chain.State.difference(prev_state, state)}
-    |> BertInt.encode!()
+    byte_size(encoded_state) + byte_size(encoded_data)
   end
 
   def state_size(db \\ Db.Default, block_number) do
     [[size: size]] =
-      Sql.query!(db, "SELECT length(hex(state))/2 AS size FROM blocks WHERE number = ?1",
+      Sql.query!(
+        db,
+        "SELECT (length(hex(state))+length(hex(data)))/2 AS size FROM blocks WHERE number = ?1",
         bind: [block_number]
       )
 
     size
   end
 
-  def recompress_block(db \\ Db.Default, block_number) do
-    {block_number, pre, aft} =
-      BlockProcess.with_block(block_number, fn block ->
-        pre = state_size(block_number)
-        compress_state(db, block, Block.state(block), false)
-        aft = state_size(block_number)
-        {block_number, pre, aft}
-      end)
+  def state_exists?(db \\ Db.Default, block_number) do
+    [[state: state]] =
+      Sql.query!(
+        db,
+        "SELECT state FROM blocks WHERE number = ?1",
+        bind: [block_number]
+      )
 
-    IO.puts("recompress #{block_number} = #{pre} => #{aft}")
+    case BertInt.decode!(state) do
+      {prev_hash, _delta} -> block_by_hash(prev_hash) != nil
+      %Chain.State{} -> true
+    end
   end
 
-  def recompress_blocks() do
-    for nr <- 0..div(Chain.peak(), 100) do
-      nr = nr * 100
-      recompress_block(nr)
-      recompress_block(nr + 1)
-    end
+  def recompress_block(db \\ Db.Default, block_number) do
+    BlockProcess.with_block(block_number, fn block ->
+      pre = state_size(block_number)
+      compression_level = if pre > 20_000, do: 22, else: 20
+
+      if state_exists?(db, block_number) do
+        post = compress_state(db, block, compression_level)
+        {:recompressed, block_number, pre, post}
+      else
+        {:skipped, block_number, pre}
+      end
+    end)
+  end
+
+  def recompress_blocks(start \\ 501, stop \\ Chain.peak()) do
+    query!("PRAGMA AUTO_VACUUM = 1")
+
+    Task.async_stream(
+      start..stop,
+      &recompress_block/1,
+      timeout: :infinity,
+      max_concurrency: 8,
+      ordered: true
+    )
+    |> Enum.each(fn {:ok, row} ->
+      case row do
+        {:recompressed, block_number, pre, post} ->
+          IO.puts("recompressed #{block_number} = #{pre} => #{post}")
+
+        {:skipped, _block_number, _pre} ->
+          :ok
+      end
+    end)
   end
 end

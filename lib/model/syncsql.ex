@@ -90,7 +90,7 @@ defmodule Model.SyncSql do
             Chain.Block.hash(block),
             Chain.Block.parent_hash(block),
             Chain.Block.number(block),
-            BertInt.encode!(block)
+            BertInt.encode_zstd!(block)
           ]
         )
       end)

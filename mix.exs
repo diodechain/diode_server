@@ -90,6 +90,7 @@ defmodule Diode.Mixfile do
 
   defp deps do
     [
+      {:ezstd, "~> 1.2"},
       {:dets_plus, "~> 2.0"},
       {:benchee, "~> 1.0", only: :benchmark},
       {:debouncer, "~> 0.1"},

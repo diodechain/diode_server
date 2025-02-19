@@ -5,11 +5,14 @@ import Config
 
 # Configures Elixir's Logger
 config :logger,
+  level: :info,
   backends: [:console],
   truncate: 8000,
   format: "$time $metadata[$level] $message"
 
-config :logger, :console, format: "$time $metadata[$level] $message\n"
+config :logger, :console,
+  level: :info,
+  format: "$time $metadata[$level] $message"
 
 case Mix.env() do
   :benchmark ->

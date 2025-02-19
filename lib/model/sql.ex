@@ -47,7 +47,6 @@ defmodule Model.Sql do
     def init(_args) do
       try do
         Model.ChainSql.init()
-        Model.StateSql.init()
         Model.KademliaSql.init()
       catch
         type, other ->
