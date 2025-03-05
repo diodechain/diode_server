@@ -3,7 +3,7 @@
 # Licensed under the Diode License, Version 1.1
 defmodule ChainDefinition.Mainnet do
   alias ChainDefinition.Ulysses
-  alias ChainDefinition.{Ulysses, Voyager, Pioneer}
+  alias ChainDefinition.{Galileo, Ulysses, Voyager, Pioneer}
 
   # Planned date Monday 31st August 2020
   @voyager 713_277
@@ -19,8 +19,9 @@ defmodule ChainDefinition.Mainnet do
   # Planned 26.07.2024
   @ulysses2 7_650_000
   # @ulysses2_t1 @ulysses2 - 1
+  @galileo 8_800_000
+  @galileo_t1 @galileo - 1
 
-  @spec network(any) :: ChainDefinition.t()
   def network(blockheight) when blockheight >= @ulysses2 do
     %ChainDefinition{
       check_window: true,
@@ -106,6 +107,10 @@ defmodule ChainDefinition.Mainnet do
 
   def hardforks(block) do
     case Chain.Block.number(block) do
+      @galileo_t1 ->
+        state = Galileo.apply(Chain.Block.state(block))
+        Chain.Block.ensure_state(block, state)
+
       @ulysses_t1 ->
         state = Ulysses.apply(Chain.Block.state(block))
         Chain.Block.ensure_state(block, state)

@@ -2,7 +2,7 @@
 # Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
 defmodule ChainDefinition.Stagenet do
-  alias ChainDefinition.{Ulysses, Voyager, Pioneer}
+  alias ChainDefinition.{Galileo, Ulysses, Voyager, Pioneer}
   @voyager 10
   @voyager_t1 @voyager - 1
   @pioneer 20
@@ -11,6 +11,8 @@ defmodule ChainDefinition.Stagenet do
   @ulysses 30
   @ulysses_t1 @ulysses - 1
   @ulysses2 40
+  @galileo 50
+  @galileo_t1 @galileo - 1
 
   @spec network(any) :: ChainDefinition.t()
   def network(blockheight) when blockheight >= @ulysses2 do
@@ -51,6 +53,10 @@ defmodule ChainDefinition.Stagenet do
 
   def hardforks(block) do
     case Chain.Block.number(block) do
+      @galileo_t1 ->
+        state = Galileo.apply(Chain.Block.state(block))
+        Chain.Block.ensure_state(block, state)
+
       @ulysses_t1 ->
         state = Ulysses.apply(Chain.Block.state(block))
         Chain.Block.ensure_state(block, state)
