@@ -9,19 +9,19 @@ TESTDATA := test/pems/device1_certificate.pem test/pems/device2_certificate.pem
 all: evm/evm priv/merkletree_nif.so
 
 priv/merkletree_nif.so: $(wildcard c_src/*.cpp c_src/*.hpp)
-	make -C c_src nif
+	$(MAKE) -C c_src nif
 
 evm/evm: $(wildcard evm/*.cpp evm/*.hpp evm/*/*.cpp evm/*/*.hpp)
-	make -j4 -C evm
+	$(MAKE) -C evm
 
 .PHONY: clean
 clean:
-	make -C evm clean
+	$(MAKE) -C evm clean
 
 .PHONY: test
 test: $(TESTDATA)
 	-rm -rf data_test/ clones/
-	make --no-print-directory $(TESTS)
+	$(MAKE) --no-print-directory $(TESTS)
 
 secp256k1_params.pem:
 	openssl ecparam -name secp256k1 -out secp256k1_params.pem
