@@ -174,9 +174,15 @@ defmodule Network.Rpc do
           {res, code, err}
         end
 
+      "eth_pendingTransactions" ->
+        Chain.Pool.transactions()
+        |> Enum.map(&transaction_list/1)
+        |> result()
+
       "parity_pendingTransactions" ->
-        # todo
-        result([])
+        Chain.Pool.transactions()
+        |> Enum.map(&transaction_list/1)
+        |> result()
 
       "eth_syncing" ->
         result(Diode.syncing?())
