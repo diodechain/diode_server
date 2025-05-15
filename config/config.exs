@@ -12,7 +12,7 @@ config :logger,
 
 config :logger, :console,
   level: :info,
-  format: "$time $metadata[$level] $message"
+  format: "$time $metadata[$level] $message\n"
 
 case Mix.env() do
   :benchmark ->
