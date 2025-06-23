@@ -722,9 +722,9 @@ defmodule Network.Rpc do
       "stateRoot" => Block.state_hash(block),
       "miner" => Wallet.address!(miner),
 
-      # Blockscout does not handle extra keys
-      # "minerSignature" => block.header.miner_signature,
-
+      # Re-added minerSignature, not usinig blockscout and need full data for light-nodes
+      "minerSignature" => block.header.miner_signature,
+      "mixHash" => <<0::256>>,
       "receiptsRoot" => Block.receipts_root(block),
       "difficulty" => Block.difficulty(block),
       "totalDifficulty" => Block.total_difficulty(block),
