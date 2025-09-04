@@ -2,7 +2,7 @@
 # Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
 import binascii
-from fabric.api import env, run, cd, local, parallel
+from fabric.api import env, run, prefix, cd, local, parallel
 from fabric.contrib.files import exists, append
 
 env.gateway="root@eu1.prenet.diode.io"
@@ -15,18 +15,25 @@ if env.hosts == []:
   ]
 
 # Install on Ubuntu 18.04
+# @parallel
+def install_system_base():
+  update()
+  with prefix("export DEBIAN_FRONTEND=noninteractive"):
+    run("apt install -y libncurses-dev screen git snap g++ make unzip autoconf libtool libgmp-dev daemontools libboost-system-dev libsqlite3-dev libssl-dev unattended-upgrades debconf-utils")
+    run("echo unattended-upgrades unattended-upgrades/enable_auto_updates boolean true | debconf-set-selections -v")
+    run("dpkg-reconfigure --priority=low unattended-upgrades")  
+    run("apt autoremove -y")
+
 @parallel
 def install_base():
-  update()
-  run("DEBIAN_FRONTEND=noninteractive apt install -y libncurses-dev screen git snap g++ make unzip autoconf libtool libgmp-dev daemontools libboost-system-dev libsqlite3-dev libssl-dev")
-  run("DEBIAN_FRONTEND=noninteractive apt autoremove -y")
-
+  install_system_base()
   install_erlang()
 
 @parallel
 def update():
-  run("DEBIAN_FRONTEND=noninteractive apt update")
-  run("DEBIAN_FRONTEND=noninteractive apt upgrade -y")
+  with prefix("export DEBIAN_FRONTEND=noninteractive"):
+    run("apt update")
+    run("apt upgrade -y")
 
 @parallel
 def install_erlang():
