@@ -720,9 +720,12 @@ defmodule Chain.Block do
 
   def blockquick_window(%Block{header: %Header{number: num}}) when num <= 100 do
     [
-      598_746_696_357_369_325_966_849_036_647_255_306_831_025_787_168,
-      841_993_309_363_539_165_963_431_397_261_483_173_734_566_208_300,
-      1_180_560_991_557_918_668_394_274_720_728_086_333_958_947_256_920
+      <<3, 148, 23, 91, 79, 138, 28, 245, 73, 136, 199, 215, 247, 142, 240, 133, 137, 173, 14,
+        210, 218, 55, 250, 211, 79, 43, 122, 202, 182, 93, 96, 110, 70>>,
+      <<3, 109, 85, 243, 145, 33, 204, 3, 12, 2, 124, 186, 34, 192, 20, 132, 64, 56, 9, 228, 124,
+        166, 99, 6, 3, 93, 238, 1, 221, 114, 3, 23, 12>>,
+      <<2, 16, 7, 173, 199, 233, 211, 63, 236, 90, 171, 49, 248, 131, 41, 48, 193, 96, 27, 100,
+        154, 108, 160, 134, 72, 154, 69, 198, 231, 107, 60, 184, 50>>
     ]
     |> List.duplicate(34)
     |> List.flatten()
@@ -732,31 +735,18 @@ defmodule Chain.Block do
   def blockquick_window(%Block{} = block) do
     parent_hash = parent_hash(block)
 
-    # [_ | window] = get_cached(parent_hash, :blockquick_window, fn -> blockquick_window(parent_hash) end)
     [_ | window] = blockquick_window(parent_hash)
-    window ++ [coinbase(block)]
+    window ++ [miner_pubkey(block)]
   end
 
   def blockquick_window(block_hash) when is_binary(block_hash) do
     ChainSql.blockquick_window(block_hash)
   end
 
-  def query_blockquick_window(block_hash) when is_binary(block_hash) do
-    #    May 6th -- takes 120ms
-    {_, window} =
-      Enum.reduce(0..99, {block_hash, []}, fn _, {parent_hash, window} ->
-        BlockProcess.with_block(parent_hash, fn block ->
-          {parent_hash(block), [coinbase(block) | window]}
-        end)
-      end)
-
-    window
-  end
-
   def blockquick_scores(%Block{} = block) do
     blockquick_window(block)
-    |> Enum.reduce(%{}, fn coinbase, scores ->
-      Map.update(scores, coinbase, 1, fn i -> i + 1 end)
+    |> Enum.reduce(%{}, fn miner, scores ->
+      Map.update(scores, miner, 1, fn i -> i + 1 end)
     end)
   end
 
@@ -827,6 +817,10 @@ defmodule Chain.Block do
       {:ok, _pub} -> coinbase
       {:error, nil} -> Header.recover_miner(header)
     end
+  end
+
+  def miner_pubkey(%Block{} = block) do
+    miner(block) |> Wallet.pubkey!()
   end
 
   @spec coinbase(Chain.Block.t()) :: non_neg_integer

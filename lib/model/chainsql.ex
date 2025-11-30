@@ -219,6 +219,10 @@ defmodule Model.ChainSql do
     """)
 
     query!(db, """
+        CREATE INDEX IF NOT EXISTS block_miner ON blocks (miner, number)
+    """)
+
+    query!(db, """
         CREATE TABLE IF NOT EXISTS transactions (
           txhash BLOB PRIMARY KEY,
           blhash BLOB,
@@ -399,6 +403,28 @@ defmodule Model.ChainSql do
     Writer.query(hash)
   end
 
+  def query_last_blocks_by_miners(min_block, max_block, miners) do
+    Enum.flat_map(miners, fn miner ->
+      query!(
+        Chain.BlockQuickPool.next_partition(),
+        "SELECT MAX(number) as number FROM blocks WHERE miner = ?1 AND number >= ?2 AND number <= ?3",
+        bind: [miner, min_block, max_block]
+      )
+      |> Enum.map(fn [number: number] -> {number, miner} end)
+    end)
+  end
+
+  def query_last_blocks_by_miners_forward(min_block, max_block, miners) do
+    Enum.flat_map(miners, fn miner ->
+      query!(
+        Chain.BlockQuickPool.next_partition(),
+        "SELECT MIN(number) as number FROM blocks WHERE miner = ?2 AND number >= ?1 AND number <= ?3",
+        bind: [min_block, miner, max_block]
+      )
+      |> Enum.map(fn [number: number] -> {number, miner} end)
+    end)
+  end
+
   def query_block_by_hash(hash) do
     fetch!("SELECT data FROM blocks WHERE hash = ?1", hash)
   end
@@ -430,13 +456,12 @@ defmodule Model.ChainSql do
 
       block ->
         [_ | window] = blockquick_window(Block.parent_hash(block))
-        window ++ [Block.coinbase(block)]
+        window ++ [Block.miner(block)]
     end
   end
 
   defp do_query_blockquick_window(hash) do
     # 25/05/2020: 5ms per exec
-    # IO.puts("do_query_blockquick_window: #{Base16.encode(hash)}")
     query!(
       Chain.BlockQuickPool.next_partition(),
       """
@@ -448,9 +473,7 @@ defmodule Model.ChainSql do
       """,
       bind: [hash]
     )
-    |> Enum.map(fn [miner: pubkey] ->
-      Wallet.from_pubkey(pubkey) |> Wallet.address!() |> :binary.decode_unsigned()
-    end)
+    |> Enum.map(fn [miner: pubkey] -> pubkey end)
   end
 
   def state(block_hash) do

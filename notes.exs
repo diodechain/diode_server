@@ -1,4 +1,41 @@
+# 1st Dec 2025
+
+last_block = 7443130
+window_size = 107
+counts = Network.EdgeV2.get_counts(last_block, window_size)
+miners = Map.keys(counts)
+[miner, miner2, miner3 | _] = miners
+:timer.tc(fn -> Model.Sql.query!(Chain.BlockQuickPool.next_partition(), "SELECT MAX(number), miner FROM blocks WHERE miner = ?1 OR miner = ?2 GROUP BY miner", bind: [miner, miner2]) end)
+:timer.tc(fn -> Model.Sql.query!(Chain.BlockQuickPool.next_partition(), "SELECT MAX(number), miner FROM blocks WHERE miner = ?1 OR miner = ?2", bind: [miner, miner2]) end)
+
+Network.EdgeV2.get_blockquick_seq(last_block, window_size)
+
 # 30th Nov 2025
+
+map = Model.ChainSql.query!("SELECT DISTINCT miner FROM blocks") |>
+  Enum.map(fn [miner: miner] -> {miner, Wallet.from_pubkey(miner) |> Wallet.address!() |> :binary.decode_unsigned()} end) |>
+  Map.new()
+
+r_map = Enum.map(map, fn {miner, address} -> {address, miner} end) |> Map.new()
+
+
+Model.Sql.query!(Model.ChainSql, "SELECT number FROM blocks WHERE miner = ?1 ORDER BY number DESC LIMIT 1", bind: [miner_pubkey])
+
+# 30th Nov 2025
+
+0xd48e676574626c6f636b717569636b32837192ba6b
+last_block = 7443130
+window_size = 107
+window = Network.EdgeV2.get_blockquick_window(last_block, window_size)
+counts = Enum.reduce(window, %{}, fn miner, acc -> Map.update(acc, miner, 1, &(&1 + 1)) end)
+
+Enum.reduce(Network.EdgeV2.get_blockquick_window(last_block, window_size), %{}, fn miner, acc -> Map.update(acc, miner, 1, &(&1 + 1)) end)
+
+miner = <<974894455768843606146446676057957014263394165441::unsigned-size(160)>>
+Model.Sql.query!(Model.ChainSql, "SELECT number FROM blocks WHERE miner = ?1 ORDER BY number DESC LIMIT 1", bind: [miner])
+
+Model.Sql.query!("CREATE INDEX IF NOT EXISTS block_miner ON blocks (miner, number)")
+
 
 for _ <- 1..180, do: Chain.Worker.work()
 Model.ChainSql.blockquick_window(Chain.blockhash(103))

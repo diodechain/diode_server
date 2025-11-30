@@ -106,7 +106,7 @@ defmodule Diode.Mixfile do
       {:poison, "~> 4.0"},
       {:profiler, github: "dominicletz/profiler"},
       {:sqlitex, github: "diodechain/sqlitex"},
-      {:websockex, github: "Azolo/websockex"},
+      {:websockex, "~> 0.5"},
       {:while, "~> 0.2"},
       {:mutable_map, "~> 1.0"},
       # {:mutable_map, path: "../../mutable_map"},

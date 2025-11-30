@@ -221,66 +221,112 @@ defmodule Network.EdgeV2 do
     end
   end
 
-  def find_sequence(last_block, counts, score, threshold) do
-    window =
-      Chain.Block.blockquick_window(Chain.blockhash(last_block))
-      |> Enum.reverse()
+  @doc """
+  Finds the "optimal" provable sequence for the user's view. The view is defined by the counts of miners in the window.
 
-    Enum.reduce_while(window, {counts, score, last_block}, fn miner,
-                                                              {counts, score, last_block} ->
-      {score_value, counts} = Map.pop(counts, miner, 0)
-      score = score + score_value
+  Let's assume the current block peak 100 and these miners:
+  - Block | Miner
+  - 100   | A
+  - 99    | A
+  - 98    | A
+  - 97    | C
+  - 96    | A
+  - 95    | C
+  - 94    | B
+  - 93    | A
+  - 92    | C
+  - 91    | D
+  - 90    | A
+  """
+  def find_sequence(counts, threshold, max_block) do
+    # for the example let's assume counts is:
+    # %{A => 10, B => 30, C => 20, D => 40}
+    # and threshold is 50
 
-      if score > threshold do
-        {:halt, {:ok, last_block}}
+    last_blocks =
+      Model.ChainSql.query_last_blocks_by_miners(0, max_block, Map.keys(counts))
+      |> Enum.sort_by(fn {number, _miner} -> number end, :desc)
+
+    # query_last_blocks_by_miners returns a list of {number, miner} tuples of the last blocks mined by each miner:
+    # so in above example, it will return:
+    # [{100, A}, {97, C}, {94, B}, {91, D}]
+
+    Enum.reduce_while(last_blocks, 0, fn {number, miner}, score ->
+      score = score + Map.fetch!(counts, miner)
+
+      if score >= threshold do
+        {:halt, {:ok, number}}
       else
-        {:cont, {counts, score, last_block - 1}}
+        {:cont, score}
       end
     end)
     |> case do
       {:ok, last_block} ->
-        {:ok, last_block}
+        # This will return block 94, because A=10+B=30+C=20>50
+        # But 94...100 is not the shortest sequence for A+B+C>=
+        # Instead the shortest sequence is [94,95,96]
+        # To find this we know search forward from 94 until we find a sequence that satisfies the condition
+        first_block = find_sequence_forward(last_block, max_block, counts, threshold)
+        {:ok, Enum.to_list(last_block..first_block)}
 
-      {counts, score, last_block} ->
-        find_sequence(last_block, counts, score, threshold)
+      _ ->
+        raise "sequence not found"
     end
+  end
+
+  def find_sequence_forward(min_block, max_block, counts, threshold) do
+    Model.ChainSql.query_last_blocks_by_miners_forward(min_block, max_block, Map.keys(counts))
+    |> Enum.sort_by(fn {number, _miner} -> number end, :asc)
+    |> Enum.reduce_while(0, fn {number, miner}, score ->
+      score = score + Map.fetch!(counts, miner)
+
+      if score >= threshold do
+        {:halt, {:ok, number}}
+      else
+        {:cont, score}
+      end
+    end)
+    |> case do
+      {:ok, first_block} -> first_block
+      _ -> raise "sequence not found"
+    end
+  end
+
+  def get_counts(last_block, window_size) do
+    window = get_blockquick_window(last_block, window_size)
+    Enum.reduce(window, %{}, fn miner, acc -> Map.update(acc, miner, 1, &(&1 + 1)) end)
   end
 
   def get_blockquick_seq(last_block, window_size) do
     # Step 1: Identifying current view the device has
     #   based on it's current last valid block number
-    window = get_blockquick_window(last_block, window_size)
-    counts = Enum.reduce(window, %{}, fn miner, acc -> Map.update(acc, miner, 1, &(&1 + 1)) end)
+    counts = get_counts(last_block, window_size)
     threshold = div(window_size, 2)
 
-    # Step 2: Findind a provable sequence
+    max_block =
+      if window_size > 100 do
+        # old cli clients do not accept the most recent peaks, so we have to provide older
+        # provable blocks
+        Chain.peak() - (window_size - 100)
+      else
+        Chain.peak()
+      end
+
+    # Step 2: Find a provable sequence
     #    Iterating from peak backwards until the block score is over 50% of the window_size
-    peak = Chain.peak()
-    {:ok, provable_block} = find_sequence(peak, counts, 0, threshold)
+    {:ok, provable_range} = find_sequence(counts, threshold, max_block)
 
-    # Step 3: Filling gap between 'last_block' and provable sequence, but not
-    # by more than 'window_size' block heads before the provable sequence
-    begin = provable_block
-    size = max(min(window_size, begin - last_block) - 1, 1)
+    # Step 3: Based on last provable sequence, find the next sequence
+    next_candidate = hd(provable_range)
+    prefix = Enum.to_list((next_candidate - window_size)..(next_candidate - 1))
 
-    gap_fill = Enum.to_list((begin - size)..(begin - 1))
-    gap_fill ++ Enum.to_list(begin..peak)
-
-    # # Step 4: Checking whether the the provable sequence can be shortened
-    # # TODO
-    # {:ok, heads} =
-    #   Enum.reduce_while(heads, {counts, 0, []}, fn {head, miner},
-    #                                                {counts, score, heads} ->
-    #     {value, counts} = Map.pop(counts, miner, 0)
-    #     score = score + value
-    #     heads = [{head, miner} | heads]
-
-    #     if score > threshold do
-    #       {:halt, {:ok, heads}}
-    #     else
-    #       {:cont, {counts, score, heads}}
-    #     end
-    #   end)
+    if next_candidate == last_block do
+      prefix ++ provable_range
+    else
+      prefix ++ provable_range ++ get_blockquick_seq(next_candidate, window_size)
+    end
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   defp block_header(n) do
