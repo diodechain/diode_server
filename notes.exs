@@ -1,3 +1,8 @@
+# 30th Nov 2025
+
+for _ <- 1..180, do: Chain.Worker.work()
+Model.ChainSql.blockquick_window(Chain.blockhash(103))
+
 # 27th Jan 2025
 
 accounts = Chain.with_peak_state(fn state -> state.accounts end)

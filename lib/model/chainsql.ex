@@ -183,7 +183,7 @@ defmodule Model.ChainSql do
 
   def init() do
     Ets.init(Model.ChainSql.Writer)
-    EtsLru.new(__MODULE__, 1024)
+    EtsLru.new(__MODULE__, 50_000)
     EtsLru.new(__MODULE__.JumpState, 5)
 
     with_transaction(__MODULE__, &init_tables/1)
@@ -438,7 +438,7 @@ defmodule Model.ChainSql do
     # 25/05/2020: 5ms per exec
     # IO.puts("do_query_blockquick_window: #{Base16.encode(hash)}")
     query!(
-      __MODULE__,
+      Chain.BlockQuickPool.next_partition(),
       """
       WITH RECURSIVE parents_of(n, level) AS (
         VALUES(?1, 0) UNION SELECT parent, parents_of.level+1 FROM blocks, parents_of

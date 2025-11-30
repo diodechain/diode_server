@@ -15,7 +15,10 @@ defmodule Model.Sql do
       {Db.Default, "blockchain.sq3"},
       {Db.Tickets, "tickets.sq3"},
       {Db.Creds, "wallet.sq3"}
-    ]
+    ] ++
+      Enum.map(Chain.BlockQuickPool.block_quick_partitions(), fn partition ->
+        {partition, "blockchain.sq3"}
+      end)
   end
 
   defp map_mod(Chain.BlockCache), do: Db.Cache

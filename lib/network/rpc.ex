@@ -114,8 +114,8 @@ defmodule Network.Rpc do
   end
 
   def execute_rpc(method, params, opts) do
-    {time, value} =
-      :timer.tc(fn ->
+    Profiler.warn_if_stuck(
+      fn ->
         apis = [
           {true, {__MODULE__, :execute_std}},
           {true, {__MODULE__, :execute_dio}},
@@ -125,15 +125,10 @@ defmodule Network.Rpc do
         ]
 
         execute(apis, [method, params])
-      end)
-
-    time_ms = div(time, 1000)
-
-    if time_ms > 2000 do
-      Logger.warning("RPC method: #{inspect({method, params})} took #{time_ms}ms")
-    end
-
-    value
+      end,
+      timeout: 10_000,
+      label: "RPC method: #{inspect({method, params})}"
+    )
   end
 
   def execute_std(method, params) do
