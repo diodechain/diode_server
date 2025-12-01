@@ -456,7 +456,7 @@ defmodule Model.ChainSql do
 
       block ->
         [_ | window] = blockquick_window(Block.parent_hash(block))
-        window ++ [Block.miner(block)]
+        window ++ [Block.miner_pubkey(block)]
     end
   end
 
