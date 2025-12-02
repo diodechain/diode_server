@@ -183,7 +183,7 @@ defmodule Model.ChainSql do
 
   def init() do
     Ets.init(Model.ChainSql.Writer)
-    EtsLru.new(__MODULE__, 50_000)
+    EtsLru.new(__MODULE__, 4_000)
     EtsLru.new(__MODULE__.JumpState, 5)
 
     with_transaction(__MODULE__, &init_tables/1)
