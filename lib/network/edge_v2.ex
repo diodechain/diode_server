@@ -254,7 +254,7 @@ defmodule Network.EdgeV2 do
     Enum.reduce_while(last_blocks, 0, fn {number, miner}, score ->
       score = score + Map.fetch!(counts, miner)
 
-      if score >= threshold do
+      if score > threshold do
         {:halt, {:ok, number}}
       else
         {:cont, score}
@@ -280,7 +280,7 @@ defmodule Network.EdgeV2 do
     |> Enum.reduce_while(0, fn {number, miner}, score ->
       score = score + Map.fetch!(counts, miner)
 
-      if score >= threshold do
+      if score > threshold do
         {:halt, {:ok, number}}
       else
         {:cont, score}

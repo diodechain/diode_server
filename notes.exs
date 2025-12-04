@@ -1,3 +1,25 @@
+# 4th Dec 2025
+
+search = fn range -> Enum.reduce(range, 0, fn z, max ->
+    len = Network.EdgeV2.get_blockquick_seq(7_000_000, 107) |> length
+    if rem(z, 10000) == 0 do
+      IO.puts("Z: #{z} (#{len})")
+    end
+    if len > max do
+      IO.puts("MAX: Z=#{z} L=#{len}")
+      len
+    else
+      max
+    end
+  end)
+end
+
+
+Profiler.fprof(fn ->
+  search.(1_000_000..8_000_000//100)
+end)
+
+
 # 1st Dec 2025
 
 last_block = 7443130
