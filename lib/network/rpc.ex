@@ -287,8 +287,8 @@ defmodule Network.Rpc do
         opts =
           Map.put_new(opts, "gas", Base16.encode(Chain.gas_limit(), false))
           |> Map.put_new("gasPrice", "0x0")
-          |> Map.put("blockRef", ref)
           |> decode_opts()
+          |> Map.put("blockRef", ref)
 
         data = opts["data"]
 
