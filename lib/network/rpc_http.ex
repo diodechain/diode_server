@@ -34,7 +34,14 @@ defmodule Network.RpcHttp do
   post "/" do
     conn = cors(conn)
     local = is_local(conn.remote_ip)
-    {status, body} = Network.Rpc.handle_jsonrpc(conn.body_params, private: local)
+
+    user_agent =
+      Enum.find_value(conn.req_headers, fn {key, value} -> if key == "user-agent", do: value end)
+
+    strip_nonce = String.contains?(user_agent || "", "foundry")
+
+    {status, body} =
+      Network.Rpc.handle_jsonrpc(conn.body_params, private: local, strip_nonce: strip_nonce)
 
     send_resp(conn, status, Poison.encode!(body))
   end

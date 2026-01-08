@@ -124,14 +124,14 @@ defmodule Network.Rpc do
           {is_tuple(opts[:extra]), opts[:extra]}
         ]
 
-        execute(apis, [method, params])
+        execute(apis, [method, params, opts])
       end,
       timeout: 10_000,
       label: "RPC method: #{inspect({method, params})}"
     )
   end
 
-  def execute_std(method, params) do
+  def execute_std(method, params, opts) do
     case method do
       "net_peerCount" ->
         peers = Network.Server.get_connections(Network.PeerHandler)
@@ -213,13 +213,13 @@ defmodule Network.Rpc do
       "eth_getBlockByHash" ->
         [ref, full] = params
 
-        with_block_by_ref(ref, fn block -> get_block_rpc(block, full) end)
+        with_block_by_ref(ref, fn block -> get_block_rpc(block, full, opts) end)
         |> result()
 
       "eth_getBlockByNumber" ->
         [ref, full] = params
 
-        with_block(ref, fn block -> get_block_rpc(block, full) end)
+        with_block(ref, fn block -> get_block_rpc(block, full, opts) end)
         |> result()
 
       "eth_mining" ->
@@ -490,7 +490,7 @@ defmodule Network.Rpc do
     end
   end
 
-  def execute_dio(method, params) do
+  def execute_dio(method, params, _opts) do
     case method do
       "dio_getObject" ->
         key = Base16.decode(hd(params))
@@ -589,7 +589,7 @@ defmodule Network.Rpc do
     end
   end
 
-  def execute_private(method, params) do
+  def execute_private(method, params, _opts) do
     case method do
       "eth_sendTransaction" ->
         [%{} = opts] = params
@@ -613,7 +613,7 @@ defmodule Network.Rpc do
     end
   end
 
-  def execute_dev(method, params) do
+  def execute_dev(method, params, _opts) do
     case method do
       "evm_snapshot" ->
         case params do
@@ -686,7 +686,7 @@ defmodule Network.Rpc do
     BlockProcess.with_block(ref, fun)
   end
 
-  def get_block_rpc(block, full) do
+  def get_block_rpc(block, full, opts) do
     miner = Block.miner(block)
     txs = Block.transactions(block)
 
@@ -706,11 +706,13 @@ defmodule Network.Rpc do
     uncles = []
     uncleSha = Hash.keccak_256(Rlp.encode!(uncles))
 
+    nonce = if opts[:strip_nonce], do: "0x0000000000000000", else: Block.nonce(block)
+
     %{
       "number" => Block.number(block),
       "hash" => Block.hash(block),
       "parentHash" => parentHash,
-      "nonce" => Block.nonce(block),
+      "nonce" => nonce,
       "sha3Uncles" => uncleSha,
       "logsBloom" => Block.logs_bloom(block),
       "transactionsRoot" => Block.txhash(block),
@@ -721,7 +723,7 @@ defmodule Network.Rpc do
       "minerSignature" => block.header.miner_signature,
       "mixHash" => <<0::256>>,
       "receiptsRoot" => Block.receipts_root(block),
-      "difficulty" => Block.difficulty(block),
+      "difficulty" => Block.difficulty(block) * 100,
       "totalDifficulty" => Block.total_difficulty(block),
       "extraData" => Block.extra_data(block),
       "size" => Block.size(block),
