@@ -1,3 +1,17 @@
+# 3rd Mar 2026
+
+for b <- Chain.BlockQuickPool.block_quick_partitions() do
+  t = Model.Sql.query!(b, "PRAGMA threads")
+  m = Model.Sql.query!(b, "PRAGMA mmap_size")
+  {t, m}
+end
+
+
+for b <- Chain.BlockQuickPool.block_quick_partitions() do
+  Model.Sql.query!(b, "PRAGMA threads = 4")
+end
+Model.ChainSql.query!("PRAGMA threads = 4")
+
 # 4th Dec 2025
 
 search = fn range -> Enum.reduce(range, 0, fn z, max ->
