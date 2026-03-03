@@ -36,6 +36,8 @@ defmodule Model.Sql do
   defp init_connection(conn) do
     query!(conn, "PRAGMA journal_mode = WAL")
     query!(conn, "PRAGMA synchronous = NORMAL")
+    query!(conn, "PRAGMA threads = 4")
+    query!(conn, "PRAGMA mmap_size = #{256 * 1024 * 1024}")
     # query!(conn, "PRAGMA OPTIMIZE", call_timeout: @infinity)
   end
 
