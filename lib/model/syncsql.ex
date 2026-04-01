@@ -7,6 +7,8 @@ defmodule Model.SyncSql do
   use GenServer
   require Logger
 
+  @parent_search_depth 10_000
+
   defstruct queue: %{}, worker: nil, cache: %{}
 
   defp query!(sql, params) do
@@ -150,56 +152,85 @@ defmodule Model.SyncSql do
     {:reply, ret, state}
   end
 
-  def handle_call({:search_parent, oblock}, _from, state = %SyncSql{queue: queue, cache: cache}) do
-    block =
-      if Map.has_key?(cache, Chain.Block.hash(oblock)) do
-        Map.get(cache, Chain.Block.hash(oblock))
-      else
-        oblock
-      end
+  def handle_call({:search_parent, oblock}, _from, state) do
+    {block2, state} = search_parent(state, oblock, oblock)
+    {:reply, block2, state}
+  end
 
+  defp search_parent(state, oblock, block) do
     hash = Chain.Block.hash(block)
 
-    {block2, state} =
-      Sql.fetch!(
-        __MODULE__,
-        """
-        SELECT data FROM blocks WHERE hash IN
-        (
-          WITH RECURSIVE parents_of(n) AS (
-          VALUES(?1)
-            UNION SELECT parent_hash FROM blocks, parents_of
-            WHERE blocks.hash=n
-          )
-          SELECT n FROM parents_of
-        )
-        ORDER BY number ASC
-        LIMIT 1;
-        """,
-        [hash]
-      )
-      |> case do
-        nil ->
-          if Map.has_key?(queue, hash) do
-            {queue_top(block, queue), state}
-          else
-            send(state.worker, {:insert_block, block})
-            queue = Map.put(queue, hash, block)
-            {block, %SyncSql{state | queue: queue}}
-          end
+    case Map.get(state.cache, hash) do
+      nil ->
+        parent_search_depth =
+          @parent_search_depth + rem(Chain.Block.number(block), @parent_search_depth)
 
-        other ->
-          {queue_top(other, queue), state}
-      end
+        case fetch_ancestor_within_depth(hash, parent_search_depth) do
+          nil ->
+            search_parent_missing_in_db(state, block, hash)
 
-    state =
-      if Chain.Block.number(oblock) - Chain.Block.number(block2) > 1000 do
-        %SyncSql{state | cache: Map.put(cache, Chain.Block.hash(oblock), block2)}
-      else
-        state
-      end
+          {ancestor, depth} ->
+            ancestor2 = queue_top(ancestor, state.queue)
 
-    {:reply, block2, state}
+            Logger.info(
+              "SyncSql: search_parent query found ancestor: #{Chain.Block.number(ancestor2)}"
+            )
+
+            state =
+              if rem(Chain.Block.number(ancestor2), 1000) == 0 do
+                %SyncSql{state | cache: Map.put(state.cache, hash, ancestor2)}
+              else
+                state
+              end
+
+            if depth == parent_search_depth do
+              search_parent(state, oblock, ancestor2)
+            else
+              {ancestor2, state}
+            end
+        end
+
+      cached ->
+        search_parent(state, oblock, cached)
+    end
+  end
+
+  defp fetch_ancestor_within_depth(hash, max_depth) do
+    sql = """
+    WITH RECURSIVE parents_of(n, depth) AS (
+      VALUES(?1, 0)
+      UNION ALL
+      SELECT b.parent_hash, p.depth + 1
+      FROM blocks b, parents_of p
+      WHERE b.hash = p.n AND p.depth < ?2 AND b.parent_hash IS NOT NULL
+    ),
+    picked AS (
+      SELECT blocks.data AS data, parents_of.depth AS depth
+      FROM blocks
+      INNER JOIN parents_of ON blocks.hash = parents_of.n
+      ORDER BY blocks.number ASC
+      LIMIT 1
+    )
+    SELECT data, depth FROM picked
+    """
+
+    case Sql.query!(__MODULE__, sql, bind: [hash, max_depth]) do
+      [] ->
+        nil
+
+      [row] ->
+        {BertInt.decode!(row[:data]), row[:depth]}
+    end
+  end
+
+  defp search_parent_missing_in_db(state = %SyncSql{queue: queue}, block, hash) do
+    if Map.has_key?(queue, hash) do
+      {queue_top(block, queue), state}
+    else
+      send(state.worker, {:insert_block, block})
+      queue = Map.put(queue, hash, block)
+      {block, %SyncSql{state | queue: queue}}
+    end
   end
 
   defp queue_top(block, queue) do
