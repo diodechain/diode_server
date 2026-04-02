@@ -62,6 +62,9 @@ defmodule RemoteChain do
   def chainimpl(41042), do: Chains.DiodeStaging
   def chainimpl(41043), do: Chains.Diode
 
+  # nil is an atom; legacy pre-EIP-155 txs keep chain_id nil (see Transaction.sign/to_message).
+  def chainimpl(nil), do: diode_l1_fallback()
+
   def chainimpl(module) when is_atom(module), do: module
   def chainimpl(other), do: raise("Unknown chain #{inspect(other)}")
 end
