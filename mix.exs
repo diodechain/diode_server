@@ -40,14 +40,9 @@ defmodule Diode.Mixfile do
     [
       mod: {Diode, []},
       extra_applications: [
-        :debouncer,
-        :keccakf1600,
-        :libsecp256k1,
-        :logger,
         :mix,
         :observer,
         :runtime_tools,
-        :sqlitex,
         :os_mon
       ]
     ]
@@ -93,7 +88,7 @@ defmodule Diode.Mixfile do
       {:ezstd, "~> 1.2"},
       {:dets_plus, "~> 2.0"},
       {:benchee, "~> 1.0", only: :benchmark},
-      {:debouncer, "~> 0.1"},
+      {:debouncer, "~> 1.0"},
       {:eblake2, "~> 1.0"},
       {:elixir_make, "~> 0.4", runtime: false},
       {:ex_doc, "~> 0.28", only: :dev, runtime: false},
