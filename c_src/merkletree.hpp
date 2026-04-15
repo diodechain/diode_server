@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <list>
 
+#include "item_pool.hpp"
 #include "preallocator.hpp"
 
 const int LEAF_SIZE = 16;
@@ -223,8 +224,8 @@ pair_list_t *clone_pair_list(const pair_list_t *src, Tree &tree);
 
 // Key-byte interning and content-addressed subtree sharing would require pair_t / node
 // representation changes; not implemented here.
-// Items: shared_ptr DAG + fork_for_write on insert; lazy hash_values; leaf_bucket nullptr on internal
-// nodes. Pair allocator stripes: GlobalStripePool in preallocator.hpp.
+// Trie edges use ItemId (32-bit) into ItemPool with refcounted COW; lazy hash_values; internal
+// nodes use leaf_bucket nullptr.
 
 struct proof_t {
     proof_t() = default;
@@ -249,8 +250,8 @@ struct Item {
     uint64_t hash_count;
     bits_t prefix;
     pair_list_t *leaf_bucket;
-    std::shared_ptr<Item> node_left;
-    std::shared_ptr<Item> node_right;
+    ItemId left_id;
+    ItemId right_id;
 
     explicit Item(Tree &tree);
     ~Item();
@@ -258,30 +259,32 @@ struct Item {
     Item(const Item &other) = delete;
     Item& operator=(const Item &other) = delete;
 
-    void each(std::function<void(pair_t &)> func);
-    size_t leaf_count() const;
+    void each(Tree &tree, std::function<void(pair_t &)> func);
+    size_t leaf_count(const Tree &tree) const;
 
     uint256_t *ensure_hashes();
     const uint256_t *hashes_ro() const { return hash_values; }
-
-    static std::shared_ptr<Item> fork_for_write(std::shared_ptr<Item> n, Tree &tree);
 };
 
 class Tree {
 public:
     PreAllocator<pair_t> m_pair_allocator;
-    std::shared_ptr<Item> root;
+    std::shared_ptr<ItemPool> pool;
+    ItemId root_id;
 
-    std::shared_ptr<Item> make_item();
-
-    void split_node(const std::shared_ptr<Item> &tree);
-    void update_merkle_hash_count(const std::shared_ptr<Item> &item, bin_t &binary_buffer);
+    void split_node(ItemId tree_id);
+    void update_merkle_hash_count(ItemId item_id, bin_t &binary_buffer);
     void bucket_to_leafes(Item &item, bin_t &binary_buffer);
+
+    Item *node(ItemId id) { return pool->get(id); }
+    const Item *node(ItemId id) const { return pool->get(id); }
+
+    ItemId fork_for_write(ItemId id);
 
     Tree();
     Tree(const Tree &other);
     Tree& operator=(const Tree &other) = delete;
-    ~Tree() = default;
+    ~Tree();
 
     void insert_item(pair_t &pair);
     void insert_item(bin_t &key, uint256_t &value);
@@ -299,12 +302,12 @@ public:
     size_t leaf_count();
     size_t node_count() const;
     void each(std::function<void(pair_t &)> func) {
-        if (root) {
-            root->each(func);
+        if (root_id != kItemNull) {
+            pool->get(root_id)->each(*this, func);
         }
     }
     void difference(Tree &other, Tree &into);
 
 private:
-    std::shared_ptr<Item> insert_path(std::shared_ptr<Item> node, pair_t &pair);
+    ItemId insert_path(ItemId node_id, pair_t &pair);
 };

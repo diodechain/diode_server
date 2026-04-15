@@ -190,8 +190,8 @@ Item::Item(Tree &tree)
       hash_count(0),
       prefix(),
       leaf_bucket(new pair_list_t(tree)),
-      node_left(nullptr),
-      node_right(nullptr) { }
+      left_id(kItemNull),
+      right_id(kItemNull) { }
 
 Item::~Item() {
     delete[] hash_values;
@@ -209,109 +209,103 @@ uint256_t *Item::ensure_hashes() {
     return hash_values;
 }
 
-std::shared_ptr<Item> Item::fork_for_write(std::shared_ptr<Item> n, Tree &tree) {
-    if (!n) {
-        return n;
+ItemId Tree::fork_for_write(ItemId id) {
+    if (id == kItemNull) {
+        return id;
     }
-    if (n.use_count() <= 1) {
-        return n;
+    if (pool->is_unique(id)) {
+        return id;
     }
-    auto c = std::shared_ptr<Item>(new Item(tree));
-    delete c->leaf_bucket;
-    c->leaf_bucket = nullptr;
-    c->is_leaf = n->is_leaf;
-    c->dirty = true;
-    c->hash_count = n->hash_count;
-    c->prefix = n->prefix;
-    if (n->hash_values) {
-        c->hash_values = new uint256_t[LEAF_SIZE];
-        std::memcpy(c->hash_values, n->hash_values, LEAF_SIZE * sizeof(uint256_t));
-    }
-    if (n->leaf_bucket) {
-        c->leaf_bucket = clone_pair_list(n->leaf_bucket, tree);
-    }
-    c->node_left = n->node_left;
-    c->node_right = n->node_right;
-    return c;
+    return pool->clone_for_fork(id, *this);
 }
 
-void Item::each(std::function<void(pair_t &)> func) {
+void Item::each(Tree &tree, std::function<void(pair_t &)> func) {
     if (this->is_leaf) {
         for (pair_t *pair : *leaf_bucket) {
             func(*pair);
         }
     } else {
-        node_left->each(func);
-        node_right->each(func);
+        tree.pool->get(left_id)->each(tree, func);
+        tree.pool->get(right_id)->each(tree, func);
     }
 }
 
-size_t Item::leaf_count() const {
+size_t Item::leaf_count(const Tree &tree) const {
     if (this->is_leaf) {
         return 1;
     }
-    return node_left->leaf_count() + node_right->leaf_count();
+    return tree.pool->get(left_id)->leaf_count(tree) + tree.pool->get(right_id)->leaf_count(tree);
 }
 
-Tree::Tree() : m_pair_allocator(*this), root(std::make_shared<Item>(*this)) { }
+Tree::Tree() : m_pair_allocator(*this), pool(ItemPool::make()), root_id(pool->create_root(*this)) { }
 
-Tree::Tree(const Tree &other) : m_pair_allocator(*this), root(other.root) { }
-
-std::shared_ptr<Item> Tree::make_item() {
-    return std::make_shared<Item>(*this);
+Tree::Tree(const Tree &other) : m_pair_allocator(*this), pool(other.pool), root_id(other.root_id) {
+    pool->incr_ref(root_id);
 }
 
-std::shared_ptr<Item> Tree::insert_path(std::shared_ptr<Item> node, pair_t &pair) {
-    node = Item::fork_for_write(node, *this);
+Tree::~Tree() {
+    pool->decr_ref(root_id);
+}
+
+ItemId Tree::insert_path(ItemId node_id, pair_t &pair) {
+    node_id = fork_for_write(node_id);
+    Item *node = pool->get(node_id);
     if (node->is_leaf) {
         if (pair.value.is_null()) {
             map_delete(*node->leaf_bucket, pair.key);
         } else {
             map_put(*node->leaf_bucket, pair);
-            split_node(node);
+            split_node(node_id);
         }
-        return node;
+        node->dirty = true;
+        return node_id;
     }
     if (decide(pair, node->prefix.size())) {
-        node->node_left = insert_path(node->node_left, pair);
-        node->dirty = true;
-        return node;
+        ItemId newL = insert_path(node->left_id, pair);
+        pool->set_left(node_id, newL);
+        pool->get(node_id)->dirty = true;
+        return node_id;
     }
-    node->node_right = insert_path(node->node_right, pair);
-    node->dirty = true;
-    return node;
+    ItemId newR = insert_path(node->right_id, pair);
+    pool->set_right(node_id, newR);
+    pool->get(node_id)->dirty = true;
+    return node_id;
 }
 
-void Tree::split_node(const std::shared_ptr<Item> &tree) {
-    Item &t = *tree;
-    if (t.leaf_bucket->size() <= LEAF_SIZE) {
+void Tree::split_node(ItemId tree_id) {
+    Item *t = pool->get(tree_id);
+    if (t->leaf_bucket->size() <= LEAF_SIZE) {
         return;
     }
 
-    t.node_left = make_item();
-    t.node_left->prefix = t.prefix;
-    t.node_left->prefix.push_back(LEFT);
+    ItemId L = pool->alloc_leaf(*this);
+    ItemId R = pool->alloc_leaf(*this);
+    Item *tl = pool->get(L);
+    Item *tr = pool->get(R);
+    tl->prefix = t->prefix;
+    tl->prefix.push_back(LEFT);
+    tr->prefix = t->prefix;
+    tr->prefix.push_back(RIGHT);
 
-    t.node_right = make_item();
-    t.node_right->prefix = t.prefix;
-    t.node_right->prefix.push_back(RIGHT);
-
-    for (pair_t *pair : *t.leaf_bucket) {
-        if (decide(*pair, t.prefix.size())) {
-            t.node_left->leaf_bucket->push_back_no_delete(pair);
+    for (pair_t *pair : *t->leaf_bucket) {
+        if (decide(*pair, t->prefix.size())) {
+            tl->leaf_bucket->push_back_no_delete(pair);
         } else {
-            t.node_right->leaf_bucket->push_back_no_delete(pair);
+            tr->leaf_bucket->push_back_no_delete(pair);
         }
     }
 
-    split_node(t.node_left);
-    split_node(t.node_right);
+    split_node(L);
+    split_node(R);
 
-    t.leaf_bucket->clear_no_delete();
-    delete t.leaf_bucket;
-    t.leaf_bucket = nullptr;
-    t.is_leaf = false;
-    t.dirty = true;
+    t->leaf_bucket->clear_no_delete();
+    delete t->leaf_bucket;
+    t->leaf_bucket = nullptr;
+    t->is_leaf = false;
+    t->dirty = true;
+
+    pool->set_left(tree_id, L);
+    pool->set_right(tree_id, R);
 }
 
 void Tree::insert_item(bin_t &key, uint256_t &value) {
@@ -320,7 +314,13 @@ void Tree::insert_item(bin_t &key, uint256_t &value) {
 }
 
 void Tree::insert_item(pair_t &pair) {
-    root = insert_path(root, pair);
+    ItemId old_root = root_id;
+    ItemId new_root = insert_path(root_id, pair);
+    if (new_root != old_root) {
+        pool->decr_ref(old_root);
+        root_id = new_root;
+        pool->incr_ref(root_id);
+    }
 }
 
 void Tree::insert_items(pair_list_t &items) {
@@ -357,39 +357,45 @@ void Tree::bucket_to_leafes(Item &item, bin_t &binary_buffer) {
     }
 }
 
-void Tree::update_merkle_hash_count(const std::shared_ptr<Item> &item, bin_t &binary_buffer) {
-    if (!item || !item->dirty) {
+void Tree::update_merkle_hash_count(ItemId item_id, bin_t &binary_buffer) {
+    if (item_id == kItemNull) {
+        return;
+    }
+    Item *item = pool->get(item_id);
+    if (!item->dirty) {
         return;
     }
     Item &it = *item;
     if (it.is_leaf) {
         if (it.leaf_bucket->size() > LEAF_SIZE) {
-            split_node(item);
-            update_merkle_hash_count(item, binary_buffer);
+            split_node(item_id);
+            update_merkle_hash_count(item_id, binary_buffer);
         } else {
             bucket_to_leafes(it, binary_buffer);
             it.hash_count = it.leaf_bucket->size();
         }
     } else {
-        update_merkle_hash_count(it.node_left, binary_buffer);
-        update_merkle_hash_count(it.node_right, binary_buffer);
-        it.hash_count = it.node_left->hash_count + it.node_right->hash_count;
+        update_merkle_hash_count(it.left_id, binary_buffer);
+        update_merkle_hash_count(it.right_id, binary_buffer);
+        Item *left = pool->get(it.left_id);
+        Item *right = pool->get(it.right_id);
+        it.hash_count = left->hash_count + right->hash_count;
         uint256_t *hv = it.ensure_hashes();
         if (it.hash_count <= LEAF_SIZE) {
             if (!it.leaf_bucket) {
                 it.leaf_bucket = new pair_list_t(*it.m_tree);
             }
-            it.each([&it](pair_t &pair) {
+            it.each(*this, [&it](pair_t &pair) {
                 map_put(*it.leaf_bucket, pair);
             });
-            it.node_left.reset();
-            it.node_right.reset();
+            pool->set_left(item_id, kItemNull);
+            pool->set_right(item_id, kItemNull);
             it.is_leaf = true;
             bucket_to_leafes(it, binary_buffer);
         } else {
             for (int i = 0; i < LEAF_SIZE; i++) {
-                uint256_t *lh = it.node_left->ensure_hashes();
-                uint256_t *rh = it.node_right->ensure_hashes();
+                uint256_t *lh = left->ensure_hashes();
+                uint256_t *rh = right->ensure_hashes();
                 hv[i] = signature(lh[i], rh[i], binary_buffer);
             }
         }
@@ -399,27 +405,23 @@ void Tree::update_merkle_hash_count(const std::shared_ptr<Item> &item, bin_t &bi
 
 uint256_t Tree::root_hash() {
     bin_t binary_buffer;
-    if (root->is_leaf) {
-        update_merkle_hash_count(root, binary_buffer);
-    } else {
-        update_merkle_hash_count(root, binary_buffer);
-    }
+    update_merkle_hash_count(root_id, binary_buffer);
 
     binary_buffer.clear();
-    uint256_t *hv = root->ensure_hashes();
+    uint256_t *hv = pool->get(root_id)->ensure_hashes();
     to_erl_ext(binary_buffer, hv, LEAF_SIZE);
     return hash(binary_buffer);
 }
 
 uint256_t* Tree::root_hashes() {
     bin_t binary_buffer;
-    update_merkle_hash_count(root, binary_buffer);
-    return root->ensure_hashes();
+    update_merkle_hash_count(root_id, binary_buffer);
+    return pool->get(root_id)->ensure_hashes();
 }
 
 size_t Tree::size() {
     size_t count = 0;
-    root->each([&count](pair_t &) {
+    pool->get(root_id)->each(*this, [&count](pair_t &) {
         count++;
     });
     return count;
@@ -427,22 +429,23 @@ size_t Tree::size() {
 
 size_t Tree::leaf_count() {
     bin_t binary_buffer;
-    update_merkle_hash_count(root, binary_buffer);
-    return root->leaf_count();
+    update_merkle_hash_count(root_id, binary_buffer);
+    return pool->get(root_id)->leaf_count(*this);
 }
 
-static size_t count_nodes(const std::shared_ptr<Item> &item) {
-    if (!item) {
+static size_t count_nodes(ItemPool *pool, ItemId item_id) {
+    if (item_id == kItemNull) {
         return 0;
     }
+    const Item *item = pool->get(item_id);
     if (item->is_leaf) {
         return 1;
     }
-    return 1 + count_nodes(item->node_left) + count_nodes(item->node_right);
+    return 1 + count_nodes(pool, item->left_id) + count_nodes(pool, item->right_id);
 }
 
 size_t Tree::node_count() const {
-    return count_nodes(root);
+    return count_nodes(pool.get(), root_id);
 }
 
 proof_t make_hash_proof(uint256_t &hash) {
@@ -465,17 +468,19 @@ proof_t do_get_proofs(Tree &tree, Item &item, pair_t &pair) {
 
     ret.type = 0;
     bin_t buf;
-    tree.update_merkle_hash_count(item.node_left, buf);
-    tree.update_merkle_hash_count(item.node_right, buf);
-    uint256_t *rl = item.node_right->ensure_hashes();
-    uint256_t *ll = item.node_left->ensure_hashes();
+    tree.update_merkle_hash_count(item.left_id, buf);
+    tree.update_merkle_hash_count(item.right_id, buf);
+    Item *left = tree.pool->get(item.left_id);
+    Item *right = tree.pool->get(item.right_id);
+    uint256_t *rl = right->ensure_hashes();
+    uint256_t *ll = left->ensure_hashes();
     int idx = hash_to_leafindex(pair);
     if (decide(pair, item.prefix.size())) {
-        ret.left = std::make_unique<proof_t>(do_get_proofs(tree, *item.node_left, pair));
+        ret.left = std::make_unique<proof_t>(do_get_proofs(tree, *left, pair));
         ret.right = std::make_unique<proof_t>(make_hash_proof(rl[idx]));
     } else {
         ret.left = std::make_unique<proof_t>(make_hash_proof(ll[idx]));
-        ret.right = std::make_unique<proof_t>(do_get_proofs(tree, *item.node_right, pair));
+        ret.right = std::make_unique<proof_t>(do_get_proofs(tree, *right, pair));
     }
 
     return ret;
@@ -484,8 +489,8 @@ proof_t do_get_proofs(Tree &tree, Item &item, pair_t &pair) {
 proof_t Tree::get_proofs(bin_t& key) {
     pair_t pair(key);
     bin_t binary_buffer;
-    update_merkle_hash_count(root, binary_buffer);
-    return do_get_proofs(*this, *root, pair);
+    update_merkle_hash_count(root_id, binary_buffer);
+    return do_get_proofs(*this, *pool->get(root_id), pair);
 }
 
 pair_t* Tree::get_item(bin_t &&key) {
@@ -493,18 +498,19 @@ pair_t* Tree::get_item(bin_t &&key) {
     return get_item(pair);
 }
 
-static Item &get_bucket(std::shared_ptr<Item> item, pair_t &pair) {
+static Item &get_bucket(Tree &tree, ItemId item_id, pair_t &pair) {
+    Item *item = tree.pool->get(item_id);
     if (item->is_leaf) {
         return *item;
     }
     if (decide(pair, item->prefix.size())) {
-        return get_bucket(item->node_left, pair);
+        return get_bucket(tree, item->left_id, pair);
     }
-    return get_bucket(item->node_right, pair);
+    return get_bucket(tree, item->right_id, pair);
 }
 
 pair_t* Tree::get_item(pair_t &pair) {
-    Item &leaf = get_bucket(root, pair);
+    Item &leaf = get_bucket(*this, root_id, pair);
     return map_get(*leaf.leaf_bucket, pair.key);
 }
 
