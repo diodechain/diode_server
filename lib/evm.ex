@@ -119,8 +119,11 @@ defmodule Evm do
          ) do
       code = State.ensure_account(state, code).code
 
-      tx = %Transaction{
-        task.tx
+      tx0 = task.tx
+      %Transaction{} = tx0
+
+      tx = %{
+        tx0
         | gasLimit: gas,
           value: value,
           data: call_data,
@@ -134,10 +137,12 @@ defmodule Evm do
         else
           from_acc = State.account(state, from)
           to_acc = State.ensure_account(state, tx.to)
+          %Account{} = from_acc
+          %Account{} = to_acc
 
           state
-          |> State.set_account(from, %Account{from_acc | balance: from_acc.balance - value})
-          |> State.set_account(tx.to, %Account{to_acc | balance: to_acc.balance + value})
+          |> State.set_account(from, %{from_acc | balance: from_acc.balance - value})
+          |> State.set_account(tx.to, %{to_acc | balance: to_acc.balance + value})
         end
 
       evm =
@@ -162,14 +167,17 @@ defmodule Evm do
          ) do
       address = Task.address(task)
       number = Task.number(task)
-      account = State.account(state, address)
 
       if State.account(state, to_address) != nil and
            ChainDefinition.allow_contract_override(number) == false do
-        {:evmc_invalid_instruction,
-         %Evm{evm(task) | gas: 0, out: "", msg: :evmc_invalid_instruction}}
+        evm0 = evm(task)
+        %Evm{} = evm0
+
+        {:evmc_invalid_instruction, %{evm0 | gas: 0, out: "", msg: :evmc_invalid_instruction}}
       else
-        account = %Account{account | nonce: account.nonce + 1, balance: account.balance - value}
+        account = State.account(state, address)
+        %Account{} = account
+        account = %{account | nonce: account.nonce + 1, balance: account.balance - value}
         to_account = Account.new(nonce: 1, balance: value)
 
         state =
@@ -177,8 +185,9 @@ defmodule Evm do
           |> State.set_account(to_address, to_account)
           |> State.set_account(address, account)
 
-        task = %Task{task | chain_state: state}
-        tx = %Transaction{tx | value: value, data: nil, to: to_address, gasLimit: gas}
+        task = %{task | chain_state: state}
+        %Transaction{} = tx0 = tx
+        tx = %{tx0 | value: value, data: nil, to: to_address, gasLimit: gas}
 
         evm =
           evm(%Task{
@@ -199,12 +208,14 @@ defmodule Evm do
                     state
 
                   to_account ->
-                    to_account = %Account{to_account | code: Evm.out(evm2)}
+                    %Account{} = to_account
+                    to_account = %{to_account | code: Evm.out(evm2)}
                     State.set_account(state, to_address, to_account)
                 end
 
               evm2 = Evm.set_state(evm2, state)
-              {:ok, %Evm{evm2 | create_address: Hash.integer(to_address), out: ""}}
+              %Evm{} = evm2
+              {:ok, %{evm2 | create_address: Hash.integer(to_address), out: ""}}
 
             {error, evm2} ->
               {error, evm2}
@@ -307,17 +318,18 @@ defmodule Evm do
     Task.evm(task)
   end
 
-  def eval(evm) do
+  def eval(%Evm{} = evm) do
     Stats.tc(:eval, fn -> eval_timed(evm) end)
   end
 
-  defp eval_timed(evm) do
+  defp eval_timed(%Evm{} = evm) do
     ret = eval_internal(evm)
 
     with {:ok, evm2} <- ret do
-      # Checking for selfdestruct
-      task = evm2.task
+      %Evm{} = evm2
+      %Task{} = task = evm2.task
 
+      # Checking for selfdestruct
       state =
         Enum.reduce(task.selfdestructs, task.chain_state, fn {to, benefector}, state ->
           # Fetching balance and deleting the account
@@ -331,24 +343,25 @@ defmodule Evm do
             state
           else
             beneficiary = State.ensure_account(state, address)
-            beneficiary = %Account{beneficiary | balance: beneficiary.balance + balance}
+            %Account{} = beneficiary
+            beneficiary = %{beneficiary | balance: beneficiary.balance + balance}
             State.set_account(state, address, beneficiary)
           end
         end)
 
-      {:ok, %Evm{evm2 | task: %Task{task | chain_state: state}}}
+      {:ok, %{evm2 | task: %{task | chain_state: state}}}
     else
       _ -> ret
     end
   end
 
-  def eval_internal(evm) do
+  def eval_internal(%Evm{} = evm) do
     addr = Task.address(evm.task)
     to = Hash.integer(addr)
 
     if code(evm) == "" or code(evm) == nil do
       case PreCompiles.get(to) do
-        nil -> {:ok, %Evm{evm | out: ""}}
+        nil -> {:ok, %{evm | out: ""}}
         fun -> eval_internal_precompile(evm, fun)
       end
     else
@@ -356,35 +369,35 @@ defmodule Evm do
     end
   end
 
-  def eval_internal_precompile(evm, fun) do
+  def eval_internal_precompile(%Evm{} = evm, fun) do
     input = input(evm)
     gascost = fun.(:gas, input)
 
     if gascost > evm.gas do
-      {:evmc_out_of_gas, %Evm{evm | gas: 0, msg: :evmc_out_of_gas}}
+      {:evmc_out_of_gas, %{evm | gas: 0, msg: :evmc_out_of_gas}}
     else
       result = fun.(:run, input)
       result = binary_part(<<0::unsigned-size(256), result::binary>>, byte_size(result), 32)
-      {:ok, %Evm{evm | out: result, gas: evm.gas - gascost}}
+      {:ok, %{evm | out: result, gas: evm.gas - gascost}}
     end
   end
 
-  def eval_internal_evm(evm) do
+  def eval_internal_evm(%Evm{} = evm) do
     ret = do_eval(evm)
 
-    with {:ok, evm2} <- ret do
-      task = evm2.task
+    with {:ok, %Evm{} = evm2} <- ret do
+      %Task{} = task = evm2.task
 
       # Refunding
       maxRefund = div(Task.gas(task) - evm2.gas, 2)
       refund = min(maxRefund, evm2.refund)
-      evm2 = %Evm{evm2 | gas: evm2.gas + refund}
+      evm2 = %{evm2 | gas: evm2.gas + refund}
 
       # Collecting selfdestruct
       evm2 =
         if evm2.selfdestruct != nil do
           selfdestructs = [{Task.address(task), evm2.selfdestruct} | task.selfdestructs]
-          %Evm{evm2 | task: %Task{task | selfdestructs: selfdestructs}}
+          %{evm2 | task: %{task | selfdestructs: selfdestructs}}
         else
           evm2
         end
@@ -399,9 +412,9 @@ defmodule Evm do
           deposit = byte_size(bin) * gas_cost(:GCODEDEPOSIT)
 
           if evm2.gas > deposit do
-            {:ok, %Evm{evm2 | gas: evm2.gas - deposit}}
+            {:ok, %{evm2 | gas: evm2.gas - deposit}}
           else
-            {:evmc_out_of_gas, %Evm{evm2 | gas: 0, msg: :evmc_out_of_gas}}
+            {:evmc_out_of_gas, %{evm2 | gas: 0, msg: :evmc_out_of_gas}}
           end
       end
     else
@@ -448,7 +461,8 @@ defmodule Evm do
     >>
 
     true = Port.command(port, init_context)
-    evm = %Evm{evm | port: port}
+    %Evm{} = evm
+    evm = %{evm | port: port}
     ret = do_eval2(evm)
     release_port(port)
     ret
@@ -535,10 +549,10 @@ defmodule Evm do
   defp process_data(
          <<"ok", gas_left::signed-little-size(64), ret_code::signed-little-size(64),
            len::unsigned-little-size(64), rest::binary-size(len)>>,
-         evm
+         %Evm{} = evm
        ) do
     status = status_code(ret_code)
-    evm = %Evm{evm | out: rest, gas: gas_left, msg: status}
+    evm = %{evm | out: rest, gas: gas_left, msg: status}
 
     case status do
       :evmc_success -> {:ok, evm}
@@ -642,9 +656,9 @@ defmodule Evm do
   # selfdestruct(addr, benefactor)
   defp process_data(
          <<"sd", _addr::binary-size(20), ben::binary-size(20)>>,
-         evm
+         %Evm{} = evm
        ) do
-    {:cont, %Evm{evm | selfdestruct: ben}}
+    {:cont, %{evm | selfdestruct: ben}}
   end
 
   # get_block_hash(number)
@@ -670,7 +684,7 @@ defmodule Evm do
            destination::unsigned-size(160), value::unsigned-size(256),
            len::unsigned-little-size(64), input::binary-size(len), gas::unsigned-little-size(64),
            salt::binary-size(32)>>,
-         %Evm{task: task} = evm
+         %Evm{task: %Task{} = task} = evm
        ) do
     kind =
       case kind do
@@ -693,14 +707,16 @@ defmodule Evm do
           throw({:evm_timeout2, evm, 0})
       end
 
-    task = %Task{task | chain_state: state}
+    task = %{task | chain_state: state}
     {_code, evm2} = Task.call_contract(task, destination, kind, gas, value, input, salt)
     codeid = status_atom(evm2.msg)
 
     task =
       if evm2.msg == :evmc_success do
-        %Task{
-          task
+        %Task{} = t0 = task
+
+        %{
+          t0
           | chain_state: Evm.state(evm2),
             selfdestructs: evm2.task.selfdestructs
         }
@@ -723,18 +739,18 @@ defmodule Evm do
       cache_account(task.chain_state, evm.port, to)
     end
 
-    {:cont, %Evm{evm | task: task}}
+    {:cont, %{evm | task: task}}
   end
 
   # emit_log(number)
   defp process_data(
          <<"lo", addr::binary-size(20), size::unsigned-little-size(64), data::binary-size(size),
            count::unsigned-little-size(64), topics::binary>>,
-         evm
+         %Evm{} = evm
        ) do
     topics = for n <- 1..count, do: binary_part(topics, (n - 1) * 32, 32)
     logs = evm.logs ++ [{addr, topics, data}]
-    {:cont, %Evm{evm | logs: logs}}
+    {:cont, %{evm | logs: logs}}
   end
 
   defp process_data(other, evm) do
@@ -844,8 +860,9 @@ defmodule Evm do
     state
   end
 
-  def set_state(evm = %Evm{task: task}, state) do
-    %Evm{evm | task: %Task{task | chain_state: state}}
+  def set_state(%Evm{task: task} = evm, state) do
+    %Task{} = task
+    %{evm | task: %{task | chain_state: state}}
   end
 
   def gas_cost(atom) do

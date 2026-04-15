@@ -140,14 +140,15 @@ defmodule ABI do
   # bytes<M>: binary type of M bytes, 0 < M <= 32.
   # function: an address (20 bytes) followed by a function selector (4 bytes). Encoded identical to bytes24.
   for bit <- 1..32 do
-    Module.eval_quoted(
-      __MODULE__,
-      Code.string_to_quoted("""
+    Code.eval_quoted(
+      Code.string_to_quoted!("""
         def encode("uint#{bit * 8}", value), do: <<value :: unsigned-size(256)>>
         def encode("int#{bit * 8}", value), do: <<value :: signed-size(256)>>
         def encode("bytes#{bit}", <<value :: binary>>), do: <<:binary.decode_unsigned(value) :: unsigned-size(256)>>
         def encode("bytes#{bit}", value) when is_integer(value), do: <<value :: unsigned-size(256)>>
-      """)
+      """),
+      [],
+      %{__ENV__ | module: __MODULE__}
     )
   end
 
@@ -180,13 +181,14 @@ defmodule ABI do
   end
 
   for bit <- 1..32 do
-    Module.eval_quoted(
-      __MODULE__,
-      Code.string_to_quoted("""
+    Code.eval_quoted(
+      Code.string_to_quoted!("""
         def decode("uint#{bit * 8}", <<value :: unsigned-size(256), rest :: binary>>), do: {value, rest}
         def decode("int#{bit * 8}", <<value :: signed-size(256), rest :: binary>>), do: {value, rest}
         def decode("bytes#{bit}", <<value :: binary-size(#{bit}), _ :: binary-size(#{32 - bit}), rest :: binary>>), do: {value, rest}
-      """)
+      """),
+      [],
+      %{__ENV__ | module: __MODULE__}
     )
   end
 

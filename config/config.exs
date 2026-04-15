@@ -6,7 +6,6 @@ import Config
 # Configures Elixir's Logger
 config :logger,
   level: :info,
-  backends: [:console],
   truncate: 8000,
   format: "$time $metadata[$level] $message"
 

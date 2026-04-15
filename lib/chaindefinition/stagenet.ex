@@ -2,6 +2,7 @@
 # Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
 defmodule ChainDefinition.Stagenet do
+  alias ChainDefinition
   alias ChainDefinition.{Galileo, Ulysses, Voyager, Pioneer}
   @voyager 10
   @voyager_t1 @voyager - 1
@@ -16,22 +17,23 @@ defmodule ChainDefinition.Stagenet do
 
   @spec network(any) :: ChainDefinition.t()
   def network(blockheight) when blockheight >= @ulysses2 do
-    %ChainDefinition{
-      network(@ulysses2 - 1)
-      | double_spend_delegatecall: false
-    }
+    prev = network(@ulysses2 - 1)
+    %ChainDefinition{} = prev
+    %{prev | double_spend_delegatecall: false}
   end
 
   def network(blockheight) when blockheight >= @new_horizons do
-    %ChainDefinition{
-      network(@new_horizons - 1)
-      | allow_contract_override: false
-    }
+    prev = network(@new_horizons - 1)
+    %ChainDefinition{} = prev
+    %{prev | allow_contract_override: false}
   end
 
   def network(blockheight) when blockheight >= @voyager do
-    %ChainDefinition{
-      network(@voyager - 1)
+    prev = network(@voyager - 1)
+    %ChainDefinition{} = prev
+
+    %{
+      prev
       | block_reward_position: :last,
         min_transaction_fee: true,
         chain_id: 13

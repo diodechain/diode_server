@@ -72,8 +72,9 @@ defmodule Chain.Account do
   end
 
   def storage_set_value(acc, key = <<_k::256>>, value = <<_v::256>>) do
+    %Chain.Account{} = acc
     store = CMerkleTree.insert(tree(acc), key, value)
-    %Chain.Account{acc | storage_root: store}
+    %{acc | storage_root: store}
   end
 
   def storage_set_value(acc, key, value) when is_integer(key) do

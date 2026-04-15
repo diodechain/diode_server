@@ -43,8 +43,8 @@ def install_erlang():
     run(". ~/.asdf/asdf.sh && asdf plugin add erlang")
     run(". ~/.asdf/asdf.sh && asdf plugin add elixir")
 
-  run(". ~/.asdf/asdf.sh && asdf install elixir 1.15.7")
-  run(". ~/.asdf/asdf.sh && asdf install erlang 26.2.5.3")
+  run(". ~/.asdf/asdf.sh && asdf install elixir 1.19.5")
+  run(". ~/.asdf/asdf.sh && asdf install erlang 28.4.2")
 
 def install():
   if not exists("~/.asdf/asdf.sh"):

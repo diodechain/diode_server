@@ -201,16 +201,13 @@ defmodule Chain.Block do
            end),
          {_, sim_block} <- test_tc(:simulate, fn -> simulate(block, true) end),
          {_, true} <- test_tc(:registry_tx, fn -> has_registry_tx?(sim_block) end) do
-      block = %{
-        sim_block
-        | header: %{
-            block.header
-            | state_hash: %Chain.State{
-                sim_block.header.state_hash
-                | hash: block.header.state_hash
-              }
-          }
-      }
+      %Block{} = sim_block
+      %Header{} = sim_header = sim_block.header
+      %Header{} = blk_header = block.header
+      %Chain.State{} = sim_state = sim_header.state_hash
+      new_state = %{sim_state | hash: blk_header.state_hash}
+      new_header = %{sim_header | state_hash: new_state}
+      block = %{sim_block | header: new_header}
 
       tc(:put_new_block, fn -> ChainSql.put_new_block(block) end)
       tc(:ets_add_alt, fn -> Chain.ets_add_alt(block) end)
@@ -414,8 +411,8 @@ defmodule Chain.Block do
     block
   end
 
-  def clone(%Block{header: %Header{state_hash: state_hash}} = block) do
-    %Block{block | header: %Header{block.header | state_hash: Chain.State.clone(state_hash)}}
+  def clone(%Block{header: %Header{state_hash: state_hash} = hdr} = block) do
+    %{block | header: %{hdr | state_hash: Chain.State.clone(state_hash)}}
   end
 
   def append_transaction(%Block{transactions: txs, receipts: rcpts} = block, tx, trace? \\ false) do
@@ -423,15 +420,14 @@ defmodule Chain.Block do
 
     case Transaction.apply(tx, block, state, trace: trace?) do
       {:ok, state, rcpt} ->
+        %Header{} = hdr = block.header
+
         {:ok,
-         %Block{
+         %{
            block
            | transactions: txs ++ [tx],
              receipts: rcpts ++ [rcpt],
-             header: %Header{
-               block.header
-               | state_hash: state
-             }
+             header: %{hdr | state_hash: state}
          }}
 
       {:error, message} ->
@@ -448,10 +444,12 @@ defmodule Chain.Block do
       block
     else
       tc(:create_header, fn ->
-        %Block{
+        %Header{} = hdr = block.header
+
+        %{
           block
-          | header: %Header{
-              block.header
+          | header: %{
+              hdr
               | state_hash: tc(:normalize, fn -> State.normalize(state(block)) end),
                 transaction_hash: Diode.hash(encode_transactions(transactions(block)))
             }
@@ -472,8 +470,10 @@ defmodule Chain.Block do
       Logger.warning("Block #{Block.number(block)} state not equal, trying variant")
 
       parent_ref = ChainSql.block_by_hash(parent_hash(block))
+      %Block{} = parent_ref
       state = ChainSql.state_variant(hash(parent_ref))
-      parent_ref = %Block{parent_ref | header: %{parent_ref.header | state_hash: state}}
+      %Header{} = p_hdr = parent_ref.header
+      parent_ref = %{parent_ref | header: %{p_hdr | state_hash: state}}
 
       create(
         parent_ref,
@@ -645,7 +645,7 @@ defmodule Chain.Block do
   end
 
   def logs(%Block{} = block) do
-    List.zip([transactions(block), receipts(block)])
+    Enum.zip([transactions(block), receipts(block)])
     |> Enum.map(fn {tx, rcpt} ->
       Enum.map(rcpt.logs, fn log ->
         {address, topics, data} = log

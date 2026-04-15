@@ -47,7 +47,8 @@ defmodule Chain.State do
     hash = CMerkleTree.root_hash(tree)
     # store: can be non-existing because of later addition to the schema
     state = Map.put(state, :store, tree)
-    %Chain.State{state | hash: hash}
+    %Chain.State{} = state
+    %{state | hash: hash}
   end
 
   # store: can be non-existing because of later addition to the schema

@@ -18,7 +18,7 @@ defmodule NodeAgent do
     GenServer.start_link(__MODULE__, %NodeAgent{}, name: __MODULE__)
   end
 
-  def init(state) do
+  def init(%NodeAgent{} = state) do
     File.rename("traffic_node.log", "traffic_node.log.last")
     log = File.open!("traffic_node.log", [:write, :utf8])
 
@@ -26,7 +26,7 @@ defmodule NodeAgent do
       GenServer.cast(self(), :restart)
     end
 
-    {:ok, %NodeAgent{state | log: log}}
+    {:ok, %{state | log: log}}
   end
 
   def handle_cast(:restart, state) do
@@ -76,7 +76,7 @@ defmodule NodeAgent do
     end
   end
 
-  defp do_restart(state = %{port: port}) do
+  defp do_restart(%NodeAgent{port: port} = state) do
     if port != nil do
       try do
         Port.close(port)

@@ -7,7 +7,8 @@ defmodule ChainDefinition.Voyager do
       code = Base16.decode(account["code"])
       {balance, ""} = Integer.parse(account["balance"])
       acc = State.ensure_account(state, id)
-      acc = %Account{acc | balance: balance, code: code}
+      %Account{} = acc
+      acc = %{acc | balance: balance, code: code}
 
       acc =
         if Map.has_key?(account, "state_patch") do
@@ -15,7 +16,7 @@ defmodule ChainDefinition.Voyager do
             Account.storage_set_value(acc, Base16.decode(key), Base16.decode(value))
           end)
         else
-          acc = %Account{acc | storage_root: nil}
+          acc = %{acc | storage_root: nil}
 
           Enum.reduce(account["state"], acc, fn [key, value], acc ->
             Account.storage_set_value(acc, Base16.decode(key), Base16.decode(value))

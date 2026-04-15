@@ -2,8 +2,8 @@
 # Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
 
-if String.to_integer(System.otp_release()) < 25 do
-  IO.puts("this package requires OTP 25.")
+if String.to_integer(System.otp_release()) < 26 do
+  IO.puts("this package requires OTP 26 (Elixir 1.19+).")
   raise "incorrect OTP"
 end
 
@@ -22,7 +22,7 @@ defmodule Diode.Mixfile do
       deps: deps(),
       description: "Diode Network Full Blockchain Node implementation",
       docs: docs(),
-      elixir: "~> 1.13",
+      elixir: "~> 1.19",
       elixirc_options: [warnings_as_errors: Mix.target() == :host],
       elixirc_paths: elixirc_paths(Mix.env()),
       full_version: :persistent_term.get(:full_vsn, @full_vsn),

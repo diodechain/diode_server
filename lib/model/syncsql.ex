@@ -157,7 +157,7 @@ defmodule Model.SyncSql do
     {:reply, block2, state}
   end
 
-  defp search_parent(state, oblock, block) do
+  defp search_parent(%SyncSql{} = state, oblock, block) do
     hash = Chain.Block.hash(block)
 
     case Map.get(state.cache, hash) do
@@ -178,7 +178,7 @@ defmodule Model.SyncSql do
 
             state =
               if rem(Chain.Block.number(ancestor2), 1000) == 0 do
-                %SyncSql{state | cache: Map.put(state.cache, hash, ancestor2)}
+                %{state | cache: Map.put(state.cache, hash, ancestor2)}
               else
                 state
               end

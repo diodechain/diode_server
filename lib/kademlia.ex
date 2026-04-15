@@ -149,7 +149,7 @@ defmodule Kademlia do
   end
 
   defp insert_nodes(visited) do
-    call(fn _from, state ->
+    call(fn _from, %Kademlia{} = state ->
       network =
         Enum.reduce(visited, state.network, fn item, network ->
           if not KBuckets.member?(network, item) do

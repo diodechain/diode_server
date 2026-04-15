@@ -89,8 +89,8 @@ defmodule CMerkleTree do
     <<a::binary-size(32), b::binary-size(32), c::binary-size(32), d::binary-size(32),
       e::binary-size(32), f::binary-size(32), g::binary-size(32), h::binary-size(32),
       i::binary-size(32), j::binary-size(32), k::binary-size(32), l::binary-size(32),
-      m::binary-size(32), n::binary-size(32), o::binary-size(32),
-      p::binary-size(32)>> = root_hashes_raw(tree)
+      m::binary-size(32), n::binary-size(32), o::binary-size(32), p::binary-size(32)>> =
+      root_hashes_raw(tree)
 
     [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p]
   end

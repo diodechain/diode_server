@@ -38,7 +38,7 @@ defmodule BertInt do
     try do
       :zlib.unzip(term)
     rescue
-      [ErlangError, :data_error] ->
+      ErlangError ->
         term
     end
     |> :erlang.binary_to_term()
