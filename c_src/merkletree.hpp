@@ -3,8 +3,8 @@
 #include <memory>
 #include <functional>
 #include <cstring>
-#include <sstream>  // Add this line
-#include <iomanip>  // Also add this for std::setfill and std::setw
+#include <sstream>
+#include <iomanip>
 #include <list>
 
 #include "preallocator.hpp"
@@ -14,6 +14,8 @@ const int LEFT = 0;
 const int RIGHT = 1;
 
 typedef std::vector<uint8_t> bin_t;
+
+class Tree;
 
 struct bits_t {
     uint8_t m_value[16];
@@ -59,7 +61,7 @@ public:
     }
 };
 
-struct uint256_t { 
+struct uint256_t {
     uint8_t value[32];
 
 public:
@@ -122,7 +124,6 @@ public:
     }
 };
 
-// Start Generation Here
 namespace std {
     template<>
     struct hash<uint256_t> {
@@ -135,7 +136,6 @@ namespace std {
         }
     };
 }
-
 
 uint256_t hash(bin_t &input);
 
@@ -154,7 +154,6 @@ public:
     uint256_t key_hash;
 };
 
-// typedef std::vector<pair_t> pair_list_t;
 struct pair_list_t {
     PreAllocator<pair_t> &m_allocator;
     pair_t* m_pairs[LEAF_SIZE + 1];
@@ -211,7 +210,7 @@ public:
         for (size_t i = 0; i < m_size; i++) {
             m_allocator.destroy_item(m_pairs[i]);
         }
-        
+
         m_size = 0;
     }
 
@@ -220,39 +219,12 @@ public:
     }
 };
 
-struct Item {
-    Item(Tree &tree) : is_leaf(true), dirty(true), hash_count(0), prefix(), leaf_bucket(tree), node_left(nullptr), node_right(nullptr) { };
-    ~Item() = default;
-    Item(const Item &other) = delete;
-    Item& operator=(const Item &other) = delete;
+pair_list_t *clone_pair_list(const pair_list_t *src, Tree &tree);
 
-    void each(std::function<void(pair_t &)> func) {
-        if (this->is_leaf) {
-            for (pair_t *pair : leaf_bucket) {
-                func(*pair);
-            }
-        } else {
-            node_left->each(func);
-            node_right->each(func);
-        }
-    }
-
-    size_t leaf_count() {
-        if (this->is_leaf) {
-            return 1;
-        }
-        return node_left->leaf_count() + node_right->leaf_count();
-    }
-
-    bool is_leaf;
-    bool dirty;
-    uint256_t hash_values[LEAF_SIZE];
-    uint64_t hash_count;
-    bits_t prefix;
-    pair_list_t leaf_bucket;
-    Item* node_left;
-    Item* node_right;
-};
+// Key-byte interning and content-addressed subtree sharing would require pair_t / node
+// representation changes; not implemented here.
+// Items: shared_ptr DAG + fork_for_write on insert; lazy hash_values; leaf_bucket nullptr on internal
+// nodes. Pair allocator stripes: GlobalStripePool in preallocator.hpp.
 
 struct proof_t {
     proof_t() = default;
@@ -261,46 +233,62 @@ struct proof_t {
 
     uint8_t type;
 
-    // 0:   {left, right}
     std::unique_ptr<proof_t> left;
     std::unique_ptr<proof_t> right;
 
-    // 1:   binary hash
     uint256_t hash;
 
-    // 2:   erlang binary term of: [prefix, position, {key, value}, ...]
-    //      this is because `prefix` is a bitstring that is not creatable
-    //      using the enif_* api
     bin_t term;
+};
+
+struct Item {
+    Tree *m_tree;
+    bool is_leaf;
+    bool dirty;
+    uint256_t *hash_values;
+    uint64_t hash_count;
+    bits_t prefix;
+    pair_list_t *leaf_bucket;
+    std::shared_ptr<Item> node_left;
+    std::shared_ptr<Item> node_right;
+
+    explicit Item(Tree &tree);
+    ~Item();
+
+    Item(const Item &other) = delete;
+    Item& operator=(const Item &other) = delete;
+
+    void each(std::function<void(pair_t &)> func);
+    size_t leaf_count() const;
+
+    uint256_t *ensure_hashes();
+    const uint256_t *hashes_ro() const { return hash_values; }
+
+    static std::shared_ptr<Item> fork_for_write(std::shared_ptr<Item> n, Tree &tree);
 };
 
 class Tree {
 public:
     PreAllocator<pair_t> m_pair_allocator;
-    PreAllocator<Item> m_allocator;
-    Item *root;
+    std::shared_ptr<Item> root;
 
-    Item* new_item() { return m_allocator.new_item(); }
-    void destroy_item(Item* item) { m_allocator.destroy_item(item); }
-    void split_node(Item &tree);
-    void update_merkle_hash_count(Item &item, bin_t &binary_buffer);
+    std::shared_ptr<Item> make_item();
+
+    void split_node(const std::shared_ptr<Item> &tree);
+    void update_merkle_hash_count(const std::shared_ptr<Item> &item, bin_t &binary_buffer);
     void bucket_to_leafes(Item &item, bin_t &binary_buffer);
 
-    Tree() : m_pair_allocator(*this), m_allocator(*this), root(new_item()) { };
-    Tree(const Tree &other) : m_pair_allocator(*this), m_allocator(*this), root(new_item()) {
-        ((Tree &)other).each([&](pair_t &pair) {
-            insert_item(pair);
-        });
-    }
+    Tree();
+    Tree(const Tree &other);
     Tree& operator=(const Tree &other) = delete;
-    ~Tree() { root = nullptr; }
+    ~Tree() = default;
 
     void insert_item(pair_t &pair);
     void insert_item(bin_t &key, uint256_t &value);
     void insert_items(pair_list_t &items);
-    void delete_item(bin_t &key) { 
+    void delete_item(bin_t &key) {
         uint256_t null_value = {};
-        insert_item(key, null_value); 
+        insert_item(key, null_value);
     }
     pair_t* get_item(bin_t &&key);
     pair_t* get_item(pair_t &key);
@@ -309,8 +297,14 @@ public:
     uint256_t* root_hashes();
     size_t size();
     size_t leaf_count();
+    size_t node_count() const;
     void each(std::function<void(pair_t &)> func) {
-        root->each(func);
+        if (root) {
+            root->each(func);
+        }
     }
     void difference(Tree &other, Tree &into);
+
+private:
+    std::shared_ptr<Item> insert_path(std::shared_ptr<Item> node, pair_t &pair);
 };

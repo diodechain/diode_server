@@ -1,3 +1,9 @@
+#ifdef __linux__
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#endif
+
 extern "C" {
 #include <erl_nif.h>
 #include "sha.h"
@@ -5,6 +11,10 @@ extern "C" {
 
 #include "merkletree.hpp"
 #include <unordered_map>
+#include <cstdio>
+#ifdef __GLIBC__
+#include <malloc.h>
+#endif
 
 static void print(const char *msg);
 static ErlNifResourceType *merkletree_type = NULL;
@@ -449,6 +459,65 @@ merkletree_bucket_count(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 }
 
 static ERL_NIF_TERM
+merkletree_struct_sizes(ErlNifEnv *env, int argc, const ERL_NIF_TERM /*argv*/[])
+{
+    if (argc != 0) {
+        return enif_make_badarg(env);
+    }
+    return enif_make_tuple5(env,
+            enif_make_uint64(env, sizeof(Item)),
+            enif_make_uint64(env, sizeof(pair_t)),
+            enif_make_uint64(env, sizeof(pair_list_t)),
+            enif_make_uint64(env, sizeof(Tree)),
+            enif_make_uint64(env, MERKLE_STRIPE_SIZE));
+}
+
+static ERL_NIF_TERM
+merkletree_memory_stats(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    merkletree *mt;
+    if (argc != 1) {
+        return enif_make_badarg(env);
+    }
+    if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) {
+        return enif_make_badarg(env);
+    }
+    Lock lock(mt);
+    Tree &t = mt->shared_state->tree;
+    size_t nodes = t.node_count();
+    size_t pairs = t.size();
+    uint64_t approx =
+            (uint64_t)nodes * (uint64_t)sizeof(Item) + (uint64_t)pairs * (uint64_t)sizeof(pair_t);
+    return enif_make_tuple3(env,
+            enif_make_uint64(env, nodes),
+            enif_make_uint64(env, pairs),
+            enif_make_uint64(env, approx));
+}
+
+static ERL_NIF_TERM
+merkletree_malloc_info(ErlNifEnv *env, int argc, const ERL_NIF_TERM /*argv*/[])
+{
+    if (argc != 0) {
+        return enif_make_badarg(env);
+    }
+#ifdef __GLIBC__
+    char *buf = NULL;
+    size_t sz = 0;
+    FILE *fp = open_memstream(&buf, &sz);
+    if (!fp) {
+        return make_atom(env, "error");
+    }
+    malloc_info(0, fp);
+    fclose(fp);
+    ERL_NIF_TERM term = make_binary(env, (uint8_t *)buf, sz);
+    free(buf);
+    return term;
+#else
+    return make_atom(env, "unsupported");
+#endif
+}
+
+static ERL_NIF_TERM
 merkletree_count_zeros(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
     ErlNifBinary bin;
@@ -522,6 +591,9 @@ static ErlNifFunc nif_funcs[] = {
     {"size", 1, merkletree_size, 0},
     {"clone", 1, merkletree_clone, 0},
     {"count_zeros", 1, merkletree_count_zeros, 0},
+    {"struct_sizes_raw", 0, merkletree_struct_sizes, 0},
+    {"memory_stats_raw", 1, merkletree_memory_stats, 0},
+    {"malloc_info_raw", 0, merkletree_malloc_info, 0},
 };
 
 // ERL_NIF_INIT(merkletree_nif, nif_funcs, on_load, on_reload, on_upgrade, NULL);

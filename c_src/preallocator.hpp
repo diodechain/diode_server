@@ -3,12 +3,40 @@
 
 #include <list>
 #include <cstdint>
+#include <cstdlib>
+#include <mutex>
 
 class Tree;
 
+#ifndef MERKLE_STRIPE_SIZE
+#define MERKLE_STRIPE_SIZE 8
+#endif
+
+template<typename T>
+class GlobalStripePool {
+    inline static std::mutex s_mtx;
+    inline static std::list<uint8_t *> s_stripes;
+
+public:
+    static uint8_t *take() {
+        std::lock_guard<std::mutex> lock(s_mtx);
+        if (s_stripes.empty()) {
+            return nullptr;
+        }
+        uint8_t *p = s_stripes.front();
+        s_stripes.pop_front();
+        return p;
+    }
+
+    static void put(uint8_t *stripe) {
+        std::lock_guard<std::mutex> lock(s_mtx);
+        s_stripes.push_back(stripe);
+    }
+};
+
 template<typename T>
 class PreAllocator {
-    static const size_t STRIPE_SIZE = 8;
+    static const size_t STRIPE_SIZE = MERKLE_STRIPE_SIZE;
     Tree &m_tree;
     std::list<uint8_t*> m_stripes;
     size_t m_item_count;
@@ -24,7 +52,7 @@ public:
                 item->~T();
             }
             m_item_count -= len;
-            free(stripe);
+            GlobalStripePool<T>::put(stripe);
         }
     }
 
@@ -36,7 +64,11 @@ public:
         }
 
         if (m_item_count + 1 > m_stripes.size() * STRIPE_SIZE) {
-            m_stripes.push_back((uint8_t*)malloc(STRIPE_SIZE * sizeof(T)));
+            uint8_t *block = GlobalStripePool<T>::take();
+            if (!block) {
+                block = (uint8_t *)malloc(STRIPE_SIZE * sizeof(T));
+            }
+            m_stripes.push_back(block);
         }
 
         T* item = reinterpret_cast<T*>(&m_stripes.back()[(m_item_count % STRIPE_SIZE) * sizeof(T)]);

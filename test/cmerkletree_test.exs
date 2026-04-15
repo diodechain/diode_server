@@ -7,6 +7,48 @@ defmodule CMerkleTreeTest do
   # Reference: count zero bytes (same semantics as legacy Niffler / EVM gas calc).
   defp ref_count_zeros(bin), do: Enum.count(:binary.bin_to_list(bin), &(&1 == 0))
 
+  describe "golden root_hash regression" do
+    test "pairs dataset matches fixed roots (Elixir pairs/1 format)" do
+      for {n, hex} <- [
+            {20, "b043342d7f3104673d8a0aa10e85ac17dd3edddb71754490247a0b945be71521"},
+            {128, "852d365bfbad6c28924a672e304d62a118ca6adbe48aa2471122e54d586b8f37"},
+            {1000, "ee3b68fee8188459a39e190e0dfcff4c7ea1711fdf62b4cb553f0b8c0ed350b4"}
+          ] do
+        tree =
+          Enum.reduce(pairs(n), new(), fn item, acc ->
+            CMerkleTree.insert_item(acc, item)
+          end)
+
+        assert Base.encode16(CMerkleTree.root_hash(tree), case: :lower) == hex
+      end
+    end
+  end
+
+  describe "memory introspection NIFs" do
+    test "struct_sizes and memory_stats are consistent" do
+      {ib, pb, _plb, _tb, stripe} = CMerkleTree.struct_sizes()
+      assert stripe >= 1
+      assert ib > 0 and pb > 0
+
+      tree =
+        Enum.reduce(pairs(30), new(), fn item, acc ->
+          CMerkleTree.insert_item(acc, item)
+        end)
+
+      {nodes, pairs_n, approx} = CMerkleTree.memory_stats(tree)
+      assert pairs_n == 30
+      assert nodes >= 1
+      assert approx == nodes * ib + pairs_n * pb
+    end
+
+    test "malloc_info returns XML on GNU libc" do
+      case CMerkleTree.malloc_info() do
+        :unsupported -> assert true
+        bin when is_binary(bin) -> assert String.contains?(bin, "malloc")
+      end
+    end
+  end
+
   describe "count_zeros" do
     test "matches reference for edge and random payloads" do
       bins = [

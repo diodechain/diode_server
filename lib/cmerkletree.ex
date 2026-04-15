@@ -111,6 +111,26 @@ defmodule CMerkleTree do
   def get_proofs_raw(_tree, _key), do: error()
   def count_zeros(binary) when is_binary(binary), do: count_zeros_raw(binary)
   defp count_zeros_raw(_binary), do: error()
+
+  @doc """
+  Returns `{item_bytes, pair_bytes, pair_list_bytes, tree_bytes, stripe_size}` for C++ layout.
+  """
+  def struct_sizes, do: struct_sizes_raw()
+
+  @doc """
+  Returns `{node_count, pair_count, approx_bytes}` for the tree. `approx_bytes` is
+  `nodes * sizeof(Item) + pairs * sizeof(pair_t)` (heap vectors in keys not included).
+  """
+  def memory_stats(tree), do: memory_stats_raw(tree)
+
+  @doc """
+  GNU libc `malloc_info(3)` XML as a binary, or `:unsupported` on other platforms.
+  """
+  def malloc_info, do: malloc_info_raw()
+
+  defp struct_sizes_raw, do: error()
+  defp memory_stats_raw(_tree), do: error()
+  defp malloc_info_raw, do: error()
   defp error, do: :erlang.nif_error(:nif_not_loaded)
 
   defp to_bytes32(nil) do

@@ -6,6 +6,9 @@
 /doc
 /c_src/main
 /c_src/test
+/c_src/mem_harness.bin
+/c_src/mem_stripes_*.bin
+/c_src/massif_merkle.out
 /priv/merkletree_nif.so
 
 *.pem
