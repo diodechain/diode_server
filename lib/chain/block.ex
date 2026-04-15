@@ -50,14 +50,25 @@ defmodule Chain.Block do
     if not state_consistent?(b) do
       Logger.error("Block #{Block.number(b)} is not consistent. Trying to fix...")
 
-      with %Block{} = b2 <- Chain.Block.validate(b, false),
-           true <- Chain.Block.state_equal(b, b2),
-           true <- Chain.Block.hash(b) == Chain.Block.hash(b2),
-           true <- Chain.Block.state_consistent?(b2) do
-        ChainSql.put_block(b2)
-        true
-      else
-        _ -> false
+      # validate/2 and state_equal/2 load state; corrupt deltas raise (e.g. MatchError in
+      # apply_difference). The `with` only handles {:error, _} style failures, not exceptions.
+      try do
+        with %Block{} = b2 <- Chain.Block.validate(b, false),
+             true <- Chain.Block.state_equal(b, b2),
+             true <- Chain.Block.hash(b) == Chain.Block.hash(b2),
+             true <- Chain.Block.state_consistent?(b2) do
+          ChainSql.put_block(b2)
+          true
+        else
+          _ -> false
+        end
+      rescue
+        e ->
+          Logger.warning(
+            "maybe_repair_block: automatic repair failed for block #{Block.number(b)}: #{Exception.format(:error, e, __STACKTRACE__)}"
+          )
+
+          false
       end
     else
       true

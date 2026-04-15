@@ -249,12 +249,10 @@ defmodule Chain do
 
         block =
           if not Chain.Block.maybe_repair_block(block) do
-            {stored_hash, computed_hash} =
-              {block.header.state_hash,
-               CMerkleTree.root_hash(Chain.State.tree(Chain.Block.state(block)))}
-
+            # Do not call state(block) here — peak may have corrupt deltas and would raise
+            # before find_last_good_block/1 can run.
             Logger.error(
-              "Peak block #{Block.number(block)} state hash mismatch: #{Base16.encode(stored_hash)} != #{Base16.encode(computed_hash)}"
+              "Peak block #{Block.number(block)} could not be repaired; rewinding to last good block number"
             )
 
             good = find_last_good_block(Block.number(block))
