@@ -119,23 +119,30 @@ defmodule Chain.Block do
     # block = ensure_state(block)
     Logger.info("Checking state consistency for block #{Block.number(block)}")
 
-    hash = state_hash(block)
-    hash2 = if is_binary(block.header.state_hash), do: block.header.state_hash, else: hash
-    hash3 = CMerkleTree.root_hash(Chain.State.tree(state(block)))
+    try do
+      hash = state_hash(block)
+      hash2 = if is_binary(block.header.state_hash), do: block.header.state_hash, else: hash
+      hash3 = CMerkleTree.root_hash(Chain.State.tree(state(block)))
 
-    consistent = hash2 == hash3 and (not is_binary(hash) or hash == hash2)
+      consistent = hash2 == hash3 and (not is_binary(hash) or hash == hash2)
 
-    if not consistent do
-      Logger.error(
-        "block #{Block.number(block)} state hash mismatch: #{Base16.encode(hash)}, #{Base16.encode(hash2)}, #{Base16.encode(hash3)}"
-      )
+      if not consistent do
+        Logger.error(
+          "block #{Block.number(block)} state hash mismatch: #{Base16.encode(hash)}, #{Base16.encode(hash2)}, #{Base16.encode(hash3)}"
+        )
+      end
+
+      consistent
+    rescue
+      e ->
+        # Bad stored delta vs parent trie (e.g. MatchError on apply_difference), NIF issues, etc.
+        # Return false so Chain.load_blocks/0 can rewind peak via find_last_good_block/1.
+        Logger.error(
+          "state_consistent? failed for block #{Block.number(block)} (treating as inconsistent): #{Exception.format(:error, e, __STACKTRACE__)}"
+        )
+
+        false
     end
-
-    # if number(block) in [7_506_000, 7_506_001, 7_506_002, 7_506_003] do
-    #   File.write!("block_#{inspect(consistent)}_#{number(block)}", :erlang.term_to_binary(block))
-    # end
-
-    consistent
   end
 
   @spec validate(Chain.Block.t(), boolean()) :: Chain.Block.ref() | {non_neg_integer(), any()}

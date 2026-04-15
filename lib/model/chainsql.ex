@@ -190,7 +190,7 @@ defmodule Model.ChainSql do
   def init() do
     Ets.init(Model.ChainSql.Writer)
     EtsLru.new(__MODULE__, 4_000)
-    EtsLru.new(__MODULE__.JumpState, 5)
+    ensure_jump_state_lru()
 
     with_transaction(__MODULE__, &init_tables/1)
 
@@ -636,6 +636,28 @@ defmodule Model.ChainSql do
     Sql.query!(__MODULE__, "DELETE FROM blocks WHERE number IS NULL", call_timeout: @infinity)
     Sql.query!(__MODULE__, "PRAGMA OPTIMIZE", call_timeout: @infinity)
     :ok
+  end
+
+  @doc """
+  Drops and recreates the jump-state replay LRU (used while unrolling deltas to `state/1`).
+
+  Call after rolling the peak back so stale cached replay paths cannot survive recovery.
+  """
+  def reset_jump_state_cache do
+    name = __MODULE__.JumpState
+
+    if :ets.whereis(name) != :undefined do
+      :ets.delete(name)
+    end
+
+    ensure_jump_state_lru()
+    :ok
+  end
+
+  defp ensure_jump_state_lru do
+    if :ets.whereis(__MODULE__.JumpState) == :undefined do
+      EtsLru.new(__MODULE__.JumpState, 5)
+    end
   end
 
   def transaction(txhash) do

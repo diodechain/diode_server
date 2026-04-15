@@ -268,6 +268,8 @@ defmodule Chain do
             # Need to clear alt blocks (number is null) so they are not reloaded
             # again during re-sync and cause an inconsistency loop
             ChainSql.clear_alt_blocks()
+            # Drop jump-state LRU so delta replay after rewind does not reuse bad cache lines.
+            ChainSql.reset_jump_state_cache()
             ets_prefetch()
             block
           else
@@ -280,6 +282,15 @@ defmodule Chain do
 
   defp find_last_good_block(number, step \\ 1) do
     number = number - step
+
+    if number < 1 do
+      Logger.error(
+        "Corruption recovery: no consistent block found when rewinding from peak (went below block 1)"
+      )
+
+      raise "chain state corruption: no consistent block found when rewinding from peak"
+    end
+
     block = ChainSql.block(number)
 
     if Chain.Block.maybe_repair_block(block) do
