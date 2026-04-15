@@ -59,7 +59,11 @@ write_footer() {
   } | tee -a "$LOG"
 }
 
-ARGS=(run scripts/cmerkle_fuzz.exs -- --iterations "$ITERATIONS" --max-keys "$MAX_KEYS")
+export MERKLE_FUZZ_ITERATIONS="$ITERATIONS"
+export MERKLE_FUZZ_MAX_KEYS="$MAX_KEYS"
+[[ -n "$SEED" ]] && export MERKLE_FUZZ_SEED="$SEED"
+
+ARGS=(run --no-start scripts/cmerkle_fuzz.exs -- --iterations "$ITERATIONS" --max-keys "$MAX_KEYS")
 if [[ -n "$SEED" ]]; then
   ARGS+=(--seed "$SEED")
 fi

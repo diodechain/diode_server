@@ -1,5 +1,7 @@
 # CMerkleTree NIF stress / fuzz harness.
-# Run from repo root: mix run scripts/cmerkle_fuzz.exs -- [options]
+# Run from repo root (use --no-start to avoid booting the full Diode app):
+#   mix run --no-start scripts/cmerkle_fuzz.exs -- --iterations 10000 --seed 42
+# Environment (optional): MERKLE_FUZZ_ITERATIONS, MERKLE_FUZZ_SEED, MERKLE_FUZZ_MAX_KEYS
 #
 # Options:
 #   --iterations N   number of fuzz rounds (default: 0 = run until SIGINT)
@@ -13,7 +15,17 @@
 defmodule CMerkleFuzz do
   @moduledoc false
 
+  # mix run script.exs -- --iterations N passes ["--", "--iterations", "N"]; strip the leading "--".
+  def normalize_argv(argv) do
+    case argv do
+      ["--" | rest] -> rest
+      other -> other
+    end
+  end
+
   def main(argv) do
+    argv = normalize_argv(argv)
+
     {opts, _} =
       OptionParser.parse!(argv,
         strict: [
@@ -23,13 +35,28 @@ defmodule CMerkleFuzz do
         ]
       )
 
-    iterations = Keyword.get(opts, :iterations, 0)
-    max_keys = Keyword.get(opts, :max_keys, 900) |> max(16)
+    iterations =
+      case Keyword.fetch(opts, :iterations) do
+        {:ok, n} -> n
+        :error -> env_int("MERKLE_FUZZ_ITERATIONS") || 0
+      end
+
+    max_keys =
+      case Keyword.fetch(opts, :max_keys) do
+        {:ok, n} -> max(n, 16)
+        :error -> max(env_int("MERKLE_FUZZ_MAX_KEYS") || 900, 16)
+      end
 
     seed =
-      case Keyword.get(opts, :seed) do
-        nil -> :rand.uniform(1_000_000_000)
-        s -> s
+      case Keyword.fetch(opts, :seed) do
+        {:ok, s} ->
+          s
+
+        :error ->
+          case env_int("MERKLE_FUZZ_SEED") do
+            nil -> :rand.uniform(1_000_000_000)
+            s -> s
+          end
       end
 
     :rand.seed(:exsss, {seed, seed, seed})
@@ -61,6 +88,16 @@ defmodule CMerkleFuzz do
 
   defp runtime_banner do
     "otp=#{System.otp_release()} elixir=#{System.version()} pid=#{:os.getpid()}"
+  end
+
+  defp env_int(name) do
+    case System.get_env(name) do
+      nil -> nil
+      "" -> nil
+      s -> String.to_integer(String.trim(s))
+    end
+  rescue
+    ArgumentError -> nil
   end
 
   defp run_round(round, ctx) do
@@ -110,7 +147,7 @@ defmodule CMerkleFuzz do
 
     slots =
       Enum.map(0..hi, fn i ->
-        {<<i::unsigned-size(256)>>, <<(i * 7 + 1)::unsigned-size(256)>>}
+        {<<i::unsigned-size(256)>>, <<i * 7 + 1::unsigned-size(256)>>}
       end)
 
     base = CMerkleTree.new() |> CMerkleTree.insert_items(slots)
@@ -120,7 +157,7 @@ defmodule CMerkleFuzz do
       |> CMerkleTree.clone()
       |> CMerkleTree.insert_items(
         Enum.map((hi + 1)..(hi + 40), fn i ->
-          {<<i::unsigned-size(256)>>, <<(i * 3)::unsigned-size(256)>>}
+          {<<i::unsigned-size(256)>>, <<i * 3::unsigned-size(256)>>}
         end)
       )
 
@@ -129,7 +166,7 @@ defmodule CMerkleFuzz do
       |> CMerkleTree.clone()
       |> CMerkleTree.insert_items(
         Enum.map((hi + 41)..(hi + 95), fn i ->
-          {<<i::unsigned-size(256)>>, <<(i * 13)::unsigned-size(256)>>}
+          {<<i::unsigned-size(256)>>, <<i * 13::unsigned-size(256)>>}
         end)
       )
 
@@ -144,7 +181,7 @@ defmodule CMerkleFuzz do
     base =
       CMerkleTree.new()
       |> CMerkleTree.insert_items(
-        Enum.map(0..hi, fn i -> {<<i::unsigned-size(256)>>, <<(i * 11)::unsigned-size(256)>>} end)
+        Enum.map(0..hi, fn i -> {<<i::unsigned-size(256)>>, <<i * 11::unsigned-size(256)>>} end)
       )
 
     ext1 = (hi + 1)..(hi + 30)
@@ -153,12 +190,16 @@ defmodule CMerkleFuzz do
     left =
       base
       |> CMerkleTree.clone()
-      |> CMerkleTree.insert_items(Enum.map(ext1, fn i -> {<<i::unsigned-size(256)>>, <<i::unsigned-size(256)>>} end))
+      |> CMerkleTree.insert_items(
+        Enum.map(ext1, fn i -> {<<i::unsigned-size(256)>>, <<i::unsigned-size(256)>>} end)
+      )
 
     right =
       base
       |> CMerkleTree.clone()
-      |> CMerkleTree.insert_items(Enum.map(ext2, fn i -> {<<i::unsigned-size(256)>>, <<(i + 9)::unsigned-size(256)>>} end))
+      |> CMerkleTree.insert_items(
+        Enum.map(ext2, fn i -> {<<i::unsigned-size(256)>>, <<i + 9::unsigned-size(256)>>} end)
+      )
 
     _ = CMerkleTree.difference(left, right)
   end
@@ -169,14 +210,16 @@ defmodule CMerkleFuzz do
     base =
       CMerkleTree.new()
       |> CMerkleTree.insert_items(
-        Enum.map(0..hi, fn i -> {<<i::unsigned-size(256)>>, <<(i * 5)::unsigned-size(256)>>} end)
+        Enum.map(0..hi, fn i -> {<<i::unsigned-size(256)>>, <<i * 5::unsigned-size(256)>>} end)
       )
 
     left =
       base
       |> CMerkleTree.clone()
       |> CMerkleTree.insert_items(
-        Enum.map((hi + 1)..(hi + 35), fn i -> {<<i::unsigned-size(256)>>, <<(i * 2)::unsigned-size(256)>>} end)
+        Enum.map((hi + 1)..(hi + 35), fn i ->
+          {<<i::unsigned-size(256)>>, <<i * 2::unsigned-size(256)>>}
+        end)
       )
 
     lo = div(hi, 4)
@@ -187,7 +230,7 @@ defmodule CMerkleFuzz do
       |> CMerkleTree.clone()
       |> then(fn t ->
         Enum.reduce(lo..mid, t, fn i, acc ->
-          CMerkleTree.insert(acc, <<i::unsigned-size(256)>>, <<(i * 17)::unsigned-size(256)>>)
+          CMerkleTree.insert(acc, <<i::unsigned-size(256)>>, <<i * 17::unsigned-size(256)>>)
         end)
       end)
 
@@ -203,9 +246,20 @@ defmodule CMerkleFuzz do
         Enum.map(1..n, fn i -> {String.pad_leading("#{i}", 32), CMerkleTree.hash("b#{i}")} end)
       )
 
-    a = base |> CMerkleTree.clone() |> CMerkleTree.insert(String.pad_leading("x", 32), CMerkleTree.hash("x"))
-    b = base |> CMerkleTree.clone() |> CMerkleTree.insert(String.pad_leading("y", 32), CMerkleTree.hash("y"))
-    c = base |> CMerkleTree.clone() |> CMerkleTree.insert(String.pad_leading("z", 32), CMerkleTree.hash("z"))
+    a =
+      base
+      |> CMerkleTree.clone()
+      |> CMerkleTree.insert(String.pad_leading("x", 32), CMerkleTree.hash("x"))
+
+    b =
+      base
+      |> CMerkleTree.clone()
+      |> CMerkleTree.insert(String.pad_leading("y", 32), CMerkleTree.hash("y"))
+
+    c =
+      base
+      |> CMerkleTree.clone()
+      |> CMerkleTree.insert(String.pad_leading("z", 32), CMerkleTree.hash("z"))
 
     _ = CMerkleTree.difference(a, b)
     _ = CMerkleTree.difference(b, c)
@@ -243,12 +297,12 @@ defmodule CMerkleFuzz do
     t =
       CMerkleTree.new()
       |> CMerkleTree.insert_items(
-        Enum.map(0..hi, fn i -> {<<i::unsigned-size(256)>>, <<(i * 3)::unsigned-size(256)>>} end)
+        Enum.map(0..hi, fn i -> {<<i::unsigned-size(256)>>, <<i * 3::unsigned-size(256)>>} end)
       )
 
     _ = CMerkleTree.root_hash(t)
     _ = CMerkleTree.root_hashes(t)
-    k = <<(:rand.uniform(hi))::unsigned-size(256)>>
+    k = <<:rand.uniform(hi)::unsigned-size(256)>>
     _ = CMerkleTree.get_proofs(t, k)
   end
 end
