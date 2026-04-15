@@ -260,13 +260,19 @@ defmodule ChainStateMerkleTest do
       base =
         State.new()
         |> put_account(1, account_u256_slots(0..250))
-        |> put_account(2, account_with_storage(Enum.map(1..80, fn i -> {word32(i), val32(i)} end)))
+        |> put_account(
+          2,
+          account_with_storage(Enum.map(1..80, fn i -> {word32(i), val32(i)} end))
+        )
 
       # Same logical parent; independent clones — NIF tries should share structure until mutation.
       prev =
         State.clone(base)
         |> put_account(1, account_u256_slots(0..280))
-        |> put_account(2, account_with_storage(Enum.map(1..90, fn i -> {word32(i), val32(i + 10_000)} end)))
+        |> put_account(
+          2,
+          account_with_storage(Enum.map(1..90, fn i -> {word32(i), val32(i + 10_000)} end))
+        )
 
       next_slots =
         Enum.map(0..270, fn i ->
@@ -276,7 +282,10 @@ defmodule ChainStateMerkleTest do
       next =
         State.clone(base)
         |> put_account(1, account_with_storage(next_slots))
-        |> put_account(2, account_with_storage(Enum.map(1..95, fn i -> {word32(i), val32(i + 20_000)} end)))
+        |> put_account(
+          2,
+          account_with_storage(Enum.map(1..95, fn i -> {word32(i), val32(i + 20_000)} end))
+        )
 
       assert_roundtrip(prev, next)
     end

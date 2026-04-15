@@ -1,4 +1,6 @@
 # OPTS=merkletree.cpp sha.cpp -O3 -march=native -msha -Wall -Wextra -pedantic -lstdc++ -fsanitize=address -ggdb3
+# Hardened release example (reproducible CPU, RELRO+BIND_NOW): append to link line, e.g.
+#   LDFLAGS=-Wl,-z,relro,-z,now make nif CXXFLAGS='$(CXXFLAGS) -D_FORTIFY_SOURCE=2 -fstack-protector-strong' OPTS='merkletree.cpp item_pool.cpp sha.cpp -O2 -march=x86-64 -msha -Wall -Wextra -pedantic -lstdc++'
 OPTS=merkletree.cpp item_pool.cpp sha.cpp -g -O3 -march=native -msha -Wall -Wextra -pedantic -lstdc++
 # AddressSanitizer / UndefinedBehaviorSanitizer (use: make -C c_src test-asan nif-asan)
 SANFLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer -g
@@ -39,7 +41,14 @@ mem_harness: mem_harness.bin
 mem_harness.bin: mem_harness.cpp merkletree.hpp merkletree.cpp item_pool.cpp sha.cpp Makefile
 	$(CXX) $(CXXFLAGS) -o mem_harness.bin mem_harness.cpp ${OPTS}
 
-.PHONY: nif nif-asan
+# Optional: libFuzzer + ASan on SHA (requires Clang with fuzzer runtime)
+.PHONY: nif nif-asan fuzz_sha
+fuzz_sha: fuzz_sha.bin
+	./fuzz_sha.bin -runs=5000
+
+fuzz_sha.bin: fuzz_sha.cpp sha.cpp Makefile
+	clang++ -std=c++17 -I. -g -O1 -fsanitize=fuzzer,address -fno-omit-frame-pointer -o fuzz_sha.bin fuzz_sha.cpp sha.cpp -lstdc++
+
 nif: ../priv/merkletree_nif.so
 
 ../priv/merkletree_nif.so: nif.cpp merkletree.hpp merkletree.cpp item_pool.cpp sha.cpp preallocator.hpp Makefile

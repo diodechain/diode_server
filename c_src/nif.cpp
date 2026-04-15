@@ -343,16 +343,20 @@ merkletree_difference(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt1)) return enif_make_badarg(env);
     if (!enif_get_resource(env, argv[1], merkletree_type, (void **) &mt2)) return enif_make_badarg(env);
 
-    Lock lock1(mt1);
     if (&mt1->shared_state->tree == &mt2->shared_state->tree) {
         return enif_make_list(env, 0);
     }
 
-    Lock lock2(mt2);
+    /* Lock ordering by SharedState address to avoid deadlock when two schedulers
+     * call difference_raw(A,B) vs difference_raw(B,A). */
+    merkletree *first = mt1->shared_state < mt2->shared_state ? mt1 : mt2;
+    merkletree *second = mt1->shared_state < mt2->shared_state ? mt2 : mt1;
+    Lock lock1(first);
+    Lock lock2(second);
 
     Tree output;
-    mt1->shared_state->tree.difference(mt2->shared_state->tree, output);
-    mt2->shared_state->tree.difference(mt1->shared_state->tree, output);
+    first->shared_state->tree.difference(second->shared_state->tree, output);
+    second->shared_state->tree.difference(first->shared_state->tree, output);
 
     ERL_NIF_TERM list = enif_make_list(env, 0);
     output.each([&](pair_t &pair) {
@@ -388,9 +392,15 @@ merkletree_import_map(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     while (enif_map_iterator_get_pair(env, &iter, &key, &value)) {
         ErlNifBinary key_binary, value_binary;
-        if (!enif_inspect_binary(env, key, &key_binary)) return enif_make_badarg(env);
-        if (!enif_inspect_binary(env, value, &value_binary)) return enif_make_badarg(env);
-        if (value_binary.size != 32) return enif_make_badarg(env);
+        if (!enif_inspect_binary(env, key, &key_binary)) {
+            goto import_badarg;
+        }
+        if (!enif_inspect_binary(env, value, &value_binary)) {
+            goto import_badarg;
+        }
+        if (value_binary.size != 32) {
+            goto import_badarg;
+        }
         bin_t key;
         key.insert(key.end(), key_binary.data, key_binary.data + key_binary.size);
         uint256_t value = (char*)value_binary.data;
@@ -399,6 +409,10 @@ merkletree_import_map(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     }
     enif_map_iterator_destroy(env, &iter);
     return argv[0];
+
+import_badarg:
+    enif_map_iterator_destroy(env, &iter);
+    return enif_make_badarg(env);
 }
 
 static ERL_NIF_TERM
