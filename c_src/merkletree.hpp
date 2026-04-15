@@ -268,7 +268,8 @@ struct Item {
 
 class Tree {
 public:
-    PreAllocator<pair_t> m_pair_allocator;
+    /** Shared across Tree copies (NIF SharedState fork): pair_t live here while ItemPool nodes may be shared. */
+    std::shared_ptr<PreAllocator<pair_t>> m_pair_allocator;
     std::shared_ptr<ItemPool> pool;
     ItemId root_id;
 

@@ -1,5 +1,8 @@
 # OPTS=merkletree.cpp sha.cpp -O3 -march=native -msha -Wall -Wextra -pedantic -lstdc++ -fsanitize=address -ggdb3
 OPTS=merkletree.cpp item_pool.cpp sha.cpp -g -O3 -march=native -msha -Wall -Wextra -pedantic -lstdc++
+# AddressSanitizer / UndefinedBehaviorSanitizer (use: make -C c_src test-asan nif-asan)
+SANFLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer -g
+OPTS_ASAN=merkletree.cpp item_pool.cpp sha.cpp -O1 -march=native -msha -Wall -Wextra -pedantic $(SANFLAGS) -lstdc++
 ERL_INCLUDE_PATH = $(shell erl -eval 'io:format("~s", [lists:concat([code:root_dir(), "/erts-", erlang:system_info(version), "/include"])])' -s init stop -noshell)
 CFLAGS+=-I. -O2 -g -Wall -Wno-unknown-pragmas
 CXXFLAGS+=-std=c++17 $(CFLAGS)
@@ -8,12 +11,20 @@ UNAME_S := $(shell uname -s)
 
 ifeq ($(UNAME_S),Darwin)
 	OPTS+=-undefined dynamic_lookup
+	OPTS_ASAN+=-undefined dynamic_lookup
 endif
 
-.PHONY: test
+.PHONY: test test-asan
 test:
 	$(CXX) -o test main.cpp ${OPTS}
 	./test
+
+# Native tests + difference_stress under ASan/UBSan (no Elixir).
+# detect_leaks=0: GlobalStripePool / process exit keeps slab allocations (noise for LSan).
+test-asan:
+	$(CXX) -o test_asan main.cpp $(OPTS_ASAN)
+	ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:halt_on_error=1 ./test_asan diffstress
+	ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:halt_on_error=1 ./test_asan
 
 .PHONY: bench
 bench:
@@ -28,10 +39,18 @@ mem_harness: mem_harness.bin
 mem_harness.bin: mem_harness.cpp merkletree.hpp merkletree.cpp item_pool.cpp sha.cpp Makefile
 	$(CXX) $(CXXFLAGS) -o mem_harness.bin mem_harness.cpp ${OPTS}
 
-.PHONY: nif
+.PHONY: nif nif-asan
 nif: ../priv/merkletree_nif.so
 
 ../priv/merkletree_nif.so: nif.cpp merkletree.hpp merkletree.cpp item_pool.cpp sha.cpp preallocator.hpp Makefile
 	echo ${ERL_INCLUDE_PATH}
 	mkdir -p ../priv
 	$(CXX) $(CXXFLAGS) -I${ERL_INCLUDE_PATH} -o ../priv/merkletree_nif.so -shared -fPIC nif.cpp ${OPTS}
+
+# Instrumented NIF for debugging heap issues (copy over priv/merkletree_nif.so or set in test script).
+../priv/merkletree_nif.asan.so: nif.cpp merkletree.hpp merkletree.cpp item_pool.cpp sha.cpp preallocator.hpp Makefile
+	echo ${ERL_INCLUDE_PATH}
+	mkdir -p ../priv
+	$(CXX) $(CXXFLAGS) $(SANFLAGS) -I${ERL_INCLUDE_PATH} -o $@ -shared -fPIC nif.cpp $(OPTS_ASAN)
+
+nif-asan: ../priv/merkletree_nif.asan.so

@@ -1,6 +1,7 @@
 #include "merkletree.hpp"
-#include <iostream>
 #include <chrono>
+#include <cstdio>
+#include <iostream>
 
 int test0() {
     bits_t bits;
@@ -171,7 +172,67 @@ int bench(int size, std::string ref) {
     return 0;
 }
 
+/**
+ * Mirrors c_src/nif.cpp merkletree_difference: bidirectional Tree::difference into a third tree.
+ * Asserts merged trie size matches the number of keys that differ between a and b.
+ */
+int test_difference_stress() {
+    for (int round = 0; round < 30; round++) {
+        char fmt[48];
+        std::snprintf(fmt, sizeof fmt, "ds%d_!%%d!", round);
+        auto keys = test_data(500, fmt);
+
+        Tree a;
+        Tree b;
+        const int n_a = 80 + (round % 200);
+        const int n_b = n_a + 40 + (round % 100);
+
+        for (int i = 0; i < n_a && i < (int)keys.size(); i++) {
+            auto bkey = bin_t(keys[i].data(), keys[i].data() + 32);
+            a.insert_item(bkey, keys[i]);
+        }
+        for (int i = 0; i < n_b && i < (int)keys.size(); i++) {
+            uint256_t val = keys[i];
+            if (i < n_a && (i % 17 == 0 || i % 31 == 0)) {
+                val = keys[(i + 13 + round) % keys.size()];
+            }
+            auto bkey = bin_t(keys[i].data(), keys[i].data() + 32);
+            b.insert_item(bkey, val);
+        }
+
+        size_t expected = 0;
+        a.each([&](pair_t &p) {
+            pair_t *pb = b.get_item(p);
+            if (!pb || p.value != pb->value) {
+                expected++;
+            }
+        });
+        b.each([&](pair_t &p) {
+            pair_t *pa = a.get_item(p);
+            if (!pa) {
+                expected++;
+            }
+        });
+
+        Tree merged;
+        a.difference(b, merged);
+        b.difference(a, merged);
+
+        if (merged.size() != expected) {
+            std::cout << "difference_stress: merged.size " << merged.size() << " != expected "
+                      << expected << " (round " << round << ")" << std::endl;
+            return 1;
+        }
+    }
+    std::cout << "difference_stress ok (30 rounds)" << std::endl;
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
+    if (argc > 1 && argv[1] == std::string("diffstress")) {
+        return test_difference_stress();
+    }
+
     if (argc > 1 && argv[1] == std::string("bench")) {
         // bench(10000, "0x96c2b5d03aa8e52230e74d9a08359c38c7608e5d9aba18773f3c90baf3806ccb");
         bench(2, "0x11a6cda360858987ff9def01a2f8ab3dd66013a871a1e51c7c64ffadee460e15");
@@ -193,6 +254,7 @@ int main(int argc, char *argv[]) {
     if (test3(1024, "0xcad280c10f8529ad36bce8e3b03a464987c6d4286c21bfcba0a76acd237e9025", 512)) return 1;
     if (test2(1000000, "0x3f7fc2e10181d3936167cf16dbb8efd40f9d8703402c630a95eb1182bd0dcc70")) return 1;
     if (test4(1024)) return 1;
+    if (test_difference_stress()) return 1;
     return 0;
 }
 

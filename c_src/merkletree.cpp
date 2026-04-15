@@ -237,9 +237,15 @@ size_t Item::leaf_count(const Tree &tree) const {
     return tree.pool->get(left_id)->leaf_count(tree) + tree.pool->get(right_id)->leaf_count(tree);
 }
 
-Tree::Tree() : m_pair_allocator(*this), pool(ItemPool::make()), root_id(pool->create_root(*this)) { }
+Tree::Tree()
+    : m_pair_allocator(std::make_shared<PreAllocator<pair_t>>(*this)),
+      pool(ItemPool::make()),
+      root_id(pool->create_root(*this)) {}
 
-Tree::Tree(const Tree &other) : m_pair_allocator(*this), pool(other.pool), root_id(other.root_id) {
+Tree::Tree(const Tree &other)
+    : m_pair_allocator(other.m_pair_allocator),
+      pool(other.pool),
+      root_id(other.root_id) {
     pool->incr_ref(root_id);
 }
 
@@ -523,4 +529,4 @@ void Tree::difference(Tree &other, Tree &into) {
     });
 }
 
-pair_list_t::pair_list_t(Tree &tree) : m_allocator(tree.m_pair_allocator), m_size(0) {}
+pair_list_t::pair_list_t(Tree &tree) : m_allocator(*tree.m_pair_allocator), m_size(0) {}

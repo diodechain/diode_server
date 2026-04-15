@@ -36,7 +36,7 @@ public:
 
 template<typename T>
 class PreAllocator {
-    static const size_t STRIPE_SIZE = MERKLE_STRIPE_SIZE;
+    static constexpr size_t STRIPE_SIZE = MERKLE_STRIPE_SIZE;
     Tree &m_tree;
     std::list<uint8_t*> m_stripes;
     size_t m_item_count;

@@ -340,6 +340,85 @@ defmodule CMerkleTreeTest do
     assert CMerkleTree.root_hash(tree0v2) == CMerkleTree.root_hash(tree0)
   end
 
+  describe "high load: COW clone, fork, difference" do
+    test "512-key base: two divergent clones and difference" do
+      data = Enum.map(1..512, fn i -> {String.pad_leading("#{i}", 32), CMerkleTree.hash("hl#{i}")} end)
+      {d_a, d_rest} = Enum.split(data, 300)
+      {d_b, d_c} = Enum.split(d_rest, 120)
+
+      base = new() |> CMerkleTree.insert_items(d_a)
+
+      t2 =
+        base
+        |> CMerkleTree.clone()
+        |> CMerkleTree.insert_items(d_b ++ d_c)
+
+      t_alt =
+        base
+        |> CMerkleTree.clone()
+        |> CMerkleTree.insert_items(d_b)
+        |> CMerkleTree.insert_items(Enum.take(d_c, 40))
+
+      diff = CMerkleTree.difference(t2, t_alt)
+      assert map_size(diff) >= 1
+      assert CMerkleTree.size(t2) == 512
+      assert CMerkleTree.size(t_alt) == 300 + 120 + 40
+      _ = CMerkleTree.root_hash(t2)
+      _ = CMerkleTree.root_hash(t_alt)
+    end
+
+    test "U256 sequential keys: clone then parallel extensions + difference (COW + diff)" do
+      slots = Enum.map(0..420, fn i -> {<<i::unsigned-size(256)>>, <<i * 7::unsigned-size(256)>>} end)
+
+      base = new() |> CMerkleTree.insert_items(slots)
+
+      left =
+        base
+        |> CMerkleTree.clone()
+        |> CMerkleTree.insert_items(
+          Enum.map(421..500, fn i -> {<<i::unsigned-size(256)>>, <<i * 3::unsigned-size(256)>>} end)
+        )
+
+      right =
+        base
+        |> CMerkleTree.clone()
+        |> CMerkleTree.insert_items(
+          Enum.map(501..590, fn i -> {<<i::unsigned-size(256)>>, <<i * 13::unsigned-size(256)>>} end)
+        )
+
+      diff = CMerkleTree.difference(left, right)
+      assert map_size(diff) >= 1
+      assert CMerkleTree.root_hash(left) != CMerkleTree.root_hash(right)
+      _ = CMerkleTree.root_hash(base)
+    end
+
+    test "U256 sequential keys: clone then partial overwrite + difference (stress)" do
+      slots = Enum.map(0..400, fn i -> {<<i::unsigned-size(256)>>, <<i * 7::unsigned-size(256)>>} end)
+
+      base = new() |> CMerkleTree.insert_items(slots)
+
+      left =
+        base
+        |> CMerkleTree.clone()
+        |> CMerkleTree.insert_items(
+          Enum.map(401..450, fn i -> {<<i::unsigned-size(256)>>, <<i * 3::unsigned-size(256)>>} end)
+        )
+
+      right =
+        base
+        |> CMerkleTree.clone()
+        |> then(fn t ->
+          Enum.reduce(200..280, t, fn i, acc ->
+            CMerkleTree.insert(acc, <<i::unsigned-size(256)>>, <<i * 13::unsigned-size(256)>>)
+          end)
+        end)
+
+      diff = CMerkleTree.difference(left, right)
+      assert map_size(diff) >= 1
+      assert CMerkleTree.root_hash(left) != CMerkleTree.root_hash(right)
+    end
+  end
+
   defp pairs(num, variant \\ "") do
     Enum.map(1..num, fn idx ->
       {String.pad_leading("#{idx}", 32), CMerkleTree.hash("#{idx}" <> variant)}

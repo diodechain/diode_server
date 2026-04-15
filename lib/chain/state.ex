@@ -202,6 +202,8 @@ defmodule Chain.State do
         Enum.reduce(state_update, acc, fn {key, {a, b}}, acc ->
           tree = Account.tree(acc)
 
+          # Delta old value `a` must match the parent trie; mismatch means corrupt delta
+          # (e.g. NIF trie bug when the block was written) or inconsistent DB replay.
           # if a != CMerkleTree.get(tree, key) do
           #   IO.inspect({key, {a, b}, CMerkleTree.get(tree, key), difference},
           #     label: "apply_difference"
