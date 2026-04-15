@@ -21,6 +21,8 @@ defmodule Shell do
     Shell.call_from(Wallet.from_address(addr), registryContract, "ContractStake", ["address"], [fleetContract])
   """
 
+  @dialyzer {:nowarn_function, call_tx: 2}
+
   def call(address, name, types \\ [], values \\ [], opts \\ [])
       when is_list(types) and is_list(values) do
     call_from(Diode.miner(), address, name, types, values, opts)

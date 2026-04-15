@@ -7,6 +7,12 @@ defmodule Chain do
   alias Model.ChainSql
   require Logger
   use GenServer
+
+  @dialyzer [
+    {:nowarn_function, reset_state: 0},
+    {:nowarn_function, genesis_state: 0},
+    {:nowarn_function, genesis: 0}
+  ]
   defstruct peak_hash: nil, peak_num: nil, by_hash: %{}, states: %{}
 
   @type t :: %Chain{

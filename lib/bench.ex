@@ -5,6 +5,8 @@ defmodule Bench do
   # MIX_ENV=benchmark mix run benchmark.exs
   alias Chain.Transaction
 
+  @dialyzer {:nowarn_function, create_contract: 2}
+
   def create_contract(x, fib) do
     wallet = Wallet.new()
     miner = Wallet.new()

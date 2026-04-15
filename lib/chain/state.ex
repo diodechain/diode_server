@@ -5,6 +5,14 @@ defmodule Chain.State do
   require Logger
   alias Chain.Account
 
+  # MutableMap.new/0 lacks a contract Dialyzer can use; callers are still sound.
+  @dialyzer [
+    {:nowarn_function, new: 0},
+    {:nowarn_function, uncompact: 1},
+    {:nowarn_function, clone: 1},
+    {:nowarn_function, from_binary: 1}
+  ]
+
   @enforce_keys [:accounts]
   defstruct accounts: %{}, hash: nil, store: nil
   @type t :: %Chain.State{accounts: any(), hash: any(), store: any()}

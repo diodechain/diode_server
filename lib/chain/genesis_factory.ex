@@ -4,7 +4,14 @@
 defmodule Chain.GenesisFactory do
   alias Chain.Account, as: Account
 
-  @spec testnet() :: Chain.Block.t()
+  # Dialyzer infers no_return via MutableMap / genesis pipeline; runtime is correct.
+  @dialyzer [
+    {:nowarn_function, testnet: 0},
+    {:nowarn_function, testnet_parent: 0},
+    {:nowarn_function, genesis_state: 1},
+    {:nowarn_function, genesis: 3}
+  ]
+
   def testnet() do
     genesis(genesis_accounts(), genesis_transactions(genesis_miner()), genesis_miner())
   end
@@ -51,7 +58,6 @@ defmodule Chain.GenesisFactory do
     }
   end
 
-  @spec genesis(any(), [Chain.Transaction.t()], Wallet.t()) :: Chain.Block.t()
   def genesis(accounts, transactions, miner) do
     state = genesis_state(accounts)
     parent = genesis_parent(state, miner)

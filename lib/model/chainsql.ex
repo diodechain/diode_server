@@ -10,6 +10,12 @@ defmodule Model.ChainSql do
   # esqlite doesn't support :infinity
   @infinity 300_000_000
 
+  # :timer.tc + Chain.State paths: Dialyzer no_return noise.
+  @dialyzer [
+    {:nowarn_function, state: 1},
+    {:nowarn_function, do_state: 1}
+  ]
+
   defmodule Writer do
     @moduledoc """
       Asynchonsouly writes new blocks

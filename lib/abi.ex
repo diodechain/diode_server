@@ -97,7 +97,7 @@ defmodule ABI do
   @doc """
   subtype returns the individual element type of an dynamic/array
   """
-  @spec subtype(binary) :: false | binary
+  @spec subtype(binary()) :: binary() | nil
   def subtype(type) do
     cond do
       String.ends_with?(type, "[]") -> binary_part(type, 0, byte_size(type) - 2)

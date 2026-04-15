@@ -48,9 +48,6 @@ defmodule Network.RpcWs do
           {:ok, state}
       end
     else
-      {:ok, state} ->
-        {:ok, state}
-
       _ ->
         {:reply, {:text, Poison.encode!("what?")}, state}
     end

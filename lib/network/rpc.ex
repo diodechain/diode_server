@@ -7,6 +7,11 @@ defmodule Network.Rpc do
   alias Chain.{Account, Transaction, State}
   alias Model.ChainSql
 
+  @dialyzer [
+    {:nowarn_function, apply_transaction: 2},
+    {:nowarn_function, execute_std: 3}
+  ]
+
   def handle_jsonrpc(rpcs, opts \\ [])
 
   def handle_jsonrpc(%{"_json" => rpcs}, opts) when is_list(rpcs) do

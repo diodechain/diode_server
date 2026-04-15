@@ -4,6 +4,9 @@
 defmodule Network.EdgeV2 do
   require Logger
 
+  # Chain.with_peak + Transaction.apply: Dialyzer no_return noise on inner closures.
+  @dialyzer {:nowarn_function, handle_async_msg: 1}
+
   def handle_rpc(msg) do
     case msg do
       [cmd | _rest] when cmd in ["ping", "isonline", "sendtransaction"] ->

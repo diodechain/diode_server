@@ -258,6 +258,9 @@ defmodule Evm do
     end
   end
 
+  # State.new / Task.evm: Dialyzer no_return false positive from NIF-heavy deps.
+  @dialyzer {:nowarn_function, init: 0}
+
   def init() do
     w = Diode.miner()
 

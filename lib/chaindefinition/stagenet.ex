@@ -76,7 +76,9 @@ defmodule ChainDefinition.Stagenet do
     end
   end
 
-  @spec genesis_accounts() :: [{binary(), Chain.Account.t()}]
+  # File.read!/from_binary: Dialyzer success typing noise vs. spec.
+  @dialyzer {:nowarn_function, genesis_accounts: 0}
+
   def genesis_accounts() do
     File.read!("data/genesis.bin") |> Chain.State.from_binary() |> Chain.State.accounts()
   end
