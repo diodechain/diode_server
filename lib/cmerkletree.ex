@@ -109,6 +109,8 @@ defmodule CMerkleTree do
   def difference_raw(_tree, _map), do: error()
   def lock(_tree), do: error()
   def get_proofs_raw(_tree, _key), do: error()
+  def count_zeros(binary) when is_binary(binary), do: count_zeros_raw(binary)
+  defp count_zeros_raw(_binary), do: error()
   defp error, do: :erlang.nif_error(:nif_not_loaded)
 
   defp to_bytes32(nil) do

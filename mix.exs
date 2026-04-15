@@ -100,7 +100,6 @@ defmodule Diode.Mixfile do
       {:httpoison, "~> 2.0"},
       {:keccakf1600, github: "diodechain/erlang-keccakf1600"},
       {:libsecp256k1, github: "diodechain/libsecp256k1"},
-      {:niffler, "~> 0.1"},
       {:oncrash, "~> 0.0"},
       {:plug_cowboy, "~> 2.5"},
       {:poison, "~> 4.0"},

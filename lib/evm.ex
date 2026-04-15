@@ -233,19 +233,11 @@ defmodule Evm do
       Transaction.gas_limit(tx)
     end
 
-    use Niffler
-
-    defnif :count_zeros, [str: :binary], ret: :int do
-      """
-      while($str.size--) if (*$str.data++ == 0) $ret++;
-      """
-    end
-
     def gas(%Task{tx: tx}) do
       # Calculation of initial gas according to yellow paper 6.2
       gas = Transaction.gas_limit(tx)
 
-      {:ok, [zeros]} = count_zeros(Transaction.payload(tx))
+      zeros = CMerkleTree.count_zeros(Transaction.payload(tx))
       ones = byte_size(Transaction.payload(tx)) - zeros
 
       gas = gas - zeros * Evm.gas_cost(:GTXDATAZERO)

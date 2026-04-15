@@ -448,6 +448,20 @@ merkletree_bucket_count(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     return enif_make_uint(env, size);
 }
 
+static ERL_NIF_TERM
+merkletree_count_zeros(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    ErlNifBinary bin;
+    if (argc != 1) return enif_make_badarg(env);
+    if (!enif_inspect_binary(env, argv[0], &bin)) return enif_make_badarg(env);
+
+    uint64_t count = 0;
+    for (size_t i = 0; i < bin.size; i++) {
+        if (bin.data[i] == 0) count++;
+    }
+    return enif_make_uint64(env, count);
+}
+
 static void destroy_shared_state(merkletree *mt, Lock &lock) {
     if (mt->shared_state->has_clone == 0) {
         lock.unlock();
@@ -507,6 +521,7 @@ static ErlNifFunc nif_funcs[] = {
     {"bucket_count", 1, merkletree_bucket_count, 0},
     {"size", 1, merkletree_size, 0},
     {"clone", 1, merkletree_clone, 0},
+    {"count_zeros", 1, merkletree_count_zeros, 0},
 };
 
 // ERL_NIF_INIT(merkletree_nif, nif_funcs, on_load, on_reload, on_upgrade, NULL);
