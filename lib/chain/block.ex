@@ -198,34 +198,39 @@ defmodule Chain.Block do
     end
   end
 
-  def validate(%Block{} = block, true) do
-    # IO.puts("Block #{number(block)}.: #{length(transactions(block))}txs")
-    tc(:cache, fn -> BlockCache.cache(block) end)
+  def validate(%Block{} = wire_block, true) do
+    # IO.puts("Block #{number(wire_block)}.: #{length(transactions(wire_block))}txs")
+    tc(:cache, fn -> BlockCache.cache(wire_block) end)
 
-    with {_, %Block{}} <- {:is_block, block},
+    with {_, %Block{}} <- {:is_block, wire_block},
          {_, true} <-
-           test(:has_parent, fn -> parent_hash(block) == with_parent(block, &hash/1) end),
+           test(:has_parent, fn ->
+             parent_hash(wire_block) == with_parent(wire_block, &hash/1)
+           end),
          {_, true} <-
-           test(:correct_number, fn -> number(block) == with_parent(block, &number/1) + 1 end),
-         {_, true} <- test(:hash_valid, fn -> hash_valid?(block) end),
+           test(:correct_number, fn ->
+             number(wire_block) == with_parent(wire_block, &number/1) + 1
+           end),
+         {_, true} <- test(:hash_valid, fn -> hash_valid?(wire_block) end),
          {_, []} <-
            test_tc(:tx_valid, fn ->
-             Enum.map(transactions(block), &Transaction.validate/1)
+             Enum.map(transactions(wire_block), &Transaction.validate/1)
              |> Enum.reject(fn tx -> tx == true end)
            end),
          {_, true} <-
            test(:tx_hash_valid, fn ->
-             Diode.hash(encode_transactions(transactions(block))) == txhash(block)
+             Diode.hash(encode_transactions(transactions(wire_block))) == txhash(wire_block)
            end),
-         {_, sim_block} <- test_tc(:simulate, fn -> simulate(block, true) end),
+         {_, sim_block} <- test_tc(:simulate, fn -> simulate(wire_block, true) end),
          {_, true} <- test_tc(:registry_tx, fn -> has_registry_tx?(sim_block) end) do
       %Block{} = sim_block
       %Header{} = sim_header = sim_block.header
-      %Header{} = blk_header = block.header
+      %Header{} = blk_header = wire_block.header
       %Chain.State{} = sim_state = sim_header.state_hash
       new_state = %{sim_state | hash: blk_header.state_hash}
       new_header = %{sim_header | state_hash: new_state}
       block = %{sim_block | header: new_header}
+      block = ensure_fast_validate_block_hash(block, wire_block)
 
       tc(:put_new_block, fn -> ChainSql.put_new_block(block) end)
       tc(:ets_add_alt, fn -> Chain.ets_add_alt(block) end)
@@ -233,6 +238,21 @@ defmodule Chain.Block do
       block
     else
       {nr, error} -> {nr, error}
+    end
+  end
+
+  # Fast validation skips finalize_header's block_hash assignment; copy the wire
+  # hash so INSERT/ETS/caches use the same key as peers and add_block lookups.
+  defp ensure_fast_validate_block_hash(%Block{} = block, %Block{} = wire) do
+    case hash(block) do
+      <<_::binary-size(32)>> ->
+        block
+
+      nil ->
+        case hash(wire) do
+          <<h::binary-size(32)>> -> %{block | header: %{block.header | block_hash: h}}
+          nil -> block
+        end
     end
   end
 
