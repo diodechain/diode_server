@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 class Tree;
@@ -16,8 +17,9 @@ static constexpr ItemId kItemNull = 0;
  * (Tree::root_id, Item::left_id, Item::right_id) that points to id contributes +1.
  * fork_for_write clones when refcnt > 1 (shared node).
  *
- * Refcount updates are not synchronized here: the Erlang NIF holds SharedState::mtx
- * (see nif.cpp Lock) across mutations, so plain uint32_t refcnt is sufficient.
+ * Concurrent access can occur when two SharedState copies share one ItemPool (COW after
+ * make_writeable) while each holds a different ErlNifMutex — refcnt/nodes are protected
+ * by an internal recursive mutex.
  */
 class ItemPool {
 public:
@@ -57,11 +59,15 @@ public:
 private:
     ItemPool();
 
+    mutable std::recursive_mutex mtx; // recursive: decr_ref() calls decr_ref(children)
     std::vector<std::unique_ptr<Item>> nodes; // index = ItemId; [0] unused
     std::vector<uint32_t> refcnt;
     std::vector<ItemId> free_list;
 
     void ensure_slot(ItemId id);
+
+    ItemId alloc_leaf_nolock(Tree &tree);
+    void incr_ref_nolock(ItemId id);
 };
 
 #endif

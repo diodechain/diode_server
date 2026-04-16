@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <cstring>
+#include <mutex>
 
 std::shared_ptr<ItemPool> ItemPool::make() {
     return std::shared_ptr<ItemPool>(new ItemPool());
@@ -23,6 +24,7 @@ void ItemPool::ensure_slot(ItemId id) {
 }
 
 Item *ItemPool::get(ItemId id) {
+    std::lock_guard<std::recursive_mutex> lock(mtx);
     if (id == kItemNull) {
         return nullptr;
     }
@@ -31,6 +33,7 @@ Item *ItemPool::get(ItemId id) {
 }
 
 const Item *ItemPool::get(ItemId id) const {
+    std::lock_guard<std::recursive_mutex> lock(mtx);
     if (id == kItemNull) {
         return nullptr;
     }
@@ -38,14 +41,20 @@ const Item *ItemPool::get(ItemId id) const {
     return nodes[id].get();
 }
 
-void ItemPool::incr_ref(ItemId id) {
+void ItemPool::incr_ref_nolock(ItemId id) {
     if (id == kItemNull) {
         return;
     }
     refcnt[id]++;
 }
 
+void ItemPool::incr_ref(ItemId id) {
+    std::lock_guard<std::recursive_mutex> lock(mtx);
+    incr_ref_nolock(id);
+}
+
 void ItemPool::decr_ref(ItemId id) {
+    std::lock_guard<std::recursive_mutex> lock(mtx);
     if (id == kItemNull) {
         return;
     }
@@ -54,7 +63,7 @@ void ItemPool::decr_ref(ItemId id) {
     if (refcnt[id] > 0) {
         return;
     }
-    Item *it = get(id);
+    Item *it = nodes[id].get();
     ItemId L = it->left_id;
     ItemId R = it->right_id;
     decr_ref(L);
@@ -63,7 +72,7 @@ void ItemPool::decr_ref(ItemId id) {
     free_list.push_back(id);
 }
 
-ItemId ItemPool::alloc_leaf(Tree &tree) {
+ItemId ItemPool::alloc_leaf_nolock(Tree &tree) {
     ItemId id;
     if (!free_list.empty()) {
         id = free_list.back();
@@ -79,13 +88,20 @@ ItemId ItemPool::alloc_leaf(Tree &tree) {
     return id;
 }
 
+ItemId ItemPool::alloc_leaf(Tree &tree) {
+    std::lock_guard<std::recursive_mutex> lock(mtx);
+    return alloc_leaf_nolock(tree);
+}
+
 ItemId ItemPool::create_root(Tree &tree) {
-    ItemId id = alloc_leaf(tree);
-    incr_ref(id);
+    std::lock_guard<std::recursive_mutex> lock(mtx);
+    ItemId id = alloc_leaf_nolock(tree);
+    incr_ref_nolock(id);
     return id;
 }
 
 bool ItemPool::is_unique(ItemId id) const {
+    std::lock_guard<std::recursive_mutex> lock(mtx);
     if (id == kItemNull) {
         return true;
     }
@@ -94,9 +110,11 @@ bool ItemPool::is_unique(ItemId id) const {
 }
 
 ItemId ItemPool::clone_for_fork(ItemId id, Tree &tree) {
-    const Item *src = get(id);
-    ItemId nid = alloc_leaf(tree);
-    Item *dst = get(nid);
+    std::lock_guard<std::recursive_mutex> lock(mtx);
+    const Item *src = nodes[id].get();
+    assert(src);
+    ItemId nid = alloc_leaf_nolock(tree);
+    Item *dst = nodes[nid].get();
     delete dst->leaf_bucket;
     dst->leaf_bucket = nullptr;
     dst->is_leaf = src->is_leaf;
@@ -112,32 +130,35 @@ ItemId ItemPool::clone_for_fork(ItemId id, Tree &tree) {
     }
     dst->left_id = src->left_id;
     dst->right_id = src->right_id;
-    incr_ref(dst->left_id);
-    incr_ref(dst->right_id);
+    incr_ref_nolock(dst->left_id);
+    incr_ref_nolock(dst->right_id);
     return nid;
 }
 
 void ItemPool::set_left(ItemId parent, ItemId child) {
-    Item *p = get(parent);
+    std::lock_guard<std::recursive_mutex> lock(mtx);
+    Item *p = nodes[parent].get();
     if (p->left_id == child) {
         return;
     }
     decr_ref(p->left_id);
     p->left_id = child;
-    incr_ref(child);
+    incr_ref_nolock(child);
 }
 
 void ItemPool::set_right(ItemId parent, ItemId child) {
-    Item *p = get(parent);
+    std::lock_guard<std::recursive_mutex> lock(mtx);
+    Item *p = nodes[parent].get();
     if (p->right_id == child) {
         return;
     }
     decr_ref(p->right_id);
     p->right_id = child;
-    incr_ref(child);
+    incr_ref_nolock(child);
 }
 
 size_t ItemPool::live_nodes() const {
+    std::lock_guard<std::recursive_mutex> lock(mtx);
     size_t n = 0;
     for (size_t i = 1; i < nodes.size(); i++) {
         if (nodes[i]) {

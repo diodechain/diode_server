@@ -38,6 +38,7 @@ template<typename T>
 class PreAllocator {
     static constexpr size_t STRIPE_SIZE = MERKLE_STRIPE_SIZE;
     Tree &m_tree;
+    mutable std::recursive_mutex mtx;
     std::list<uint8_t*> m_stripes;
     size_t m_item_count;
     std::list<T*> m_backbuffer;
@@ -45,6 +46,7 @@ class PreAllocator {
 public:
     PreAllocator(Tree &tree) : m_tree(tree), m_item_count(0) { }
     ~PreAllocator() {
+        std::lock_guard<std::recursive_mutex> lock(mtx);
         for (uint8_t *stripe : m_stripes) {
             auto len = std::min(STRIPE_SIZE, m_item_count);
             for (size_t i = 0; i < len; i++) {
@@ -57,6 +59,7 @@ public:
     }
 
     T* new_item() {
+        std::lock_guard<std::recursive_mutex> lock(mtx);
         if (!m_backbuffer.empty()) {
             T* item = m_backbuffer.front();
             m_backbuffer.pop_front();
@@ -77,6 +80,7 @@ public:
     }
 
     void destroy_item(T* item) {
+        std::lock_guard<std::recursive_mutex> lock(mtx);
         item->~T();
         m_backbuffer.push_back(new (item) T(m_tree));
     }
