@@ -464,6 +464,12 @@ defmodule Chain do
     lastblock
   end
 
+  defp do_import_blocks_reduce(nil, validate_fast?, {status, count}) do
+    _ = validate_fast?
+    Logger.warning("Chain.import_blocks: skipping nil entry in block stream (count=#{count})")
+    {:cont, {status, count}}
+  end
+
   defp do_import_blocks_reduce(nextblock, validate_fast?, {_status, count}) do
     :erlang.garbage_collect()
     block_hash = Block.hash(nextblock)
@@ -477,9 +483,18 @@ defmodule Chain do
       Stats.tc(:vldt, fn -> Block.validate(nextblock, validate_fast?) end)
       |> case do
         %Chain.Block{} = block ->
-          <<block_hash::binary-size(32)>> = Block.hash(block)
-          add_block(block_hash, false, false)
-          {:cont, {block_hash, count + 1}}
+          case import_blocks_resolve_hash(block, nextblock) do
+            <<h::binary-size(32)>> ->
+              add_block(h, false, false)
+              {:cont, {h, count + 1}}
+
+            nil ->
+              Logger.error(
+                "Chain.import_blocks: missing block_hash after validate (number=#{Block.number(nextblock)})"
+              )
+
+              {:halt, {{:missing_block_hash, block}, count}}
+          end
 
         nonblock ->
           :io.format("Chain.import_blocks(2): Failed with ~p on: ~p~n", [
@@ -489,6 +504,21 @@ defmodule Chain do
 
           {:halt, {nonblock, count}}
       end
+    end
+  end
+
+  # Fast validation (validate(..., true)) uses finalize_header(..., true) which does not
+  # assign header.block_hash; use the wire/imported block hash when present.
+  defp import_blocks_resolve_hash(%Chain.Block{} = validated, original) do
+    case Block.hash(validated) do
+      <<h::binary-size(32)>> ->
+        h
+
+      nil ->
+        case Block.hash(original) do
+          <<h::binary-size(32)>> -> h
+          nil -> nil
+        end
     end
   end
 
