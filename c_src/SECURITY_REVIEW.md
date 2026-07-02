@@ -12,6 +12,7 @@
 | `new` | 0 | — | `CMerkleTree.new/0` |
 | `insert_item_raw` | 3 | resource, key binary, value binary (must be 32 bytes) | `insert`, `insert_items` |
 | `get_item` | 2 | resource, key binary | `get/2` |
+| `get_range_raw` | 3 | resource, key binary (32 bytes), count (1..256) | `get_range/3`, `Evm` `gs` read-ahead |
 | `get_proofs_raw` | 2 | resource, key binary | `get_proofs/2` → RPC, edge |
 | `difference_raw` | 2 | two resources | `difference/2`, `Chain.State` |
 | `lock` | 1 | resource | `CMerkleTree.lock/1`, scripts |

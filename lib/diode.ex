@@ -357,6 +357,10 @@ defmodule Diode do
     get_env_int("STATE_CACHE_SIZE", 20)
   end
 
+  def evm_storage_read_ahead() do
+    get_env_int("EVM_STORAGE_READ_AHEAD", 10)
+  end
+
   def seeds() do
     case get_env("SEED") do
       nil ->

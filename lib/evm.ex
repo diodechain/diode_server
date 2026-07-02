@@ -560,19 +560,18 @@ defmodule Evm do
          <<"gs", addr::binary-size(20), key::binary-size(32)>>,
          evm
        ) do
-    value =
-      State.ensure_account(state(evm), addr)
+    count = Diode.evm_storage_read_ahead() |> max(0) |> min(254) |> Kernel.+(1)
+
+    tree =
+      state(evm)
+      |> State.ensure_account(addr)
       |> Chain.Account.tree()
-      |> CMerkleTree.get(key)
 
-    if value == nil do
-      # IO.puts("gs #{Base16.encode(key)} = nil")
-      Port.command(evm.port, <<0::unsigned-size(256)>>)
-    else
-      # IO.puts("gs #{Base16.encode(key)} = #{Base16.encode(value)}")
-      Port.command(evm.port, value)
-    end
+    entries =
+      CMerkleTree.get_range_raw(tree, key, count)
+      |> Enum.map(fn {k, v} -> [k, v] end)
 
+    true = Port.command(evm.port, [<<length(entries)::unsigned-integer-size(8)>> | entries])
     {:cont, evm}
   end
 

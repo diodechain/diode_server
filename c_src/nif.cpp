@@ -10,8 +10,10 @@ extern "C" {
 }
 
 #include "merkletree.hpp"
-#include <unordered_map>
+#include <cstring>
 #include <cstdio>
+#include <unordered_map>
+#include <vector>
 #ifdef __GLIBC__
 #include <malloc.h>
 #endif
@@ -240,6 +242,88 @@ merkletree_insert_item(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     return argv[0];
 }
 
+namespace {
+
+struct RangeEntry {
+    bin_t key;
+    uint256_t value;
+};
+
+static bool uint256_increment(uint8_t key[32])
+{
+    for (int i = 31; i >= 0; i--) {
+        if (key[i] != 0xFF) {
+            key[i]++;
+            return true;
+        }
+        key[i] = 0;
+    }
+    return false;
+}
+
+static size_t get_range_entries(Tree &tree, const bin_t &base_key, size_t count, RangeEntry *out)
+{
+    if (count == 0 || base_key.size() != 32) {
+        return 0;
+    }
+
+    uint8_t key_bytes[32];
+    memcpy(key_bytes, base_key.data(), 32);
+
+    size_t written = 0;
+    for (size_t i = 0; i < count; i++) {
+        bin_t key(key_bytes, key_bytes + 32);
+        pair_t lookup(std::move(key));
+        pair_t *pair = tree.get_item(lookup);
+
+        out[written].key = lookup.key;
+        out[written].value = pair == nullptr ? uint256_t() : pair->value;
+        written++;
+
+        if (i + 1 < count && !uint256_increment(key_bytes)) {
+            break;
+        }
+    }
+
+    return written;
+}
+
+} // namespace
+
+static ERL_NIF_TERM
+merkletree_get_range(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    merkletree *mt;
+    ErlNifBinary key_binary;
+    unsigned count;
+
+    if (argc != 3) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
+    if (!enif_inspect_binary(env, argv[1], &key_binary)) return enif_make_badarg(env);
+    if (key_binary.size != 32) return enif_make_badarg(env);
+    if (!enif_get_uint(env, argv[2], &count)) return enif_make_badarg(env);
+    if (count < 1 || count > 256) return enif_make_badarg(env);
+
+    Lock lock(mt);
+
+    bin_t key;
+    key.insert(key.end(), key_binary.data, key_binary.data + key_binary.size);
+
+    std::vector<RangeEntry> entries(count);
+    size_t n = get_range_entries(mt->shared_state->tree, key, count, entries.data());
+
+    ERL_NIF_TERM list = enif_make_list(env, 0);
+    for (size_t i = n; i > 0; i--) {
+        RangeEntry &entry = entries[i - 1];
+        ERL_NIF_TERM key_term = make_binary(env, entry.key.data(), entry.key.size());
+        ERL_NIF_TERM value_term = make_binary(env, entry.value.data(), 32);
+        ERL_NIF_TERM pair = enif_make_tuple2(env, key_term, value_term);
+        list = enif_make_list_cell(env, pair, list);
+    }
+
+    return list;
+}
+
 static ERL_NIF_TERM
 merkletree_get_item(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
@@ -250,21 +334,20 @@ merkletree_get_item(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
     Lock lock(mt);
     if (!enif_inspect_binary(env, argv[1], &key_binary)) return enif_make_badarg(env);
+    if (key_binary.size != 32) return enif_make_badarg(env);
 
     bin_t key;
     key.insert(key.end(), key_binary.data, key_binary.data + key_binary.size);
-    pair_t* pair = mt->shared_state->tree.get_item(std::move(key));
+    pair_t *pair = mt->shared_state->tree.get_item(std::move(key));
 
     if (pair == nullptr) {
         return make_atom(env, "nil");
     }
 
-    // Should return {key, value, hash}
     ERL_NIF_TERM key_term = argv[1];
     ERL_NIF_TERM value_term = make_binary(env, pair->value.data(), 32);
     ERL_NIF_TERM hash_term = make_binary(env, pair->key_hash.data(), 32);
-    ERL_NIF_TERM tuple = enif_make_tuple3(env, key_term, value_term, hash_term);
-    return tuple;
+    return enif_make_tuple3(env, key_term, value_term, hash_term);
 }
 
 static ERL_NIF_TERM
@@ -593,6 +676,7 @@ static ErlNifFunc nif_funcs[] = {
     {"new", 0, merkletree_new, 0},
     {"insert_item_raw", 3, merkletree_insert_item, 0},
     {"get_item", 2, merkletree_get_item, 0},
+    {"get_range_raw", 3, merkletree_get_range, 0},
     {"get_proofs_raw", 2, merkletree_get_proofs, 0},
     {"difference_raw", 2, merkletree_difference, 0},
     {"lock", 1, merkletree_lock, 0},

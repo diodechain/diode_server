@@ -85,6 +85,11 @@ defmodule CMerkleTree do
     end
   end
 
+  def get_range(tree, key, count) when is_integer(count) and count >= 1 and count <= 256 do
+    get_range_raw(tree, to_bytes32(key), count)
+    |> Enum.map(fn {k, v} -> {k, if(v == @null, do: nil, else: v)} end)
+  end
+
   def root_hashes(tree) do
     <<a::binary-size(32), b::binary-size(32), c::binary-size(32), d::binary-size(32),
       e::binary-size(32), f::binary-size(32), g::binary-size(32), h::binary-size(32),
@@ -104,6 +109,7 @@ defmodule CMerkleTree do
   def hash(_binary), do: error()
   def bucket_count(_tree), do: error()
   def get_item(_tree, _key), do: error()
+  def get_range_raw(_tree, _key, _count), do: error()
   def to_list(_tree), do: error()
   def import_map(_tree, _map), do: error()
   def difference_raw(_tree, _map), do: error()

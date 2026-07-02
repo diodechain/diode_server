@@ -429,6 +429,64 @@ defmodule CMerkleTreeTest do
     end
   end
 
+  describe "get_range" do
+    test "dense sequential keys" do
+      base = 0x100
+
+      tree =
+        CMerkleTree.new()
+        |> CMerkleTree.insert(base, 1)
+        |> CMerkleTree.insert(base + 1, 2)
+        |> CMerkleTree.insert(base + 2, 3)
+
+      assert CMerkleTree.get_range(tree, base, 3) == [
+               {<<base::unsigned-size(256)>>, <<1::unsigned-size(256)>>},
+               {<<base + 1::unsigned-size(256)>>, <<2::unsigned-size(256)>>},
+               {<<base + 2::unsigned-size(256)>>, <<3::unsigned-size(256)>>}
+             ]
+    end
+
+    test "sparse range returns nil for missing slots" do
+      base = 0x200
+
+      tree =
+        CMerkleTree.new()
+        |> CMerkleTree.insert(base, 1)
+        |> CMerkleTree.insert(base + 2, 3)
+
+      assert CMerkleTree.get_range(tree, base, 3) == [
+               {<<base::unsigned-size(256)>>, <<1::unsigned-size(256)>>},
+               {<<base + 1::unsigned-size(256)>>, nil},
+               {<<base + 2::unsigned-size(256)>>, <<3::unsigned-size(256)>>}
+             ]
+    end
+
+    test "stops at uint256 overflow" do
+      max_key = <<Integer.pow(2, 256) - 1::unsigned-size(256)>>
+      tree = CMerkleTree.insert(CMerkleTree.new(), max_key, 42)
+
+      assert length(CMerkleTree.get_range(tree, max_key, 3)) == 1
+      assert CMerkleTree.get(tree, max_key) == <<42::unsigned-size(256)>>
+    end
+
+    test "max count returns at most 255 entries" do
+      base = 0x4000
+      count = 255
+
+      tree =
+        CMerkleTree.new()
+        |> then(fn t ->
+          Enum.reduce(0..(count - 1), t, fn i, acc ->
+            CMerkleTree.insert(acc, base + i, i + 1)
+          end)
+        end)
+
+      range = CMerkleTree.get_range(tree, base, count)
+      assert length(range) == 255
+      assert length(range) <= 255
+    end
+  end
+
   defp pairs(num, variant \\ "") do
     Enum.map(1..num, fn idx ->
       {String.pad_leading("#{idx}", 32), CMerkleTree.hash("#{idx}" <> variant)}
