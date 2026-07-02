@@ -5,7 +5,6 @@ defmodule Chain.State do
   require Logger
   alias Chain.Account
 
-  # MutableMap.new/0 lacks a contract Dialyzer can use; callers are still sound.
   @dialyzer [
     {:nowarn_function, new: 0},
     {:nowarn_function, uncompact: 1},
@@ -14,14 +13,14 @@ defmodule Chain.State do
   ]
 
   @enforce_keys [:accounts]
-  defstruct accounts: %{}, hash: nil, store: nil
-  @type t :: %Chain.State{accounts: any(), hash: any(), store: any()}
+  defstruct accounts: nil, hash: nil, store: nil
+  @type t :: %Chain.State{accounts: CAccountMap.t(), hash: any(), store: any()}
 
   def new() do
-    %Chain.State{accounts: MutableMap.new()}
+    %Chain.State{accounts: CAccountMap.new()}
   end
 
-  def compact(%Chain.State{accounts: accounts} = state) do
+  def compact(%Chain.State{accounts: accounts} = state) when is_map(accounts) do
     accounts =
       Enum.map(accounts, fn {id, acc} -> {id, Account.compact(acc)} end)
       |> Map.new()
@@ -30,22 +29,27 @@ defmodule Chain.State do
     |> Map.delete(:store)
   end
 
-  def uncompact(%Chain.State{accounts: old_accounts} = state) do
-    accounts = MutableMap.new()
+  def compact(%Chain.State{accounts: accounts} = state) do
+    accounts =
+      accounts
+      |> CAccountMap.to_account_list()
+      |> Enum.map(fn {id, acc} -> {id, Account.compact(acc)} end)
+      |> Map.new()
 
-    for {id, acc} <- old_accounts do
-      MutableMap.put(accounts, id, Account.uncompact(acc))
-    end
+    %Chain.State{state | accounts: accounts}
+    |> Map.delete(:store)
+  end
+
+  def uncompact(%Chain.State{accounts: old_accounts} = state) do
+    accounts =
+      Enum.reduce(old_accounts, CAccountMap.new(), fn {id, acc}, accounts ->
+        CAccountMap.put_account(accounts, id, Account.uncompact(acc))
+      end)
 
     state = %Chain.State{state | accounts: accounts}
     tree = tree(state)
     new_hash = CMerkleTree.root_hash(tree)
 
-    # if new_hash != hash do
-    #   Logger.error("Old hash != new_hash, label: "uncompact(new state.hash)")
-    # end
-
-    # store: can be non-existing because of later addition to the schema
     %Chain.State{state | hash: new_hash}
     |> Map.put(:store, tree)
   end
@@ -53,21 +57,20 @@ defmodule Chain.State do
   def normalize(%Chain.State{} = state) do
     tree = tree(state)
     hash = CMerkleTree.root_hash(tree)
-    # store: can be non-existing because of later addition to the schema
     state = Map.put(state, :store, tree)
     %Chain.State{} = state
     %{state | hash: hash}
   end
 
-  # store: can be non-existing because of later addition to the schema
   def tree(%Chain.State{store: store}) when store != nil do
     store
   end
 
   def tree(%Chain.State{accounts: accounts}) do
-    Enum.reduce(accounts, %{}, fn {id, acc}, map ->
-      hash = Account.hash(acc)
-      Map.put(map, id, hash)
+    accounts
+    |> account_list()
+    |> Enum.reduce(%{}, fn {id, acc}, map ->
+      Map.put(map, id, Account.hash(acc))
     end)
     |> CMerkleTree.from_map()
   end
@@ -80,13 +83,21 @@ defmodule Chain.State do
     hash
   end
 
-  def accounts(%Chain.State{accounts: accounts}) do
+  def accounts(%Chain.State{accounts: accounts}) when is_map(accounts) do
     accounts
   end
 
+  def accounts(%Chain.State{accounts: accounts}) do
+    CAccountMap.to_account_list(accounts)
+  end
+
   @spec account(Chain.State.t(), <<_::160>>) :: Chain.Account.t() | nil
+  def account(%Chain.State{accounts: accounts}, id = <<_::160>>) when is_map(accounts) do
+    Map.get(accounts, id)
+  end
+
   def account(%Chain.State{accounts: accounts}, id = <<_::160>>) do
-    MutableMap.get(accounts, id)
+    CAccountMap.get_account(accounts, id)
   end
 
   @spec ensure_account(Chain.State.t(), <<_::160>> | Wallet.t() | non_neg_integer()) ::
@@ -107,21 +118,27 @@ defmodule Chain.State do
   end
 
   @spec set_account(Chain.State.t(), binary(), Chain.Account.t()) :: Chain.State.t()
-  def set_account(state = %Chain.State{accounts: accounts}, id = <<_::160>>, account) do
+  def set_account(state, id = <<_::160>>, account) do
     tree = CMerkleTree.insert(tree(state), id, Account.hash(account))
-    %{state | accounts: MutableMap.put(accounts, id, account), hash: nil, store: tree}
+    accounts = put_account_in(state.accounts, id, account)
+    %{state | accounts: accounts, hash: nil, store: tree}
   end
 
   @spec delete_account(Chain.State.t(), binary()) :: Chain.State.t()
+  def delete_account(state = %Chain.State{accounts: accounts}, id = <<_::160>>)
+      when is_map(accounts) do
+    %{state | accounts: Map.delete(accounts, id), hash: nil, store: nil}
+  end
+
   def delete_account(state = %Chain.State{accounts: accounts}, id = <<_::160>>) do
-    %{state | accounts: MutableMap.delete(accounts, id), hash: nil, store: nil}
+    %{state | accounts: CAccountMap.delete(accounts, id), hash: nil, store: nil}
   end
 
   def difference(
         %Chain.State{accounts: accounts_a} = state_a,
         %Chain.State{accounts: accounts_b} = state_b
       ) do
-    diff = CMerkleTree.list_difference(accounts_a, accounts_b)
+    diff = CMerkleTree.list_difference(account_list(accounts_a), account_list(accounts_b))
 
     Enum.map(diff, fn {id, {acc_a, acc_b}} ->
       acc_a = acc_a || ensure_account(state_a, id)
@@ -167,22 +184,14 @@ defmodule Chain.State do
   end
 
   def clone(%Chain.State{accounts: accounts} = state) do
-    accounts =
-      MutableMap.reduce(accounts, MutableMap.new(), fn {id, acc}, new ->
-        MutableMap.put(new, id, Chain.Account.clone(acc))
-      end)
-
-    new_state = %Chain.State{state | accounts: accounts}
-
-    case Map.get(state, :store) do
-      nil -> new_state
-      store -> %Chain.State{new_state | store: CMerkleTree.clone(store)}
-    end
+    state
+    |> Map.put(:accounts, clone_accounts(accounts))
+    |> clone_store()
   end
 
   def lock(%Chain.State{accounts: accounts} = state) do
-    for {_id, %Chain.Account{storage_root: root}} <- accounts do
-      do_lock(root)
+    for {_id, acc} <- account_list(accounts) do
+      do_lock(Account.tree(acc))
     end
 
     do_lock(Map.get(state, :store))
@@ -201,15 +210,6 @@ defmodule Chain.State do
       acc =
         Enum.reduce(state_update, acc, fn {key, {a, b}}, acc ->
           tree = Account.tree(acc)
-
-          # Delta old value `a` must match the parent trie; mismatch means corrupt delta
-          # (e.g. NIF trie bug when the block was written) or inconsistent DB replay.
-          # if a != CMerkleTree.get(tree, key) do
-          #   IO.inspect({key, {a, b}, CMerkleTree.get(tree, key), difference},
-          #     label: "apply_difference"
-          #   )
-          # end
-
           ^a = CMerkleTree.get(tree, key)
           tree = CMerkleTree.insert(tree, key, b)
           Account.put_tree(acc, tree)
@@ -217,16 +217,10 @@ defmodule Chain.State do
 
       acc =
         report
-        # Removed root_hash from the %Account module
         |> Enum.reject(fn {key, _delta} -> key == :root_hash end)
         |> Enum.reduce(acc, fn {key, delta}, acc ->
           {a, b} = delta
           ret = apply(Account, key, [oacc])
-
-          # if ret != a do
-          #   IO.inspect({key, {a, b}, ret}, label: "apply_difference(2)")
-          # end
-
           ^a = ret
           %{acc | key => b}
         end)
@@ -235,9 +229,6 @@ defmodule Chain.State do
     end)
   end
 
-  # ========================================================
-  # File Import / Export
-  # ========================================================
   def from_binary(bin) do
     map = BertInt.decode!(bin)
 
@@ -249,5 +240,31 @@ defmodule Chain.State do
         code: acc.code
       })
     end)
+  end
+
+  defp account_list(accounts) when is_map(accounts) do
+    Map.to_list(accounts)
+  end
+
+  defp account_list(accounts) do
+    CAccountMap.to_account_list(accounts)
+  end
+
+  defp put_account_in(accounts, id, account) when is_map(accounts) do
+    Map.put(accounts, id, account)
+  end
+
+  defp put_account_in(accounts, id, account) do
+    CAccountMap.put_account(accounts, id, account)
+  end
+
+  defp clone_accounts(accounts) when is_map(accounts), do: Map.new(accounts)
+  defp clone_accounts(accounts), do: CAccountMap.clone(accounts)
+
+  defp clone_store(%Chain.State{} = state) do
+    case Map.get(state, :store) do
+      nil -> state
+      store -> %{state | store: CMerkleTree.clone(store)}
+    end
   end
 end

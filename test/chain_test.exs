@@ -266,7 +266,7 @@ defmodule ChainTest do
       end
     end
 
-    post_keys = Chain.State.accounts(state) |> Map.keys()
+    post_keys = Chain.State.accounts(state) |> Enum.map(fn {key, _acc} -> key end)
     reference_keys = Keyword.keys(reference_accounts) |> Enum.map(&Wallet.address!/1)
     assert post_keys == reference_keys
   end

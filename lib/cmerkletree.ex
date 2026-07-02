@@ -134,6 +134,14 @@ defmodule CMerkleTree do
   """
   def malloc_info, do: malloc_info_raw()
 
+  def account_map_new(), do: error()
+  def account_map_clone(_map), do: error()
+  def account_map_get(_map, _addr), do: error()
+  def account_map_put(_map, _addr, _nonce, _balance, _storage, _code), do: error()
+  def account_map_delete(_map, _addr), do: error()
+  def account_map_size(_map), do: error()
+  def account_map_to_list(_map), do: error()
+
   defp struct_sizes_raw, do: error()
   defp memory_stats_raw(_tree), do: error()
   defp malloc_info_raw, do: error()

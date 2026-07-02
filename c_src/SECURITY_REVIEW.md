@@ -28,6 +28,13 @@
 | `struct_sizes_raw` | 0 | — | tests, benches |
 | `memory_stats_raw` | 1 | resource | tests, benches |
 | `malloc_info_raw` | 0 | — | tests, `cmerkle_memory_bench.exs` |
+| `account_map_new` | 0 | — | `CAccountMap.new/0`, `Chain.State` |
+| `account_map_clone` | 1 | account map resource | `CAccountMap.clone/1`, `Chain.State.clone/1` |
+| `account_map_get` | 2 | resource, 20-byte address | `CAccountMap.get/2` |
+| `account_map_put` | 6 | resource, address, nonce, balance, storage resource, code | `CAccountMap.put/5` |
+| `account_map_delete` | 2 | resource, address | `CAccountMap.delete/2` |
+| `account_map_size` | 1 | resource | `CAccountMap.size/1` |
+| `account_map_to_list` | 1 | resource | `CAccountMap.to_list/1`, RPC export |
 
 **Trust:** Erlang validates some shapes (e.g. `to_bytes32`), but the NIF must treat all binaries and terms as hostile (size, allocation, scheduler impact).
 

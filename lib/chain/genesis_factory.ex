@@ -4,7 +4,7 @@
 defmodule Chain.GenesisFactory do
   alias Chain.Account, as: Account
 
-  # Dialyzer infers no_return via MutableMap / genesis pipeline; runtime is correct.
+  # Dialyzer infers no_return via genesis pipeline; runtime is correct.
   @dialyzer [
     {:nowarn_function, testnet: 0},
     {:nowarn_function, testnet_parent: 0},
