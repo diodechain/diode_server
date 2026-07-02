@@ -58,7 +58,6 @@ defmodule Chains.Moonbeam do
       "https://rpc.api.moonbeam.network",
       "https://moonbeam-rpc.dwellir.com",
       "https://rpc.ankr.com/moonbeam",
-      "https://moonbeam.public.blastapi.io",
       "https://endpoints.omniatech.io/v1/moonbeam/mainnet/public",
       "https://moonbeam.api.onfinality.io/public",
       "https://1rpc.io/glmr"
