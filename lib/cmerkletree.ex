@@ -84,7 +84,7 @@ defmodule CMerkleTree do
     end
   end
 
-  def get_range(tree, key, count) when is_integer(count) and count >= 1 do
+  def get_range(tree, key, count) when is_integer(count) and count >= 1 and count <= 256 do
     get_range_raw(tree, to_bytes32(key), count)
     |> Enum.map(fn {k, v} -> {k, if(v == @null, do: nil, else: v)} end)
   end

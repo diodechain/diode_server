@@ -759,7 +759,7 @@ defmodule Evm do
   defp evm_storage_read_ahead() do
     Diode.evm_storage_read_ahead()
     |> max(0)
-    |> min(255)
+    |> min(254)
   end
 
   defp process_updates(rest, state) do

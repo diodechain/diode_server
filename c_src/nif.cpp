@@ -277,10 +277,10 @@ static size_t get_range_entries(Tree &tree, const bin_t &base_key, size_t count,
     size_t written = 0;
     for (size_t i = 0; i < count; i++) {
         bin_t key(key_bytes, key_bytes + 32);
-        pair_t lookup(key);
+        pair_t lookup(std::move(key));
         pair_t *pair = tree.get_item(lookup);
 
-        out[written].key = key;
+        out[written].key = lookup.key;
         if (pair == nullptr) {
             out[written].value = uint256_t();
             out[written].key_hash = uint256_t();
@@ -351,15 +351,15 @@ merkletree_get_item(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     bin_t key;
     key.insert(key.end(), key_binary.data, key_binary.data + key_binary.size);
+    pair_t *pair = mt->shared_state->tree.get_item(std::move(key));
 
-    RangeEntry entry;
-    if (get_range_entries(mt->shared_state->tree, key, 1, &entry) == 0 || !entry.present) {
+    if (pair == nullptr) {
         return make_atom(env, "nil");
     }
 
     ERL_NIF_TERM key_term = argv[1];
-    ERL_NIF_TERM value_term = make_binary(env, entry.value.data(), 32);
-    ERL_NIF_TERM hash_term = make_binary(env, entry.key_hash.data(), 32);
+    ERL_NIF_TERM value_term = make_binary(env, pair->value.data(), 32);
+    ERL_NIF_TERM hash_term = make_binary(env, pair->key_hash.data(), 32);
     return enif_make_tuple3(env, key_term, value_term, hash_term);
 }
 
