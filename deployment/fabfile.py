@@ -33,7 +33,7 @@ def install_base():
 def update():
   with prefix("export DEBIAN_FRONTEND=noninteractive"):
     run("apt update")
-    run("apt upgrade -y")
+    run("apt upgrade -y --fix-missing")
 
 @parallel
 def install_erlang():
