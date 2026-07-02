@@ -2,11 +2,68 @@
 # Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
 defmodule EvmStorageReadaheadTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
   alias Chain.Transaction
   alias Chain.TransactionReceipt
 
   test "contract storage sload works with gs read-ahead response" do
+    assert_contract_sload_works()
+  end
+
+  test "contract storage sload works with single-slot gs (EVM_STORAGE_READ_AHEAD=0)" do
+    with_env("EVM_STORAGE_READ_AHEAD", "0", fn ->
+      assert Diode.evm_storage_read_ahead() == 0
+      assert gs_range_count() == 1
+      assert_contract_sload_works()
+    end)
+  end
+
+  test "max read ahead yields get_range count of 255 (EVM_STORAGE_READ_AHEAD=254)" do
+    with_env("EVM_STORAGE_READ_AHEAD", "254", fn ->
+      assert Diode.evm_storage_read_ahead() == 254
+      assert gs_range_count() == 255
+
+      base = 0x3000
+      count = gs_range_count()
+
+      tree =
+        CMerkleTree.new()
+        |> then(fn t ->
+          Enum.reduce(0..(count - 1), t, fn i, acc ->
+            CMerkleTree.insert(acc, base + i, i + 1)
+          end)
+        end)
+
+      range = CMerkleTree.get_range(tree, base, count)
+      assert length(range) == 255
+      assert length(range) <= 255
+    end)
+  end
+
+  defp gs_range_count do
+    Diode.evm_storage_read_ahead() |> max(0) |> min(254) |> Kernel.+(1)
+  end
+
+  defp with_env(name, value, fun) do
+    prev = System.get_env(name)
+    System.put_env(name, value)
+
+    try do
+      fun.()
+    after
+      restore_env(name, prev)
+    end
+  end
+
+  defp restore_env(name, prev) do
+    if prev do
+      System.put_env(name, prev)
+    else
+      System.delete_env(name)
+    end
+  end
+
+  defp assert_contract_sload_works do
     from_wallet = Wallet.new()
     priv = Wallet.privkey!(from_wallet)
     miner = Wallet.new()

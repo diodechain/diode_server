@@ -244,13 +244,9 @@ merkletree_insert_item(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
 namespace {
 
-static const uint8_t ZERO_VALUE[32] = {0};
-
 struct RangeEntry {
     bin_t key;
     uint256_t value;
-    uint256_t key_hash;
-    bool present;
 };
 
 static bool uint256_increment(uint8_t key[32])
@@ -281,15 +277,7 @@ static size_t get_range_entries(Tree &tree, const bin_t &base_key, size_t count,
         pair_t *pair = tree.get_item(lookup);
 
         out[written].key = lookup.key;
-        if (pair == nullptr) {
-            out[written].value = uint256_t();
-            out[written].key_hash = uint256_t();
-            out[written].present = false;
-        } else {
-            out[written].value = pair->value;
-            out[written].key_hash = pair->key_hash;
-            out[written].present = true;
-        }
+        out[written].value = pair == nullptr ? uint256_t() : pair->value;
         written++;
 
         if (i + 1 < count && !uint256_increment(key_bytes)) {
@@ -328,8 +316,7 @@ merkletree_get_range(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     for (size_t i = n; i > 0; i--) {
         RangeEntry &entry = entries[i - 1];
         ERL_NIF_TERM key_term = make_binary(env, entry.key.data(), entry.key.size());
-        const uint8_t *value_bytes = entry.present ? entry.value.data() : ZERO_VALUE;
-        ERL_NIF_TERM value_term = make_binary(env, (uint8_t *)value_bytes, 32);
+        ERL_NIF_TERM value_term = make_binary(env, entry.value.data(), 32);
         ERL_NIF_TERM pair = enif_make_tuple2(env, key_term, value_term);
         list = enif_make_list_cell(env, pair, list);
     }

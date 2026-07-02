@@ -73,14 +73,19 @@ evmc::bytes32 Host::get_storage(const evmc::address& addr, const evmc::bytes32& 
     fread(&count, sizeof(count));
 
     memset(ret.bytes, 0, sizeof(ret.bytes));
-    for (uint8_t i = 0; i < count; i++) {
+
+    if (count > 0) {
         evmc::bytes32 entry_key;
         evmc::bytes32 entry_value;
         fread(entry_key.bytes, sizeof(entry_key.bytes));
         fread(entry_value.bytes, sizeof(entry_value.bytes));
         set_cache(addr, entry_key, entry_value);
-        if (memcmp(entry_key.bytes, key.bytes, sizeof(key.bytes)) == 0) {
-            ret = entry_value;
+        ret = entry_value;
+
+        for (uint8_t i = 1; i < count; i++) {
+            fread(entry_key.bytes, sizeof(entry_key.bytes));
+            fread(entry_value.bytes, sizeof(entry_value.bytes));
+            set_cache(addr, entry_key, entry_value);
         }
     }
 

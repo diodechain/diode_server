@@ -468,6 +468,23 @@ defmodule CMerkleTreeTest do
       assert length(CMerkleTree.get_range(tree, max_key, 3)) == 1
       assert CMerkleTree.get(tree, max_key) == <<42::unsigned-size(256)>>
     end
+
+    test "max count returns at most 255 entries" do
+      base = 0x4000
+      count = 255
+
+      tree =
+        CMerkleTree.new()
+        |> then(fn t ->
+          Enum.reduce(0..(count - 1), t, fn i, acc ->
+            CMerkleTree.insert(acc, base + i, i + 1)
+          end)
+        end)
+
+      range = CMerkleTree.get_range(tree, base, count)
+      assert length(range) == 255
+      assert length(range) <= 255
+    end
   end
 
   defp pairs(num, variant \\ "") do

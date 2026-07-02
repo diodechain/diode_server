@@ -560,22 +560,18 @@ defmodule Evm do
          <<"gs", addr::binary-size(20), key::binary-size(32)>>,
          evm
        ) do
-    count = evm_storage_read_ahead() + 1
+    count = Diode.evm_storage_read_ahead() |> max(0) |> min(254) |> Kernel.+(1)
 
     tree =
       state(evm)
       |> State.ensure_account(addr)
       |> Chain.Account.tree()
 
-    pairs = CMerkleTree.get_range(tree, key, count)
+    entries =
+      CMerkleTree.get_range_raw(tree, key, count)
+      |> Enum.map(fn {k, v} -> [k, v] end)
 
-    body =
-      Enum.reduce(pairs, <<length(pairs)::unsigned-integer-size(8)>>, fn {k, v}, acc ->
-        v = v || <<0::unsigned-size(256)>>
-        acc <> k <> v
-      end)
-
-    true = Port.command(evm.port, body)
+    true = Port.command(evm.port, [<<length(entries)::unsigned-integer-size(8)>> | entries])
     {:cont, evm}
   end
 
@@ -754,12 +750,6 @@ defmodule Evm do
   defp process_data(other, evm) do
     IO.puts("EVM.process_data what?: #{inspect(other)}")
     {:cont, evm}
-  end
-
-  defp evm_storage_read_ahead() do
-    Diode.evm_storage_read_ahead()
-    |> max(0)
-    |> min(254)
   end
 
   defp process_updates(rest, state) do
