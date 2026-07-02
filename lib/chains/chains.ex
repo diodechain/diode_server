@@ -93,7 +93,6 @@ defmodule Chains.MoonbaseAlpha do
       "https://moonbase.unitedbloc.com:1000",
       "https://rpc.testnet.moonbeam.network",
       "https://rpc.api.moonbase.moonbeam.network",
-      "https://moonbase-alpha.public.blastapi.io",
       "https://moonbeam-alpha.api.onfinality.io/public"
     ]
 
@@ -126,7 +125,6 @@ defmodule Chains.Moonriver do
       "https://moonriver-rpc.publicnode.com",
       "https://moonriver.api.onfinality.io/public",
       "https://moonriver.drpc.org",
-      "https://moonriver.public.blastapi.io",
       "https://moonriver.unitedbloc.com:2000",
       "https://rpc.api.moonriver.moonbeam.network"
     ]
