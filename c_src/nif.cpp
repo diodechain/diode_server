@@ -13,6 +13,7 @@ extern "C" {
 #include <cstring>
 #include <cstdio>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #ifdef __GLIBC__
 #include <malloc.h>
@@ -197,10 +198,7 @@ static void release_storage_ref(merkletree *mt)
         return;
     }
     Lock lock(mt);
-    if (mt->shared_state->has_clone == 0) {
-        lock.unlock();
-        delete mt->shared_state;
-    } else {
+    if (mt->shared_state->has_clone > 0) {
         mt->shared_state->has_clone -= 1;
     }
 }
@@ -895,8 +893,11 @@ account_map_clone(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     clone->shared = am->shared;
     clone->shared->has_clone += 1;
     clone->clone_storage_refs = 1;
+    std::unordered_set<merkletree*> retained_storage;
     for (auto &entry : am->shared->accounts) {
-        retain_storage_ref(entry.second.storage);
+        if (retained_storage.insert(entry.second.storage).second) {
+            retain_storage_ref(entry.second.storage);
+        }
     }
     ERL_NIF_TERM res = enif_make_resource(env, clone);
     enif_release_resource(clone);
@@ -1037,8 +1038,11 @@ destruct_accountmap_type(ErlNifEnv* /*env*/, void *arg)
     if (am->shared) {
         AccountMapLock lock(am);
         if (am->clone_storage_refs) {
+            std::unordered_set<merkletree*> released_storage;
             for (auto &entry : am->shared->accounts) {
-                release_storage_ref(entry.second.storage);
+                if (released_storage.insert(entry.second.storage).second) {
+                    release_storage_ref(entry.second.storage);
+                }
             }
         }
         destroy_shared_accountmap(am, lock);

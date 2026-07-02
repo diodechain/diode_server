@@ -25,26 +25,26 @@ defmodule CAccountMapTest do
     map = put_sample(CAccountMap.new(), 3)
 
     assert CAccountMap.size(map) == 1
-    assert {3, 3000, storage, <<3>>} = CAccountMap.get(map, addr(1))
+    assert {3, 3000, storage, <<3>>} = CAccountMap.get(map, addr(3))
     assert CMerkleTree.root_hash(storage) == Account.root_hash(sample_account(3))
   end
 
   test "delete removes account" do
-    map = put_sample(CAccountMap.new(), 2) |> CAccountMap.delete(addr(1))
+    map = put_sample(CAccountMap.new(), 2) |> CAccountMap.delete(addr(2))
 
     assert CAccountMap.size(map) == 0
-    assert CAccountMap.get(map, addr(1)) == :undefined
+    assert CAccountMap.get(map, addr(2)) == :undefined
   end
 
   test "clone shares map and storage until mutation" do
     base = put_sample(CAccountMap.new(), 5)
     fork = CAccountMap.clone(base)
 
-    assert CAccountMap.get(fork, addr(1)) == CAccountMap.get(base, addr(1))
+    assert CAccountMap.get(fork, addr(5)) == CAccountMap.get(base, addr(5))
 
     fork = put_sample(fork, 9)
 
-    assert CAccountMap.get(base, addr(1)) != CAccountMap.get(fork, addr(1))
+    assert CAccountMap.get(base, addr(5)) != CAccountMap.get(fork, addr(9))
   end
 
   test "large balance roundtrip via 256-bit encoding" do
