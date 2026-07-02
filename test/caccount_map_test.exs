@@ -36,11 +36,16 @@ defmodule CAccountMapTest do
     assert CAccountMap.get(map, addr(2)) == :undefined
   end
 
-  test "clone shares map and storage until mutation" do
+  test "clone copies accounts with equal, writable storage" do
     base = put_sample(CAccountMap.new(), 5)
     fork = CAccountMap.clone(base)
 
-    assert CAccountMap.get(fork, addr(5)) == CAccountMap.get(base, addr(5))
+    # The fork holds distinct (writable, locked = false) storage resources with the
+    # same content as the parent.
+    {5, 5000, base_storage, <<5>>} = CAccountMap.get(base, addr(5))
+    {5, 5000, fork_storage, <<5>>} = CAccountMap.get(fork, addr(5))
+    assert CMerkleTree.root_hash(base_storage) == CMerkleTree.root_hash(fork_storage)
+    refute base_storage == fork_storage
 
     fork = put_sample(fork, 9)
 

@@ -13,7 +13,6 @@ extern "C" {
 #include <cstring>
 #include <cstdio>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 #ifdef __GLIBC__
 #include <malloc.h>
@@ -95,10 +94,9 @@ public:
 };
 
 static void destroy_shared_state(merkletree *mt, Lock &lock);
-static void retain_storage_ref(merkletree *mt);
-static void release_storage_ref(merkletree *mt);
 static void keep_storage_in_map(merkletree *mt);
 static void release_storage_from_map(merkletree *mt);
+static merkletree *clone_merkletree_locked(merkletree *mt);
 
 struct uint160_t {
     uint8_t value[20];
@@ -161,7 +159,6 @@ public:
 
 struct accountmap {
     SharedAccountMap *shared;
-    int clone_storage_refs;
 };
 
 class AccountMapLock {
@@ -183,26 +180,6 @@ public:
     }
 };
 
-static void retain_storage_ref(merkletree *mt)
-{
-    if (mt == nullptr) {
-        return;
-    }
-    Lock lock(mt);
-    mt->shared_state->has_clone += 1;
-}
-
-static void release_storage_ref(merkletree *mt)
-{
-    if (mt == nullptr) {
-        return;
-    }
-    Lock lock(mt);
-    if (mt->shared_state->has_clone > 0) {
-        mt->shared_state->has_clone -= 1;
-    }
-}
-
 static void keep_storage_in_map(merkletree *mt)
 {
     if (mt != nullptr) {
@@ -215,6 +192,21 @@ static void release_storage_from_map(merkletree *mt)
     if (mt != nullptr) {
         enif_release_resource(mt);
     }
+}
+
+// Allocates a new merkletree resource sharing mt's SharedState (has_clone += 1) with
+// locked = false so a fork can COW-write. Returns a resource with refcount 1 (the
+// caller's ownership): pair with enif_make_resource + enif_release_resource for an
+// Elixir term, or enif_keep_resource + enif_release_resource for C-side ownership.
+static merkletree *clone_merkletree_locked(merkletree *mt)
+{
+    Lock lock(mt);
+    merkletree *clone = (merkletree*)enif_alloc_resource(merkletree_type, sizeof(merkletree));
+    STAT(resources++);
+    clone->shared_state = mt->shared_state;
+    clone->locked = false;
+    clone->shared_state->has_clone += 1;
+    return clone;
 }
 
 static bool get_address(ErlNifEnv *env, ERL_NIF_TERM term, uint160_t &out)
@@ -436,12 +428,7 @@ merkletree_clone(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (argc != 1) return enif_make_badarg(env);
     if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
 
-    Lock lock(mt);
-    merkletree *clone = (merkletree*)enif_alloc_resource(merkletree_type, sizeof(merkletree));
-    STAT(resources++);
-    clone->shared_state = mt->shared_state;
-    clone->locked = false;
-    clone->shared_state->has_clone += 1;
+    merkletree *clone = clone_merkletree_locked(mt);
     ERL_NIF_TERM res = enif_make_resource(env, clone);
     enif_release_resource(clone);
     return res;
@@ -875,7 +862,6 @@ account_map_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM[] /*argv[]*/)
     if (argc != 0) return enif_make_badarg(env);
     accountmap *am = (accountmap*)enif_alloc_resource(accountmap_type, sizeof(accountmap));
     am->shared = new SharedAccountMap();
-    am->clone_storage_refs = 0;
     ERL_NIF_TERM res = enif_make_resource(env, am);
     enif_release_resource(am);
     return res;
@@ -889,16 +875,40 @@ account_map_clone(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
 
     AccountMapLock lock(am);
-    accountmap *clone = (accountmap*)enif_alloc_resource(accountmap_type, sizeof(accountmap));
-    clone->shared = am->shared;
-    clone->shared->has_clone += 1;
-    clone->clone_storage_refs = 1;
-    std::unordered_set<merkletree*> retained_storage;
-    for (auto &entry : am->shared->accounts) {
-        if (retained_storage.insert(entry.second.storage).second) {
-            retain_storage_ref(entry.second.storage);
+
+    // Eagerly COW the SharedAccountMap and clone every storage trie so the fork is
+    // writable (locked = false) while the cached parent stays frozen. Sharing the
+    // parent's merkletree* resources would leave the fork's storage tries with
+    // mt->locked == true, and make_writeable() would reject every storage write
+    // (merkletree_insert_item returns badarg), breaking block sync.
+    SharedAccountMap *new_shared = new SharedAccountMap();
+    new_shared->accounts = am->shared->accounts;
+
+    // Clone each unique parent storage trie once (accounts that shared a storage
+    // trie in the parent keep sharing the single clone). ~SharedAccountMap releases
+    // one resource ref per entry, so we keep one ref per entry here to match.
+    std::unordered_map<merkletree*, merkletree*> storage_clones;
+    for (auto &entry : new_shared->accounts) {
+        merkletree *orig = entry.second.storage;
+        if (orig == nullptr) {
+            continue;
         }
+        auto it = storage_clones.find(orig);
+        if (it == storage_clones.end()) {
+            merkletree *storage_clone = clone_merkletree_locked(orig);
+            it = storage_clones.insert({orig, storage_clone}).first;
+        }
+        enif_keep_resource(it->second);
+        entry.second.storage = it->second;
     }
+    // Drop the creator refs (one per unique clone); the per-entry keeps above own
+    // the resources now.
+    for (auto &kv : storage_clones) {
+        enif_release_resource(kv.second);
+    }
+
+    accountmap *clone = (accountmap*)enif_alloc_resource(accountmap_type, sizeof(accountmap));
+    clone->shared = new_shared;
     ERL_NIF_TERM res = enif_make_resource(env, clone);
     enif_release_resource(clone);
     return res;
@@ -1037,14 +1047,6 @@ destruct_accountmap_type(ErlNifEnv* /*env*/, void *arg)
     accountmap *am = (accountmap *)arg;
     if (am->shared) {
         AccountMapLock lock(am);
-        if (am->clone_storage_refs) {
-            std::unordered_set<merkletree*> released_storage;
-            for (auto &entry : am->shared->accounts) {
-                if (released_storage.insert(entry.second.storage).second) {
-                    release_storage_ref(entry.second.storage);
-                }
-            }
-        }
         destroy_shared_accountmap(am, lock);
     }
 }

@@ -58,13 +58,24 @@ defmodule CAccountMapLifetimeTest do
     assert is_binary(CMerkleTree.root_hash(updated))
   end
 
+  # CAccountMap.clone now produces writable (locked = false) storage tries that are
+  # distinct resources from the parent's, so account entries must be compared by
+  # value (storage root_hash) rather than by resource identity.
+  defp entry_value(:undefined), do: :undefined
+
+  defp entry_value({nonce, balance, storage, code}) do
+    {nonce, balance, CMerkleTree.root_hash(storage), code}
+  end
+
   describe "clone GC must not corrupt parent storage" do
     test "dropping a single clone leaves parent storage tries lockable" do
       base = put_sample(CAccountMap.new(), 5)
 
       ephemeral(fn ->
         fork = CAccountMap.clone(base)
-        assert CAccountMap.get(fork, addr(5)) == CAccountMap.get(base, addr(5))
+
+        assert entry_value(CAccountMap.get(fork, addr(5))) ==
+                 entry_value(CAccountMap.get(base, addr(5)))
       end)
 
       {_, _, storage, _} = CAccountMap.get(base, addr(5))
@@ -81,7 +92,8 @@ defmodule CAccountMapLifetimeTest do
           assert length(CAccountMap.to_list(fork)) == 8
 
           for i <- 1..8 do
-            assert CAccountMap.get(fork, addr(i)) == CAccountMap.get(base, addr(i))
+            assert entry_value(CAccountMap.get(fork, addr(i))) ==
+                     entry_value(CAccountMap.get(base, addr(i)))
           end
         end)
 
@@ -230,7 +242,8 @@ defmodule CAccountMapLifetimeTest do
           CAccountMap.clone(c2)
         end)
 
-      assert CAccountMap.get(c3, addr(2)) == CAccountMap.get(base, addr(2))
+      assert entry_value(CAccountMap.get(c3, addr(2))) ==
+               entry_value(CAccountMap.get(base, addr(2)))
 
       c3 = put_sample(c3, 50)
 
@@ -257,7 +270,8 @@ defmodule CAccountMapLifetimeTest do
               fork = CAccountMap.clone(base)
 
               for _round <- 1..25, i <- 1..6 do
-                assert CAccountMap.get(fork, addr(i)) == CAccountMap.get(base, addr(i))
+                assert entry_value(CAccountMap.get(fork, addr(i))) ==
+                         entry_value(CAccountMap.get(base, addr(i)))
               end
             end)
 
@@ -332,6 +346,71 @@ defmodule CAccountMapLifetimeTest do
 
       assert CAccountMap.size(map) == 0
       assert CAccountMap.to_list(map) == []
+    end
+  end
+
+  describe "clone of a locked state stays writable (block sync path)" do
+    # Reproduces the startup block-sync hang: BlockProcess.cache_block/1 freezes the
+    # cached parent via Chain.State.lock/1 (mt->locked = true on every storage trie),
+    # and Block.create_empty/3 forks it via Chain.State.clone/1. The fork's storage
+    # tries must be writable (locked = false) or the EVM's storage writes return
+    # badarg and validation can never advance.
+    test "storage write in a fork of a State.lock'd state succeeds and isolates parent" do
+      base =
+        State.new()
+        |> State.set_account(addr(1), sample_account(1))
+
+      Chain.State.lock(base)
+
+      fork = State.clone(base)
+
+      updated =
+        fork
+        |> State.account(addr(1))
+        |> Account.storage_set_value(slot(42), val(42))
+        |> then(&State.set_account(fork, addr(1), &1))
+
+      assert Account.storage_value(State.account(updated, addr(1)), slot(42)) == val(42)
+      assert is_binary(State.hash(updated))
+
+      # Parent stays frozen: the fork's COW write must not leak back.
+      assert Account.storage_value(State.account(base, addr(1)), slot(42)) ==
+               <<0::unsigned-size(256)>>
+
+      assert Account.storage_value(State.account(base, addr(1)), slot(1)) == val(1)
+      assert is_binary(State.hash(base))
+    end
+
+    test "storage write in a fork of a locked state with many accounts" do
+      base =
+        Enum.reduce(1..6, State.new(), fn i, state ->
+          State.set_account(state, addr(i), sample_account(i))
+        end)
+
+      Chain.State.lock(base)
+
+      fork = State.clone(base)
+
+      fork =
+        Enum.reduce(1..6, fork, fn i, state ->
+          acc =
+            state
+            |> State.account(addr(i))
+            |> Account.storage_set_value(slot(100 + i), val(100 + i))
+
+          State.set_account(state, addr(i), acc)
+        end)
+
+      for i <- 1..6 do
+        assert Account.storage_value(State.account(fork, addr(i)), slot(100 + i)) ==
+                 val(100 + i)
+      end
+
+      # Parent untouched.
+      for i <- 1..6 do
+        assert Account.storage_value(State.account(base, addr(i)), slot(100 + i)) ==
+                 <<0::unsigned-size(256)>>
+      end
     end
   end
 end
