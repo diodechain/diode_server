@@ -28,6 +28,15 @@ defmodule Chain.Account do
   def tree(%Chain.Account{storage_root: nil}), do: CMerkleTree.new()
   def tree(%Chain.Account{storage_root: root}), do: root
 
+  def from_parts(nonce, balance, storage, code) do
+    %Chain.Account{
+      nonce: nonce,
+      balance: balance,
+      storage_root: storage,
+      code: if(code == "", do: nil, else: code)
+    }
+  end
+
   def clone(%Chain.Account{} = acc) do
     %Chain.Account{acc | storage_root: CMerkleTree.clone(tree(acc))}
   end

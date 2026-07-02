@@ -20,7 +20,10 @@ extern "C" {
 
 static void print(const char *msg);
 static ErlNifResourceType *merkletree_type = NULL;
+static ErlNifResourceType *accountmap_type = NULL;
 static ErlNifMutex *stats_mutex = NULL;
+static ERL_NIF_TERM make_atom(ErlNifEnv *env, const char *atom_name);
+static ERL_NIF_TERM make_binary(ErlNifEnv *env, uint8_t *data, size_t size);
 static volatile int shared_states = 0;
 static volatile int resources = 0;
 static int locked_states_cnt = 0;
@@ -91,6 +94,246 @@ public:
 };
 
 static void destroy_shared_state(merkletree *mt, Lock &lock);
+static void retain_storage_ref(merkletree *mt);
+static void release_storage_ref(merkletree *mt);
+static void keep_storage_in_map(merkletree *mt);
+static void release_storage_from_map(merkletree *mt);
+
+struct uint160_t {
+    uint8_t value[20];
+
+    uint160_t() : value{0} {}
+
+    uint160_t(const uint8_t *data) {
+        memcpy(value, data, sizeof(value));
+    }
+
+    bool operator==(const uint160_t &other) const {
+        return memcmp(value, other.value, sizeof(value)) == 0;
+    }
+};
+
+namespace std {
+template<>
+struct hash<uint160_t> {
+    std::size_t operator()(const uint160_t &k) const {
+        std::size_t h = 0;
+        for (unsigned i = 0; i < sizeof(k.value); i++) {
+            h = h * 31 + k.value[i];
+        }
+        return h;
+    }
+};
+}
+
+struct AccountEntry {
+    uint64_t nonce;
+    uint256_t balance;
+    merkletree *storage;
+    bin_t code;
+};
+
+class SharedAccountMap {
+public:
+    ErlNifMutex *mtx;
+    int has_clone;
+    std::unordered_map<uint160_t, AccountEntry> accounts;
+
+    SharedAccountMap() : has_clone(0) {
+        mtx = enif_mutex_create((char*)"accountmap_mutex");
+    }
+
+    SharedAccountMap(SharedAccountMap &other) : has_clone(0), accounts(other.accounts) {
+        mtx = enif_mutex_create((char*)"accountmap_mutex");
+        for (auto &entry : accounts) {
+            keep_storage_in_map(entry.second.storage);
+        }
+    }
+
+    ~SharedAccountMap() {
+        for (auto &entry : accounts) {
+            release_storage_from_map(entry.second.storage);
+        }
+        enif_mutex_destroy(mtx);
+    }
+};
+
+struct accountmap {
+    SharedAccountMap *shared;
+    int clone_storage_refs;
+};
+
+class AccountMapLock {
+    ErlNifMutex *mtx;
+public:
+    AccountMapLock(accountmap *am) : mtx(am->shared->mtx) {
+        enif_mutex_lock(mtx);
+    }
+
+    void unlock() {
+        if (mtx) {
+            enif_mutex_unlock(mtx);
+            mtx = 0;
+        }
+    }
+
+    ~AccountMapLock() {
+        unlock();
+    }
+};
+
+static void retain_storage_ref(merkletree *mt)
+{
+    if (mt == nullptr) {
+        return;
+    }
+    Lock lock(mt);
+    mt->shared_state->has_clone += 1;
+}
+
+static void release_storage_ref(merkletree *mt)
+{
+    if (mt == nullptr) {
+        return;
+    }
+    Lock lock(mt);
+    if (mt->shared_state->has_clone == 0) {
+        lock.unlock();
+        delete mt->shared_state;
+    } else {
+        mt->shared_state->has_clone -= 1;
+    }
+}
+
+static void keep_storage_in_map(merkletree *mt)
+{
+    if (mt != nullptr) {
+        enif_keep_resource(mt);
+    }
+}
+
+static void release_storage_from_map(merkletree *mt)
+{
+    if (mt != nullptr) {
+        enif_release_resource(mt);
+    }
+}
+
+static bool get_address(ErlNifEnv *env, ERL_NIF_TERM term, uint160_t &out)
+{
+    ErlNifBinary bin;
+    if (!enif_inspect_binary(env, term, &bin) || bin.size != 20) {
+        return false;
+    }
+    out = uint160_t(bin.data);
+    return true;
+}
+
+static bool get_balance_uint256(ErlNifEnv *env, ERL_NIF_TERM term, uint256_t &out)
+{
+    memset(out.value, 0, sizeof(out.value));
+    ErlNifUInt64 u64;
+    if (enif_get_uint64(env, term, &u64)) {
+        for (int i = 0; i < 8; i++) {
+            out.value[31 - i] = (uint8_t)((u64 >> (8 * i)) & 0xFF);
+        }
+        return true;
+    }
+    ErlNifSInt64 s64;
+    if (enif_get_int64(env, term, &s64) && s64 >= 0) {
+        uint64_t val = (uint64_t)s64;
+        for (int i = 0; i < 8; i++) {
+            out.value[31 - i] = (uint8_t)((val >> (8 * i)) & 0xFF);
+        }
+        return true;
+    }
+    ErlNifBinary bin;
+    if (enif_inspect_binary(env, term, &bin) && bin.size > 0 && bin.size <= 32) {
+        memcpy(out.value + (32 - bin.size), bin.data, bin.size);
+        return true;
+    }
+    return false;
+}
+
+static ERL_NIF_TERM balance_to_term(ErlNifEnv *env, const uint256_t &balance)
+{
+    int start = 0;
+    while (start < 32 && balance.value[start] == 0) {
+        start++;
+    }
+    if (start == 32) {
+        return enif_make_uint(env, 0);
+    }
+    size_t len = (size_t)(32 - start);
+    if (len <= 8) {
+        uint64_t val = 0;
+        for (size_t i = 0; i < len; i++) {
+            val = (val << 8) | balance.value[start + i];
+        }
+        return enif_make_uint64(env, val);
+    }
+    unsigned char *blob;
+    ERL_NIF_TERM term;
+    blob = enif_make_new_binary(env, len, &term);
+    if (!blob) {
+        return make_atom(env, "error");
+    }
+    memcpy(blob, balance.value + start, len);
+    return term;
+}
+
+static bool get_code(ErlNifEnv *env, ERL_NIF_TERM term, bin_t &out)
+{
+    out.clear();
+    if (enif_is_atom(env, term)) {
+        char atom[16];
+        if (enif_get_atom(env, term, atom, sizeof(atom), ERL_NIF_LATIN1) &&
+            strcmp(atom, "nil") == 0) {
+            return true;
+        }
+        return false;
+    }
+    ErlNifBinary bin;
+    if (!enif_inspect_binary(env, term, &bin)) {
+        return false;
+    }
+    out.insert(out.end(), bin.data, bin.data + bin.size);
+    return true;
+}
+
+static ERL_NIF_TERM code_to_term(ErlNifEnv *env, const bin_t &code)
+{
+    if (code.empty()) {
+        unsigned char *blob;
+        ERL_NIF_TERM term;
+        blob = enif_make_new_binary(env, 0, &term);
+        if (!blob) {
+            return make_atom(env, "error");
+        }
+        return term;
+    }
+    return make_binary(env, (uint8_t*)code.data(), code.size());
+}
+
+static bool make_writeable_accountmap(accountmap *am)
+{
+    if (am->shared->has_clone > 0) {
+        am->shared->has_clone -= 1;
+        am->shared = new SharedAccountMap(*am->shared);
+    }
+    return true;
+}
+
+static void destroy_shared_accountmap(accountmap *am, AccountMapLock &lock)
+{
+    if (am->shared->has_clone == 0) {
+        lock.unlock();
+        delete am->shared;
+    } else {
+        am->shared->has_clone -= 1;
+    }
+    am->shared = NULL;
+}
 
 class LockedStates {
 public:
@@ -628,6 +871,155 @@ merkletree_count_zeros(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     return enif_make_uint64(env, count);
 }
 
+static ERL_NIF_TERM
+account_map_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM[] /*argv[]*/)
+{
+    if (argc != 0) return enif_make_badarg(env);
+    accountmap *am = (accountmap*)enif_alloc_resource(accountmap_type, sizeof(accountmap));
+    am->shared = new SharedAccountMap();
+    am->clone_storage_refs = 0;
+    ERL_NIF_TERM res = enif_make_resource(env, am);
+    enif_release_resource(am);
+    return res;
+}
+
+static ERL_NIF_TERM
+account_map_clone(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    accountmap *am;
+    if (argc != 1) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
+
+    AccountMapLock lock(am);
+    accountmap *clone = (accountmap*)enif_alloc_resource(accountmap_type, sizeof(accountmap));
+    clone->shared = am->shared;
+    clone->shared->has_clone += 1;
+    clone->clone_storage_refs = 1;
+    for (auto &entry : am->shared->accounts) {
+        retain_storage_ref(entry.second.storage);
+    }
+    ERL_NIF_TERM res = enif_make_resource(env, clone);
+    enif_release_resource(clone);
+    return res;
+}
+
+static ERL_NIF_TERM account_entry_to_term(ErlNifEnv *env, const AccountEntry &entry)
+{
+    ERL_NIF_TERM nonce = enif_make_uint64(env, entry.nonce);
+    ERL_NIF_TERM balance = balance_to_term(env, entry.balance);
+    ERL_NIF_TERM storage = enif_make_resource(env, entry.storage);
+    ERL_NIF_TERM code = code_to_term(env, entry.code);
+    return enif_make_tuple4(env, nonce, balance, storage, code);
+}
+
+static ERL_NIF_TERM
+account_map_get(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    accountmap *am;
+    uint160_t addr;
+
+    if (argc != 2) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
+    if (!get_address(env, argv[1], addr)) return enif_make_badarg(env);
+
+    AccountMapLock lock(am);
+    auto it = am->shared->accounts.find(addr);
+    if (it == am->shared->accounts.end()) {
+        return make_atom(env, "undefined");
+    }
+
+    AccountEntry &entry = it->second;
+    return account_entry_to_term(env, entry);
+}
+
+static ERL_NIF_TERM
+account_map_put(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    accountmap *am;
+    uint160_t addr;
+    ErlNifUInt64 nonce;
+    uint256_t balance;
+    merkletree *storage;
+    bin_t code;
+
+    if (argc != 6) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
+    if (!get_address(env, argv[1], addr)) return enif_make_badarg(env);
+    if (!enif_get_uint64(env, argv[2], &nonce)) return enif_make_badarg(env);
+    if (!get_balance_uint256(env, argv[3], balance)) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[4], merkletree_type, (void **)&storage)) return enif_make_badarg(env);
+    if (!get_code(env, argv[5], code)) return enif_make_badarg(env);
+
+    AccountMapLock lock(am);
+    if (!make_writeable_accountmap(am)) return enif_make_badarg(env);
+
+    auto it = am->shared->accounts.find(addr);
+    if (it != am->shared->accounts.end()) {
+        if (it->second.storage != storage) {
+            release_storage_from_map(it->second.storage);
+            keep_storage_in_map(storage);
+        }
+        it->second.nonce = (uint64_t)nonce;
+        it->second.balance = balance;
+        it->second.storage = storage;
+        it->second.code = code;
+    } else {
+        keep_storage_in_map(storage);
+        am->shared->accounts[addr] = AccountEntry{(uint64_t)nonce, balance, storage, code};
+    }
+    return argv[0];
+}
+
+static ERL_NIF_TERM
+account_map_delete(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    accountmap *am;
+    uint160_t addr;
+
+    if (argc != 2) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
+    if (!get_address(env, argv[1], addr)) return enif_make_badarg(env);
+
+    AccountMapLock lock(am);
+    if (!make_writeable_accountmap(am)) return enif_make_badarg(env);
+
+    auto it = am->shared->accounts.find(addr);
+    if (it != am->shared->accounts.end()) {
+        release_storage_from_map(it->second.storage);
+        am->shared->accounts.erase(it);
+    }
+    return argv[0];
+}
+
+static ERL_NIF_TERM
+account_map_size(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    accountmap *am;
+    if (argc != 1) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
+
+    AccountMapLock lock(am);
+    return enif_make_uint(env, (unsigned)am->shared->accounts.size());
+}
+
+static ERL_NIF_TERM
+account_map_to_list(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    accountmap *am;
+    if (argc != 1) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
+
+    AccountMapLock lock(am);
+    ERL_NIF_TERM list = enif_make_list(env, 0);
+    for (auto &entry : am->shared->accounts) {
+        ERL_NIF_TERM addr = make_binary(env, (uint8_t*)entry.first.value, 20);
+        ERL_NIF_TERM account = account_entry_to_term(env, entry.second);
+        ERL_NIF_TERM pair = enif_make_tuple2(env, addr, account);
+        list = enif_make_list_cell(env, pair, list);
+    }
+    return list;
+}
+
 static void destroy_shared_state(merkletree *mt, Lock &lock) {
     if (mt->shared_state->has_clone == 0) {
         lock.unlock();
@@ -636,6 +1028,21 @@ static void destroy_shared_state(merkletree *mt, Lock &lock) {
         mt->shared_state->has_clone -= 1;
     }
     mt->shared_state = NULL;
+}
+
+static void
+destruct_accountmap_type(ErlNifEnv* /*env*/, void *arg)
+{
+    accountmap *am = (accountmap *)arg;
+    if (am->shared) {
+        AccountMapLock lock(am);
+        if (am->clone_storage_refs) {
+            for (auto &entry : am->shared->accounts) {
+                release_storage_ref(entry.second.storage);
+            }
+        }
+        destroy_shared_accountmap(am, lock);
+    }
 }
 
 static void
@@ -656,6 +1063,11 @@ on_load(ErlNifEnv* env, void** /*priv*/, ERL_NIF_TERM /*info*/)
             destruct_merkletree_type, ERL_NIF_RT_CREATE, NULL);
     if(!rt) return -1;
     merkletree_type = rt;
+
+    rt = enif_open_resource_type(env, "merkletree_nif", "accountmap_type",
+            destruct_accountmap_type, ERL_NIF_RT_CREATE, NULL);
+    if(!rt) return -1;
+    accountmap_type = rt;
 
     locked_states = new LockedStates();
     stats_mutex = enif_mutex_create((char*)"stats_mutex");
@@ -692,6 +1104,13 @@ static ErlNifFunc nif_funcs[] = {
     {"struct_sizes_raw", 0, merkletree_struct_sizes, 0},
     {"memory_stats_raw", 1, merkletree_memory_stats, 0},
     {"malloc_info_raw", 0, merkletree_malloc_info, 0},
+    {"account_map_new", 0, account_map_new, 0},
+    {"account_map_clone", 1, account_map_clone, 0},
+    {"account_map_get", 2, account_map_get, 0},
+    {"account_map_put", 6, account_map_put, 0},
+    {"account_map_delete", 2, account_map_delete, 0},
+    {"account_map_size", 1, account_map_size, 0},
+    {"account_map_to_list", 1, account_map_to_list, 0},
 };
 
 // ERL_NIF_INIT(merkletree_nif, nif_funcs, on_load, on_reload, on_upgrade, NULL);
