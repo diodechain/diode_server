@@ -58,6 +58,19 @@ void rlp_encode_uint64(uint64_t value, std::vector<uint8_t> &out)
     rlp_encode_bytes(bytes, len, out);
 }
 
+void rlp_encode_uint256(const uint8_t value[32], std::vector<uint8_t> &out)
+{
+    int start = 0;
+    while (start < 32 && value[start] == 0) {
+        start++;
+    }
+    if (start == 32) {
+        rlp_encode_bytes(nullptr, 0, out);
+        return;
+    }
+    rlp_encode_bytes(value + start, (size_t)(32 - start), out);
+}
+
 void rlp_encode_list(const std::vector<uint8_t> &item0, const std::vector<uint8_t> &item1,
         const std::vector<uint8_t> &item2, const std::vector<uint8_t> &item3,
         std::vector<uint8_t> &payload, std::vector<uint8_t> &out)

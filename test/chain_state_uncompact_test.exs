@@ -211,6 +211,122 @@ defmodule ChainStateUncompactTest do
     end
   end
 
+  describe "lazy storage lifecycle risks" do
+    defp force_gc(rounds \\ 3) do
+      for _ <- 1..rounds, do: :erlang.garbage_collect()
+    end
+
+    defp uncompact_from_compact(n_accounts) do
+      compact_state(n_accounts)
+      |> then(fn st -> elem(CAccountMap.uncompact_state(st.accounts), 0) end)
+    end
+
+    test "Account.compact stores code_hash matching Account.codehash/1" do
+      acc = sample_account(3) |> Map.put(:code, :binary.copy(<<0xEE>>, 256))
+      compact = Account.compact(acc)
+
+      assert compact.code_hash == Account.codehash(acc)
+      assert compact.root_hash == Account.root_hash(acc)
+    end
+
+    test "put overwrites lazy account without prior get" do
+      compact = %{addr(1) => sample_account(1) |> Account.compact()}
+      {accounts, _, _} = CAccountMap.uncompact_state(compact)
+
+      new_storage =
+        CMerkleTree.insert_items(CMerkleTree.new(), [
+          {slot(99), val(99)}
+        ])
+
+      accounts =
+        CAccountMap.put(accounts, addr(1), 9, 9_000, new_storage, <<9>>)
+
+      assert {9, 9_000, storage, <<9>>} = CAccountMap.get(accounts, addr(1))
+      assert CMerkleTree.get(storage, slot(99)) == val(99)
+      refute CMerkleTree.get(storage, slot(1)) == val(1)
+    end
+
+    test "to_list materializes lazy storage for every account" do
+      accounts = uncompact_from_compact(4)
+
+      listed =
+        accounts
+        |> CAccountMap.to_list()
+        |> Map.new()
+
+      assert map_size(listed) == 4
+
+      for i <- 1..4 do
+        {_nonce, _balance, storage, code} = Map.fetch!(listed, addr(i))
+        assert code == <<i>>
+        assert CMerkleTree.get(storage, slot(i)) == val(i)
+        assert CMerkleTree.root_hash(storage) == Account.root_hash(sample_account(i))
+      end
+    end
+
+    test "delete removes lazy account" do
+      accounts = uncompact_from_compact(3)
+      accounts = CAccountMap.delete(accounts, addr(2))
+
+      assert CAccountMap.size(accounts) == 2
+      assert CAccountMap.get(accounts, addr(2)) == :undefined
+      assert CAccountMap.get(accounts, addr(1)) != :undefined
+    end
+
+    test "clone GC after lazy uncompact leaves parent storage readable" do
+      restored = live_state(6) |> State.compact() |> State.uncompact()
+
+      _fork = CAccountMap.clone(restored.accounts)
+      assert CAccountMap.size(_fork) == 6
+      _fork = nil
+      force_gc()
+
+      for i <- 1..6 do
+        assert Account.storage_value(State.account(restored, addr(i)), slot(i)) == val(i)
+      end
+    end
+
+    test "fork put on lazy map isolates parent account data" do
+      compact = compact_accounts_map(3)
+      {accounts, _, _} = CAccountMap.uncompact_state(compact)
+
+      new_storage = CMerkleTree.insert_items(CMerkleTree.new(), [{slot(50), val(50)}])
+
+      fork =
+        accounts
+        |> CAccountMap.clone()
+        |> CAccountMap.put(addr(1), 99, 99_000, new_storage, <<99>>)
+
+      assert {1, 1_000, _, <<1>>} = CAccountMap.get(accounts, addr(1))
+      assert {99, 99_000, _, <<99>>} = CAccountMap.get(fork, addr(1))
+    end
+
+    test "locked state clone stays writable after lazy uncompact (block sync path)" do
+      restored = live_state(4) |> State.compact() |> State.uncompact()
+      Chain.State.lock(restored)
+
+      fork = State.clone(restored)
+
+      fork =
+        Enum.reduce(1..4, fork, fn i, state ->
+          acc =
+            state
+            |> State.account(addr(i))
+            |> Account.storage_set_value(slot(100 + i), val(100 + i))
+
+          State.set_account(state, addr(i), acc)
+        end)
+
+      for i <- 1..4 do
+        assert Account.storage_value(State.account(fork, addr(i)), slot(100 + i)) ==
+                 val(100 + i)
+
+        assert Account.storage_value(State.account(restored, addr(i)), slot(100 + i)) ==
+                 <<0::unsigned-size(256)>>
+      end
+    end
+  end
+
   describe "uncompact performance" do
     @fixture_path Path.join(System.tmp_dir!(), "diode_uncompact_perf_#{@account_count}.bin")
 

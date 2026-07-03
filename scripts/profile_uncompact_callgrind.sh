@@ -38,7 +38,7 @@ echo "==> Wrote $OUT ($(wc -c <"$OUT") bytes, Ir=$IR)"
 echo
 echo "=== Top functions in NIF sources (inclusive >=0.5%) ==="
 callgrind_annotate --inclusive=yes --auto=yes --threshold=0.5 "$OUT" \
-  c_src/nif.cpp c_src/uncompact_harness.cpp c_src/rlp.cpp c_src/merkletree.cpp c_src/sha.cpp c_src/item_pool.cpp \
+  c_src/uncompact_harness.cpp c_src/rlp.cpp c_src/merkletree.cpp c_src/sha.cpp c_src/item_pool.cpp \
   | head -65
 echo
 echo "=== Hot path (exclusive, annotated sources) ==="

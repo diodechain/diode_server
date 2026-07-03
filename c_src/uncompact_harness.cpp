@@ -17,11 +17,6 @@ struct uint160_t {
     uint8_t value[20];
 };
 
-struct StorageSlot {
-    bin_t key;
-    uint256_t value;
-};
-
 struct AccountHashCtx {
     std::vector<uint8_t> nonce_rlp;
     std::vector<uint8_t> balance_rlp;
@@ -47,16 +42,7 @@ struct AccountHashCtx {
         list_rlp.clear();
 
         rlp_encode_uint64(nonce, nonce_rlp);
-
-        int start = 0;
-        while (start < 32 && balance.value[start] == 0) {
-            start++;
-        }
-        if (start == 32) {
-            rlp_encode_bytes(nullptr, 0, balance_rlp);
-        } else {
-            rlp_encode_bytes(balance.value + start, (size_t)(32 - start), balance_rlp);
-        }
+        rlp_encode_uint256(balance.value, balance_rlp);
 
         rlp_encode_bytes(storage_root.value, 32, root_rlp);
         rlp_encode_bytes(code_hash.value, 32, code_rlp);
@@ -146,18 +132,10 @@ int main(int argc, char **argv)
     pending.reserve((size_t)n_accounts);
 
     AccountHashCtx hash_ctx;
-    bin_t storage_key;
-    std::vector<StorageSlot> lazy_slots;
-    lazy_slots.reserve((size_t)n_accounts);
 
     callgrind_hot_start();
 
     for (int i = 1; i <= n_accounts; i++) {
-        put_slot_key(storage_key, i);
-        uint256_t slot_val;
-        put_u256(slot_val, (uint64_t)i + 1);
-        lazy_slots.push_back({storage_key, slot_val});
-
         uint256_t balance;
         put_u256(balance, (uint64_t)i * 1000ULL);
 
@@ -174,19 +152,16 @@ int main(int argc, char **argv)
         return memcmp(a.first.value, b.first.value, 20) < 0;
     });
 
-    std::vector<std::pair<bin_t, uint256_t>> state_pairs;
-    state_pairs.reserve(pending.size());
+    bin_t addr_key;
     for (auto &item : pending) {
-        bin_t key;
-        key.assign(item.first.value, item.first.value + 20);
-        state_pairs.emplace_back(std::move(key), item.second);
+        addr_key.assign(item.first.value, item.first.value + 20);
+        state_tree.insert_item(addr_key, item.second);
     }
-    state_tree.insert_items_sorted(state_pairs);
 
     callgrind_hot_stop();
 
     uint256_t root = state_tree.root_hash();
-    std::printf("uncompact_harness ok: %d accounts root[0]=%02x lazy_slots=%zu\n",
-            n_accounts, root.value[0], lazy_slots.size());
+    std::printf("uncompact_harness ok: %d accounts root[0]=%02x\n",
+            n_accounts, root.value[0]);
     return 0;
 }
