@@ -42,6 +42,12 @@ mem_harness: mem_harness.bin
 mem_harness.bin: mem_harness.cpp merkletree.hpp merkletree.cpp item_pool.cpp sha.cpp Makefile
 	$(CXX) $(CXXFLAGS) -o mem_harness.bin mem_harness.cpp ${OPTS}
 
+uncompact_harness.bin: uncompact_harness.cpp merkletree.hpp merkletree.cpp item_pool.cpp sha.cpp rlp.cpp rlp.hpp Makefile
+	$(CXX) $(CXXFLAGS) -o uncompact_harness.bin uncompact_harness.cpp ${OPTS}
+
+.PHONY: uncompact_harness
+uncompact_harness: uncompact_harness.bin
+
 # Optional: libFuzzer + ASan on SHA (requires Clang with fuzzer runtime)
 .PHONY: nif nif-asan fuzz_sha
 fuzz_sha: fuzz_sha.bin
