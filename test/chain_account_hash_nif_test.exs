@@ -127,6 +127,7 @@ defmodule ChainAccountHashNifTest do
       end
 
     assert Enum.all?(compact, fn {_id, acc} -> Map.has_key?(acc, :root_hash) end)
+    assert Enum.all?(compact, fn {_id, acc} -> Map.has_key?(acc, :code_hash) end)
 
     {accounts, store, hash} = CAccountMap.uncompact_state(compact)
 
@@ -156,6 +157,37 @@ defmodule ChainAccountHashNifTest do
       storage_root: {MapMerkleTree, [], Map.new(CMerkleTree.to_list(tree))},
       code: acc.code
     }
+
+    legacy_compact = %{addr(1) => legacy_account}
+
+    {accounts, store, hash} = CAccountMap.uncompact_state(legacy_compact)
+
+    expected_hash =
+      legacy_account
+      |> Account.uncompact()
+      |> Account.hash()
+
+    expected_root =
+      %{addr(1) => expected_hash}
+      |> CMerkleTree.from_map()
+      |> CMerkleTree.root_hash()
+
+    assert hash == expected_root
+    assert CMerkleTree.root_hash(store) == expected_root
+    assert CAccountMap.size(accounts) == 1
+  end
+
+  test "uncompact_state falls back without compact code_hash field" do
+    acc = sample_account(1)
+    tree = Account.tree(acc)
+
+    legacy_account =
+      acc
+      |> Map.from_struct()
+      |> Map.put(:storage_root, {MapMerkleTree, [], Map.new(CMerkleTree.to_list(tree))})
+      |> Map.put(:root_hash, Account.root_hash(acc))
+      |> Map.delete(:code_hash)
+      |> then(&struct(Chain.Account, &1))
 
     legacy_compact = %{addr(1) => legacy_account}
 

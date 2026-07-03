@@ -78,6 +78,7 @@ defmodule Chain.Account do
       %Chain.Account{acc | storage_root: {MapMerkleTree, [], Map.new(CMerkleTree.to_list(tree))}}
     end
     |> Map.put(:root_hash, CMerkleTree.root_hash(tree))
+    |> Map.put(:code_hash, codehash(acc))
   end
 
   def storage_set_value(acc, key = <<_k::256>>, value = <<_v::256>>) do

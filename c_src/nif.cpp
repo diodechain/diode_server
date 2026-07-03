@@ -1191,7 +1191,8 @@ struct AccountHashCtx {
     std::vector<uint8_t> list_rlp;
     std::vector<uint8_t> list_payload;
 
-    bool compute(const AccountEntry &entry, const uint256_t *storage_root_override, uint256_t &out)
+    bool compute(const AccountEntry &entry, const uint256_t *storage_root_override,
+            const uint256_t *code_hash_override, uint256_t &out)
     {
         uint256_t storage_root;
         if (storage_root_override != nullptr) {
@@ -1205,7 +1206,9 @@ struct AccountHashCtx {
         }
 
         uint256_t code_hash;
-        if (entry.code.empty()) {
+        if (code_hash_override != nullptr) {
+            code_hash = *code_hash_override;
+        } else if (entry.code.empty()) {
             code_hash = empty_code_hash;
         } else {
             sha(entry.code.data(), entry.code.size(), code_hash.data());
@@ -1239,6 +1242,8 @@ struct ParsedCompactAccount {
     AccountEntry entry;
     bool has_compact_root_hash;
     uint256_t compact_root_hash;
+    bool has_compact_code_hash;
+    uint256_t compact_code_hash;
 };
 
 struct PendingStateItem {
@@ -1361,6 +1366,7 @@ static bool parse_compact_account(ErlNifEnv *env, ERL_NIF_TERM account_term,
         ParsedCompactAccount &out, bin_t &code_buf, bin_t &storage_key)
 {
     out.has_compact_root_hash = false;
+    out.has_compact_code_hash = false;
     if (!enif_is_map(env, account_term)) {
         return false;
     }
@@ -1381,6 +1387,16 @@ static bool parse_compact_account(ErlNifEnv *env, ERL_NIF_TERM account_term,
         }
         out.compact_root_hash = (char*)root_bin.data;
         out.has_compact_root_hash = true;
+    }
+
+    ERL_NIF_TERM code_hash_term;
+    if (map_get_atom(env, account_term, "code_hash", code_hash_term)) {
+        ErlNifBinary code_hash_bin;
+        if (!enif_inspect_binary(env, code_hash_term, &code_hash_bin) || code_hash_bin.size != 32) {
+            return false;
+        }
+        out.compact_code_hash = (char*)code_hash_bin.data;
+        out.has_compact_code_hash = true;
     }
 
     ErlNifUInt64 nonce;
@@ -1430,10 +1446,10 @@ static void batch_insert_state_items(merkletree *state_store, std::vector<Pendin
 
 static bool append_uncompacted_account(ErlNifEnv *env, accountmap *am, AccountHashCtx &hash_ctx,
         std::vector<PendingStateItem> &pending_state, const uint160_t &addr, AccountEntry &entry,
-        const uint256_t *storage_root_override, size_t i)
+        const uint256_t *storage_root_override, const uint256_t *code_hash_override, size_t i)
 {
     uint256_t account_hash;
-    if (!hash_ctx.compute(entry, storage_root_override, account_hash)) {
+    if (!hash_ctx.compute(entry, storage_root_override, code_hash_override, account_hash)) {
         return false;
     }
     keep_storage_in_map(entry.storage);
@@ -1485,7 +1501,7 @@ account_map_uncompact_state(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
             i++;
             AccountEntry entry = kv.second;
             if (!append_uncompacted_account(env, am, scratch.hash_ctx, pending_state, kv.first, entry,
-                    nullptr, i)) {
+                    nullptr, nullptr, i)) {
                 return uncompact_state_fail(env, nullptr, am, state_store);
             }
         }
@@ -1508,8 +1524,10 @@ account_map_uncompact_state(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
             const uint256_t *storage_root_override =
                 parsed.has_compact_root_hash ? &parsed.compact_root_hash : nullptr;
+            const uint256_t *code_hash_override =
+                parsed.has_compact_code_hash ? &parsed.compact_code_hash : nullptr;
             if (!append_uncompacted_account(env, am, scratch.hash_ctx, pending_state, addr,
-                    parsed.entry, storage_root_override, i)) {
+                    parsed.entry, storage_root_override, code_hash_override, i)) {
                 if (parsed.entry.storage != empty_storage_tree) {
                     enif_release_resource(parsed.entry.storage);
                 }
