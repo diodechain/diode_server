@@ -52,6 +52,8 @@ defmodule CAccountMap do
     end)
   end
 
+  def uncompact_state(accounts), do: CMerkleTree.account_map_uncompact_state(accounts)
+
   defp decode_entry({nonce, balance, storage, code}) do
     {nonce, decode_balance(balance), storage, code}
   end

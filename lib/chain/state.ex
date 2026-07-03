@@ -40,18 +40,11 @@ defmodule Chain.State do
     |> Map.delete(:store)
   end
 
-  def uncompact(%Chain.State{accounts: old_accounts} = state) do
-    accounts =
-      Enum.reduce(old_accounts, CAccountMap.new(), fn {id, acc}, accounts ->
-        CAccountMap.put_account(accounts, id, Account.uncompact(acc))
-      end)
+  def uncompact(%Chain.State{accounts: accounts} = state) do
+    {accounts, store, hash} = CAccountMap.uncompact_state(accounts)
 
-    state = %Chain.State{state | accounts: accounts}
-    tree = tree(state)
-    new_hash = CMerkleTree.root_hash(tree)
-
-    %Chain.State{state | hash: new_hash}
-    |> Map.put(:store, tree)
+    %Chain.State{state | accounts: accounts, hash: hash}
+    |> Map.put(:store, store)
   end
 
   def normalize(%Chain.State{} = state) do

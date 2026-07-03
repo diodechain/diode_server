@@ -1,10 +1,11 @@
 # OPTS=merkletree.cpp sha.cpp -O3 -march=native -msha -Wall -Wextra -pedantic -lstdc++ -fsanitize=address -ggdb3
 # Hardened release example (reproducible CPU, RELRO+BIND_NOW): append to link line, e.g.
 #   LDFLAGS=-Wl,-z,relro,-z,now make nif CXXFLAGS='$(CXXFLAGS) -D_FORTIFY_SOURCE=2 -fstack-protector-strong' OPTS='merkletree.cpp item_pool.cpp sha.cpp -O2 -march=x86-64 -msha -Wall -Wextra -pedantic -lstdc++'
-OPTS=merkletree.cpp item_pool.cpp sha.cpp -g -O3 -march=native -msha -Wall -Wextra -pedantic -lstdc++
+NIF_SRCS=merkletree.cpp item_pool.cpp sha.cpp rlp.cpp
+OPTS=$(NIF_SRCS) -g -O3 -march=native -msha -Wall -Wextra -pedantic -lstdc++
 # AddressSanitizer / UndefinedBehaviorSanitizer (use: make -C c_src test-asan nif-asan)
 SANFLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer -g
-OPTS_ASAN=merkletree.cpp item_pool.cpp sha.cpp -O1 -march=native -msha -Wall -Wextra -pedantic $(SANFLAGS) -lstdc++
+OPTS_ASAN=$(NIF_SRCS) -O1 -march=native -msha -Wall -Wextra -pedantic $(SANFLAGS) -lstdc++
 ERL_INCLUDE_PATH = $(shell erl -eval 'io:format("~s", [lists:concat([code:root_dir(), "/erts-", erlang:system_info(version), "/include"])])' -s init stop -noshell)
 CFLAGS+=-I. -O2 -g -Wall -Wno-unknown-pragmas
 CXXFLAGS+=-std=c++17 $(CFLAGS)

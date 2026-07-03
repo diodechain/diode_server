@@ -10,6 +10,7 @@ extern "C" {
 }
 
 #include "merkletree.hpp"
+#include "rlp.hpp"
 #include <cstring>
 #include <cstdio>
 #include <unordered_map>
@@ -39,6 +40,7 @@ static void print(const char *msg);
 static ErlNifResourceType *merkletree_type = NULL;
 static ErlNifResourceType *accountmap_type = NULL;
 static ErlNifMutex *stats_mutex = NULL;
+static uint256_t empty_code_hash;
 static ERL_NIF_TERM make_atom(ErlNifEnv *env, const char *atom_name);
 static ERL_NIF_TERM make_binary(ErlNifEnv *env, uint8_t *data, size_t size);
 static volatile int shared_states = 0;
@@ -90,6 +92,10 @@ struct  merkletree {
     bool locked;
     SharedState *shared_state;
 };
+
+static merkletree *empty_storage_tree = nullptr;
+
+static merkletree *alloc_merkletree_resource();
 
 class Lock {
     ErlNifMutex *mtx;
@@ -242,6 +248,88 @@ static bool get_address(ErlNifEnv *env, ERL_NIF_TERM term, uint160_t &out)
     return true;
 }
 
+static bool decode_ext_uint256(const uint8_t *data, size_t size, uint256_t &out)
+{
+    static constexpr uint8_t kExtTermVersion = 131;
+    static constexpr uint8_t kExtSmallInteger = 'a';
+    static constexpr uint8_t kExtInteger = 'b';
+    static constexpr uint8_t kExtSmallBig = 'n';
+    static constexpr uint8_t kExtLargeBig = 'o';
+
+    memset(out.value, 0, sizeof(out.value));
+    if (size < 2) {
+        return false;
+    }
+    const uint8_t *p = data;
+    if (*p++ != kExtTermVersion) {
+        return false;
+    }
+    if (p >= data + size) {
+        return false;
+    }
+    uint8_t tag = *p++;
+    switch (tag) {
+    case kExtSmallInteger: {
+        if (p >= data + size) {
+            return false;
+        }
+        out.value[31] = *p;
+        return true;
+    }
+    case kExtInteger: {
+        if (p + 4 > data + size) {
+            return false;
+        }
+        int32_t val = (int32_t)((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]);
+        if (val < 0) {
+            return false;
+        }
+        for (int i = 0; i < 4; i++) {
+            out.value[31 - i] = (uint8_t)((val >> (8 * i)) & 0xFF);
+        }
+        return true;
+    }
+    case kExtSmallBig: {
+        if (p + 2 > data + size) {
+            return false;
+        }
+        uint8_t n = *p++;
+        uint8_t sign = *p++;
+        if (sign != 0 || n > 32) {
+            return false;
+        }
+        if (p + n > data + size) {
+            return false;
+        }
+        for (uint8_t i = 0; i < n; i++) {
+            out.value[31 - i] = p[i];
+        }
+        return true;
+    }
+    case kExtLargeBig: {
+        if (p + 5 > data + size) {
+            return false;
+        }
+        uint32_t n = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+            ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+        p += 4;
+        uint8_t sign = *p++;
+        if (sign != 0 || n > 32) {
+            return false;
+        }
+        if (p + n > data + size) {
+            return false;
+        }
+        for (uint32_t i = 0; i < n; i++) {
+            out.value[31 - i] = p[i];
+        }
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
 static bool get_balance_uint256(ErlNifEnv *env, ERL_NIF_TERM term, uint256_t &out)
 {
     memset(out.value, 0, sizeof(out.value));
@@ -265,7 +353,11 @@ static bool get_balance_uint256(ErlNifEnv *env, ERL_NIF_TERM term, uint256_t &ou
         memcpy(out.value + (32 - bin.size), bin.data, bin.size);
         return true;
     }
-    return false;
+    ErlNifBinary ext;
+    if (!enif_term_to_binary(env, term, &ext)) {
+        return false;
+    }
+    return decode_ext_uint256(ext.data, ext.size, out);
 }
 
 static ERL_NIF_TERM balance_to_term(ErlNifEnv *env, const uint256_t &balance)
@@ -435,10 +527,7 @@ static ERL_NIF_TERM
 merkletree_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM[] /*argv[]*/)
 {
     if (argc != 0) return enif_make_badarg(env);
-    merkletree *mt = (merkletree*)enif_alloc_resource(merkletree_type, sizeof(merkletree));
-    STAT(resources++);
-    mt->shared_state = new SharedState();
-    mt->locked = false;
+    merkletree *mt = alloc_merkletree_resource();
     ERL_NIF_TERM res = enif_make_resource(env, mt);
     enif_release_resource(mt);
     return res;
@@ -470,6 +559,31 @@ bool make_writeable(merkletree *mt)
     return true;
 }
 
+static bool insert_binary_pair(Tree &tree, const ErlNifBinary &key_binary,
+        const ErlNifBinary &value_binary, bin_t &key_scratch)
+{
+    if (value_binary.size != 32) {
+        return false;
+    }
+    key_scratch.assign(key_binary.data, key_binary.data + key_binary.size);
+    uint256_t value = (char*)value_binary.data;
+    tree.insert_item(key_scratch, value);
+    return true;
+}
+
+static bool insert_binary_terms(ErlNifEnv *env, Tree &tree, ERL_NIF_TERM key_term,
+        ERL_NIF_TERM value_term, bin_t &key_scratch)
+{
+    ErlNifBinary key_binary, value_binary;
+    if (!enif_inspect_binary(env, key_term, &key_binary)) {
+        return false;
+    }
+    if (!enif_inspect_binary(env, value_term, &value_binary)) {
+        return false;
+    }
+    return insert_binary_pair(tree, key_binary, value_binary, key_scratch);
+}
+
 static ERL_NIF_TERM
 merkletree_insert_item(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
@@ -481,15 +595,13 @@ merkletree_insert_item(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     if (!enif_inspect_binary(env, argv[1], &key_binary)) return enif_make_badarg(env);
     if (!enif_inspect_binary(env, argv[2], &value_binary)) return enif_make_badarg(env);
-    if (value_binary.size != 32) return enif_make_badarg(env);
 
     Lock lock(mt);
     if (!make_writeable(mt)) return enif_make_badarg(env);
-
-    bin_t key;
-    key.insert(key.end(), key_binary.data, key_binary.data + key_binary.size);
-    uint256_t value = (char*)value_binary.data;
-    mt->shared_state->tree.insert_item(key, value);
+    bin_t key_scratch;
+    if (!insert_binary_pair(mt->shared_state->tree, key_binary, value_binary, key_scratch)) {
+        return enif_make_badarg(env);
+    }
     return argv[0];
 }
 
@@ -731,22 +843,12 @@ merkletree_import_map(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     enif_map_iterator_create(env, argv[1], &iter, ERL_NIF_MAP_ITERATOR_FIRST);
 
     size_t i = 0;
+    bin_t key_scratch;
     while (enif_map_iterator_get_pair(env, &iter, &key, &value)) {
         i++;
-        ErlNifBinary key_binary, value_binary;
-        if (!enif_inspect_binary(env, key, &key_binary)) {
+        if (!insert_binary_terms(env, mt->shared_state->tree, key, value, key_scratch)) {
             goto import_badarg;
         }
-        if (!enif_inspect_binary(env, value, &value_binary)) {
-            goto import_badarg;
-        }
-        if (value_binary.size != 32) {
-            goto import_badarg;
-        }
-        bin_t key;
-        key.insert(key.end(), key_binary.data, key_binary.data + key_binary.size);
-        uint256_t value = (char*)value_binary.data;
-        mt->shared_state->tree.insert_item(key, value);
         enif_map_iterator_next(env, &iter);
         nif_loop_progress(env, i);
     }
@@ -1070,6 +1172,371 @@ account_map_to_list(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     return list;
 }
 
+static merkletree *alloc_merkletree_resource()
+{
+    merkletree *mt = (merkletree*)enif_alloc_resource(merkletree_type, sizeof(merkletree));
+    STAT(resources++);
+    mt->shared_state = new SharedState();
+    mt->locked = false;
+    return mt;
+}
+
+static void rlp_encode_balance(const uint256_t &balance, std::vector<uint8_t> &out);
+
+struct AccountHashCtx {
+    std::vector<uint8_t> nonce_rlp;
+    std::vector<uint8_t> balance_rlp;
+    std::vector<uint8_t> root_rlp;
+    std::vector<uint8_t> code_rlp;
+    std::vector<uint8_t> list_rlp;
+    std::vector<uint8_t> list_payload;
+
+    bool compute(const AccountEntry &entry, const uint256_t *storage_root_override, uint256_t &out)
+    {
+        uint256_t storage_root;
+        if (storage_root_override != nullptr) {
+            storage_root = *storage_root_override;
+        } else {
+            if (entry.storage == nullptr) {
+                return false;
+            }
+            Lock lock(entry.storage);
+            storage_root = entry.storage->shared_state->tree.root_hash();
+        }
+
+        uint256_t code_hash;
+        if (entry.code.empty()) {
+            code_hash = empty_code_hash;
+        } else {
+            sha(entry.code.data(), entry.code.size(), code_hash.data());
+        }
+
+        nonce_rlp.clear();
+        balance_rlp.clear();
+        root_rlp.clear();
+        code_rlp.clear();
+        list_rlp.clear();
+
+        rlp_encode_uint64(entry.nonce, nonce_rlp);
+        rlp_encode_balance(entry.balance, balance_rlp);
+        rlp_encode_bytes(storage_root.data(), 32, root_rlp);
+        rlp_encode_bytes(code_hash.data(), 32, code_rlp);
+
+        rlp_encode_list(nonce_rlp, balance_rlp, root_rlp, code_rlp, list_payload, list_rlp);
+        sha(list_rlp.data(), list_rlp.size(), out.data());
+        return true;
+    }
+};
+
+struct UncompactLoopScratch {
+    AccountHashCtx hash_ctx;
+    bin_t state_addr_key;
+    bin_t storage_key;
+    bin_t code_buf;
+};
+
+struct ParsedCompactAccount {
+    AccountEntry entry;
+    bool has_compact_root_hash;
+    uint256_t compact_root_hash;
+};
+
+struct PendingStateItem {
+    uint160_t addr;
+    uint256_t hash;
+};
+
+static bool map_get_atom(ErlNifEnv *env, ERL_NIF_TERM map, const char *key, ERL_NIF_TERM &out)
+{
+    ERL_NIF_TERM key_term;
+    if (!enif_make_existing_atom(env, key, &key_term, ERL_NIF_LATIN1)) {
+        return false;
+    }
+    return enif_get_map_value(env, map, key_term, &out);
+}
+
+static bool import_binary_map_into_tree(ErlNifEnv *env, merkletree *mt, ERL_NIF_TERM map_term,
+        bin_t &key_scratch)
+{
+    Lock lock(mt);
+    ERL_NIF_TERM key, value;
+    ErlNifMapIterator iter;
+    enif_map_iterator_create(env, map_term, &iter, ERL_NIF_MAP_ITERATOR_FIRST);
+
+    while (enif_map_iterator_get_pair(env, &iter, &key, &value)) {
+        if (!insert_binary_terms(env, mt->shared_state->tree, key, value, key_scratch)) {
+            enif_map_iterator_destroy(env, &iter);
+            return false;
+        }
+        enif_map_iterator_next(env, &iter);
+    }
+    enif_map_iterator_destroy(env, &iter);
+    return true;
+}
+
+static bool import_pair_list_into_tree(ErlNifEnv *env, merkletree *mt, ERL_NIF_TERM list_term,
+        bin_t &key_scratch)
+{
+    Lock lock(mt);
+    ERL_NIF_TERM head, tail = list_term;
+
+    while (enif_get_list_cell(env, tail, &head, &tail)) {
+        const ERL_NIF_TERM *elems;
+        int arity;
+        if (!enif_get_tuple(env, head, &arity, &elems) || arity != 2) {
+            return false;
+        }
+        ErlNifBinary key_binary, value_binary;
+        if (!enif_inspect_binary(env, elems[0], &key_binary)) {
+            return false;
+        }
+        if (!enif_inspect_binary(env, elems[1], &value_binary)) {
+            return false;
+        }
+        if (!insert_binary_pair(mt->shared_state->tree, key_binary, value_binary, key_scratch)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static merkletree *uncompact_storage(ErlNifEnv *env, ERL_NIF_TERM storage_term, bin_t &key_scratch)
+{
+    merkletree *existing;
+    if (enif_get_resource(env, storage_term, merkletree_type, (void **)&existing)) {
+        return existing;
+    }
+
+    if (enif_is_atom(env, storage_term)) {
+        char atom[16];
+        if (enif_get_atom(env, storage_term, atom, sizeof(atom), ERL_NIF_LATIN1) &&
+            strcmp(atom, "nil") == 0) {
+            return empty_storage_tree;
+        }
+        return nullptr;
+    }
+
+    const ERL_NIF_TERM *elems;
+    int arity;
+    if (enif_get_tuple(env, storage_term, &arity, &elems) && arity == 3) {
+        char atom[64];
+        if (enif_get_atom(env, elems[0], atom, sizeof(atom), ERL_NIF_LATIN1) &&
+            (strcmp(atom, "MapMerkleTree") == 0 ||
+             strcmp(atom, "Elixir.MapMerkleTree") == 0)) {
+            merkletree *mt = alloc_merkletree_resource();
+            if (!import_binary_map_into_tree(env, mt, elems[2], key_scratch)) {
+                enif_release_resource(mt);
+                return nullptr;
+            }
+            return mt;
+        }
+    }
+
+    if (enif_is_list(env, storage_term)) {
+        merkletree *mt = alloc_merkletree_resource();
+        if (!import_pair_list_into_tree(env, mt, storage_term, key_scratch)) {
+            enif_release_resource(mt);
+            return nullptr;
+        }
+        return mt;
+    }
+
+    return nullptr;
+}
+
+static void rlp_encode_balance(const uint256_t &balance, std::vector<uint8_t> &out)
+{
+    int start = 0;
+    while (start < 32 && balance.value[start] == 0) {
+        start++;
+    }
+    if (start == 32) {
+        rlp_encode_bytes(nullptr, 0, out);
+        return;
+    }
+    rlp_encode_bytes(balance.value + start, (size_t)(32 - start), out);
+}
+
+static bool parse_compact_account(ErlNifEnv *env, ERL_NIF_TERM account_term,
+        ParsedCompactAccount &out, bin_t &code_buf, bin_t &storage_key)
+{
+    out.has_compact_root_hash = false;
+    if (!enif_is_map(env, account_term)) {
+        return false;
+    }
+
+    ERL_NIF_TERM nonce_term, balance_term, storage_term, code_term;
+    if (!map_get_atom(env, account_term, "nonce", nonce_term) ||
+        !map_get_atom(env, account_term, "balance", balance_term) ||
+        !map_get_atom(env, account_term, "storage_root", storage_term) ||
+        !map_get_atom(env, account_term, "code", code_term)) {
+        return false;
+    }
+
+    ERL_NIF_TERM root_hash_term;
+    if (map_get_atom(env, account_term, "root_hash", root_hash_term)) {
+        ErlNifBinary root_bin;
+        if (!enif_inspect_binary(env, root_hash_term, &root_bin) || root_bin.size != 32) {
+            return false;
+        }
+        out.compact_root_hash = (char*)root_bin.data;
+        out.has_compact_root_hash = true;
+    }
+
+    ErlNifUInt64 nonce;
+    if (!enif_get_uint64(env, nonce_term, &nonce)) {
+        return false;
+    }
+    if (!get_balance_uint256(env, balance_term, out.entry.balance)) {
+        return false;
+    }
+    if (!get_code(env, code_term, code_buf)) {
+        return false;
+    }
+    out.entry.code = std::move(code_buf);
+
+    out.entry.nonce = (uint64_t)nonce;
+    out.entry.storage = uncompact_storage(env, storage_term, storage_key);
+    return out.entry.storage != nullptr;
+}
+
+static ERL_NIF_TERM uncompact_state_fail(ErlNifEnv *env, ErlNifMapIterator *iter,
+        accountmap *am, merkletree *state_store)
+{
+    if (iter) {
+        enif_map_iterator_destroy(env, iter);
+    }
+    if (am) {
+        enif_release_resource(am);
+    }
+    if (state_store) {
+        enif_release_resource(state_store);
+    }
+    return enif_make_badarg(env);
+}
+
+static void batch_insert_state_items(merkletree *state_store, std::vector<PendingStateItem> &items,
+        bin_t &addr_key)
+{
+    if (items.empty()) {
+        return;
+    }
+    Lock lock(state_store);
+    for (auto &item : items) {
+        addr_key.assign(item.addr.value, item.addr.value + 20);
+        state_store->shared_state->tree.insert_item(addr_key, item.hash);
+    }
+}
+
+static bool append_uncompacted_account(ErlNifEnv *env, accountmap *am, AccountHashCtx &hash_ctx,
+        std::vector<PendingStateItem> &pending_state, const uint160_t &addr, AccountEntry &entry,
+        const uint256_t *storage_root_override, size_t i)
+{
+    uint256_t account_hash;
+    if (!hash_ctx.compute(entry, storage_root_override, account_hash)) {
+        return false;
+    }
+    keep_storage_in_map(entry.storage);
+    am->shared->accounts[addr] = entry;
+    pending_state.push_back({addr, account_hash});
+    nif_loop_progress(env, i);
+    return true;
+}
+
+static ERL_NIF_TERM
+account_map_uncompact_state(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    if (argc != 1) return enif_make_badarg(env);
+
+    accountmap *input_am = nullptr;
+    bool from_resource = enif_get_resource(env, argv[0], accountmap_type, (void **)&input_am);
+
+    accountmap *am = (accountmap*)enif_alloc_resource(accountmap_type, sizeof(accountmap));
+    am->shared = new SharedAccountMap();
+
+    merkletree *state_store = alloc_merkletree_resource();
+
+    size_t expected = 0;
+    if (from_resource) {
+        AccountMapLock lock(input_am);
+        expected = input_am->shared->accounts.size();
+    } else if (enif_is_map(env, argv[0])) {
+        if (!enif_get_map_size(env, argv[0], &expected)) {
+            enif_release_resource(am);
+            enif_release_resource(state_store);
+            return enif_make_badarg(env);
+        }
+    } else {
+        enif_release_resource(am);
+        enif_release_resource(state_store);
+        return enif_make_badarg(env);
+    }
+
+    am->shared->accounts.reserve(expected);
+    std::vector<PendingStateItem> pending_state;
+    pending_state.reserve(expected);
+    UncompactLoopScratch scratch;
+
+    size_t i = 0;
+
+    if (from_resource) {
+        AccountMapLock lock(input_am);
+        for (auto &kv : input_am->shared->accounts) {
+            i++;
+            AccountEntry entry = kv.second;
+            if (!append_uncompacted_account(env, am, scratch.hash_ctx, pending_state, kv.first, entry,
+                    nullptr, i)) {
+                return uncompact_state_fail(env, nullptr, am, state_store);
+            }
+        }
+    } else {
+        ERL_NIF_TERM key, value;
+        ErlNifMapIterator iter;
+        enif_map_iterator_create(env, argv[0], &iter, ERL_NIF_MAP_ITERATOR_FIRST);
+
+        while (enif_map_iterator_get_pair(env, &iter, &key, &value)) {
+            i++;
+            uint160_t addr;
+            if (!get_address(env, key, addr)) {
+                return uncompact_state_fail(env, &iter, am, state_store);
+            }
+
+            ParsedCompactAccount parsed;
+            if (!parse_compact_account(env, value, parsed, scratch.code_buf, scratch.storage_key)) {
+                return uncompact_state_fail(env, &iter, am, state_store);
+            }
+
+            const uint256_t *storage_root_override =
+                parsed.has_compact_root_hash ? &parsed.compact_root_hash : nullptr;
+            if (!append_uncompacted_account(env, am, scratch.hash_ctx, pending_state, addr,
+                    parsed.entry, storage_root_override, i)) {
+                if (parsed.entry.storage != empty_storage_tree) {
+                    enif_release_resource(parsed.entry.storage);
+                }
+                return uncompact_state_fail(env, &iter, am, state_store);
+            }
+
+            enif_map_iterator_next(env, &iter);
+        }
+        enif_map_iterator_destroy(env, &iter);
+    }
+
+    batch_insert_state_items(state_store, pending_state, scratch.state_addr_key);
+
+    uint256_t state_root;
+    {
+        Lock lock(state_store);
+        state_root = state_store->shared_state->tree.root_hash();
+    }
+
+    ERL_NIF_TERM am_term = enif_make_resource(env, am);
+    enif_release_resource(am);
+    ERL_NIF_TERM store_term = enif_make_resource(env, state_store);
+    enif_release_resource(state_store);
+    ERL_NIF_TERM hash_term = make_binary(env, state_root.data(), 32);
+    return enif_make_tuple3(env, am_term, store_term, hash_term);
+}
+
 static void destroy_shared_state(merkletree *mt, Lock &lock) {
     if (mt->shared_state->has_clone == 0) {
         lock.unlock();
@@ -1116,6 +1583,9 @@ on_load(ErlNifEnv* env, void** /*priv*/, ERL_NIF_TERM /*info*/)
 
     locked_states = new LockedStates();
     stats_mutex = enif_mutex_create((char*)"stats_mutex");
+    sha((const uint8_t*)"", 0, empty_code_hash.value);
+    empty_storage_tree = alloc_merkletree_resource();
+    enif_keep_resource(empty_storage_tree);
     return 0;
 }
 
@@ -1156,6 +1626,7 @@ static ErlNifFunc nif_funcs[] = {
     {"account_map_delete", 2, account_map_delete, 0},
     {"account_map_size", 1, account_map_size, 0},
     {"account_map_to_list", 1, account_map_to_list, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"account_map_uncompact_state", 1, account_map_uncompact_state, ERL_NIF_DIRTY_JOB_CPU_BOUND},
 };
 
 // ERL_NIF_INIT(merkletree_nif, nif_funcs, on_load, on_reload, on_upgrade, NULL);
