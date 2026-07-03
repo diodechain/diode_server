@@ -69,7 +69,7 @@
 
 | ID | Topic | Severity | CWE | Notes |
 |----|--------|----------|-----|--------|
-| F-9 | **Unbounded work per NIF** | Medium | CWE-400 | `import_map`, `to_list`, `difference`, `count_zeros` scale with map/tree/binary size. No `enif_consume_timeslice`. Mitigation: dirty NIF flags or batching at Elixir layer for untrusted inputs. |
+| F-9 | **Unbounded work per NIF** | Medium | CWE-400 | Long-running exports use dirty schedulers: **CPU-bound** — `get_proofs_raw`, `difference_raw`, `to_list`, `import_map`, `count_zeros`, `memory_stats_raw`, `account_map_clone`, `account_map_to_list`; **IO-bound** — `malloc_info_raw`. `account_map_put`/`delete` stay on normal schedulers; first COW copy uses `enif_consume_timeslice` every 1024 entries. Large dirty-NIF loops also call `enif_consume_timeslice` every 512 iterations. Ensure adequate dirty CPU schedulers at runtime (`+SDcpu` on heavy sync nodes). |
 
 ### Memory safety (manual review)
 

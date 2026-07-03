@@ -18,6 +18,23 @@ extern "C" {
 #include <malloc.h>
 #endif
 
+static constexpr size_t kNifTimesliceInterval = 512;
+static constexpr size_t kAccountMapCowProgressInterval = 1024;
+
+static void nif_loop_progress(ErlNifEnv *env, size_t i)
+{
+    if (env && i > 0 && (i % kNifTimesliceInterval) == 0) {
+        (void)enif_consume_timeslice(env, 1);
+    }
+}
+
+static void accountmap_cow_copy_progress(ErlNifEnv *env, size_t i)
+{
+    if (env && i > 0 && (i % kAccountMapCowProgressInterval) == 0) {
+        (void)enif_consume_timeslice(env, 1);
+    }
+}
+
 static void print(const char *msg);
 static ErlNifResourceType *merkletree_type = NULL;
 static ErlNifResourceType *accountmap_type = NULL;
@@ -142,13 +159,6 @@ public:
         mtx = enif_mutex_create((char*)"accountmap_mutex");
     }
 
-    SharedAccountMap(SharedAccountMap &other) : has_clone(0), accounts(other.accounts) {
-        mtx = enif_mutex_create((char*)"accountmap_mutex");
-        for (auto &entry : accounts) {
-            keep_storage_in_map(entry.second.storage);
-        }
-    }
-
     ~SharedAccountMap() {
         for (auto &entry : accounts) {
             release_storage_from_map(entry.second.storage);
@@ -192,6 +202,19 @@ static void release_storage_from_map(merkletree *mt)
     if (mt != nullptr) {
         enif_release_resource(mt);
     }
+}
+
+static SharedAccountMap *cow_copy_accountmap(SharedAccountMap *other, ErlNifEnv *env)
+{
+    SharedAccountMap *copy = new SharedAccountMap();
+    copy->accounts = other->accounts;
+    size_t i = 0;
+    for (auto &entry : copy->accounts) {
+        keep_storage_in_map(entry.second.storage);
+        i++;
+        accountmap_cow_copy_progress(env, i);
+    }
+    return copy;
 }
 
 // Allocates a new merkletree resource sharing mt's SharedState (has_clone += 1) with
@@ -305,11 +328,11 @@ static ERL_NIF_TERM code_to_term(ErlNifEnv *env, const bin_t &code)
     return make_binary(env, (uint8_t*)code.data(), code.size());
 }
 
-static bool make_writeable_accountmap(accountmap *am)
+static bool make_writeable_accountmap(ErlNifEnv *env, accountmap *am)
 {
     if (am->shared->has_clone > 0) {
         am->shared->has_clone -= 1;
-        am->shared = new SharedAccountMap(*am->shared);
+        am->shared = cow_copy_accountmap(am->shared, env);
     }
     return true;
 }
@@ -625,11 +648,14 @@ merkletree_to_list(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
     Lock lock(mt);
     ERL_NIF_TERM list = enif_make_list(env, 0);
+    size_t i = 0;
     mt->shared_state->tree.each([&](pair_t &pair) {
+        i++;
         ERL_NIF_TERM key_term = make_binary(env, pair.key.data(), pair.key.size());
         ERL_NIF_TERM value_term = make_binary(env, pair.value.data(), 32);
         ERL_NIF_TERM tuple = enif_make_tuple2(env, key_term, value_term);
         list = enif_make_list_cell(env, tuple, list);
+        nif_loop_progress(env, i);
     });
     return list;
 }
@@ -670,7 +696,9 @@ merkletree_difference(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     second->shared_state->tree.difference(first->shared_state->tree, output);
 
     ERL_NIF_TERM list = enif_make_list(env, 0);
+    size_t i = 0;
     output.each([&](pair_t &pair) {
+        i++;
         ERL_NIF_TERM key_term = make_binary(env, pair.key.data(), pair.key.size());
 
         auto pair1 = mt1->shared_state->tree.get_item(pair);
@@ -681,6 +709,7 @@ merkletree_difference(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
         ERL_NIF_TERM tuple = enif_make_tuple2(env, value1_term, value2_term);
         tuple = enif_make_tuple2(env, key_term, tuple);
         list = enif_make_list_cell(env, tuple, list);
+        nif_loop_progress(env, i);
     });
     return list;
 }
@@ -701,7 +730,9 @@ merkletree_import_map(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     ErlNifMapIterator iter;
     enif_map_iterator_create(env, argv[1], &iter, ERL_NIF_MAP_ITERATOR_FIRST);
 
+    size_t i = 0;
     while (enif_map_iterator_get_pair(env, &iter, &key, &value)) {
+        i++;
         ErlNifBinary key_binary, value_binary;
         if (!enif_inspect_binary(env, key, &key_binary)) {
             goto import_badarg;
@@ -717,6 +748,7 @@ merkletree_import_map(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
         uint256_t value = (char*)value_binary.data;
         mt->shared_state->tree.insert_item(key, value);
         enif_map_iterator_next(env, &iter);
+        nif_loop_progress(env, i);
     }
     enif_map_iterator_destroy(env, &iter);
     return argv[0];
@@ -852,6 +884,7 @@ merkletree_count_zeros(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     uint64_t count = 0;
     for (size_t i = 0; i < bin.size; i++) {
         if (bin.data[i] == 0) count++;
+        nif_loop_progress(env, i + 1);
     }
     return enif_make_uint64(env, count);
 }
@@ -888,7 +921,9 @@ account_map_clone(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     // trie in the parent keep sharing the single clone). ~SharedAccountMap releases
     // one resource ref per entry, so we keep one ref per entry here to match.
     std::unordered_map<merkletree*, merkletree*> storage_clones;
+    size_t i = 0;
     for (auto &entry : new_shared->accounts) {
+        i++;
         merkletree *orig = entry.second.storage;
         if (orig == nullptr) {
             continue;
@@ -900,6 +935,7 @@ account_map_clone(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
         }
         enif_keep_resource(it->second);
         entry.second.storage = it->second;
+        nif_loop_progress(env, i);
     }
     // Drop the creator refs (one per unique clone); the per-entry keeps above own
     // the resources now.
@@ -962,7 +998,7 @@ account_map_put(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (!get_code(env, argv[5], code)) return enif_make_badarg(env);
 
     AccountMapLock lock(am);
-    if (!make_writeable_accountmap(am)) return enif_make_badarg(env);
+    if (!make_writeable_accountmap(env, am)) return enif_make_badarg(env);
 
     auto it = am->shared->accounts.find(addr);
     if (it != am->shared->accounts.end()) {
@@ -992,7 +1028,7 @@ account_map_delete(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (!get_address(env, argv[1], addr)) return enif_make_badarg(env);
 
     AccountMapLock lock(am);
-    if (!make_writeable_accountmap(am)) return enif_make_badarg(env);
+    if (!make_writeable_accountmap(env, am)) return enif_make_badarg(env);
 
     auto it = am->shared->accounts.find(addr);
     if (it != am->shared->accounts.end()) {
@@ -1022,11 +1058,14 @@ account_map_to_list(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     AccountMapLock lock(am);
     ERL_NIF_TERM list = enif_make_list(env, 0);
+    size_t i = 0;
     for (auto &entry : am->shared->accounts) {
+        i++;
         ERL_NIF_TERM addr = make_binary(env, (uint8_t*)entry.first.value, 20);
         ERL_NIF_TERM account = account_entry_to_term(env, entry.second);
         ERL_NIF_TERM pair = enif_make_tuple2(env, addr, account);
         list = enif_make_list_cell(env, pair, list);
+        nif_loop_progress(env, i);
     }
     return list;
 }
@@ -1095,28 +1134,28 @@ static ErlNifFunc nif_funcs[] = {
     {"insert_item_raw", 3, merkletree_insert_item, 0},
     {"get_item", 2, merkletree_get_item, 0},
     {"get_range_raw", 3, merkletree_get_range, 0},
-    {"get_proofs_raw", 2, merkletree_get_proofs, 0},
-    {"difference_raw", 2, merkletree_difference, 0},
+    {"get_proofs_raw", 2, merkletree_get_proofs, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"difference_raw", 2, merkletree_difference, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"lock", 1, merkletree_lock, 0},
-    {"to_list", 1, merkletree_to_list, 0},
-    {"import_map", 2, merkletree_import_map, 0},
+    {"to_list", 1, merkletree_to_list, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"import_map", 2, merkletree_import_map, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"root_hash", 1, merkletree_root_hash, 0},
     {"hash", 1, merkletree_hash, 0},
     {"root_hashes_raw", 1, merkletree_root_hashes, 0},
     {"bucket_count", 1, merkletree_bucket_count, 0},
     {"size", 1, merkletree_size, 0},
     {"clone", 1, merkletree_clone, 0},
-    {"count_zeros", 1, merkletree_count_zeros, 0},
+    {"count_zeros", 1, merkletree_count_zeros, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"struct_sizes_raw", 0, merkletree_struct_sizes, 0},
-    {"memory_stats_raw", 1, merkletree_memory_stats, 0},
-    {"malloc_info_raw", 0, merkletree_malloc_info, 0},
+    {"memory_stats_raw", 1, merkletree_memory_stats, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"malloc_info_raw", 0, merkletree_malloc_info, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"account_map_new", 0, account_map_new, 0},
-    {"account_map_clone", 1, account_map_clone, 0},
+    {"account_map_clone", 1, account_map_clone, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"account_map_get", 2, account_map_get, 0},
     {"account_map_put", 6, account_map_put, 0},
     {"account_map_delete", 2, account_map_delete, 0},
     {"account_map_size", 1, account_map_size, 0},
-    {"account_map_to_list", 1, account_map_to_list, 0},
+    {"account_map_to_list", 1, account_map_to_list, ERL_NIF_DIRTY_JOB_CPU_BOUND},
 };
 
 // ERL_NIF_INIT(merkletree_nif, nif_funcs, on_load, on_reload, on_upgrade, NULL);
