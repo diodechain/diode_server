@@ -335,6 +335,12 @@ void Tree::insert_items(pair_list_t &items) {
     }
 }
 
+void Tree::insert_items_sorted(std::vector<std::pair<bin_t, uint256_t>> &items) {
+    for (auto &item : items) {
+        insert_item(item.first, item.second);
+    }
+}
+
 int hash_to_leafindex(pair_t &pair) {
     return pair.key_hash.last_byte() % LEAF_SIZE;
 }

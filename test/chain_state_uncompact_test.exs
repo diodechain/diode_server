@@ -172,9 +172,64 @@ defmodule ChainStateUncompactTest do
       assert acc2.code == nil
       assert CMerkleTree.size(Account.tree(acc2)) == 0
     end
+
+    test "lazy storage materializes on CAccountMap.get without State.account" do
+      multi_slot =
+        %Account{
+          nonce: 5,
+          balance: 1_000,
+          storage_root:
+            CMerkleTree.insert_items(CMerkleTree.new(), [
+              {slot(1), val(1)},
+              {slot(2), val(2)}
+            ]),
+          code: <<5>>
+        }
+
+      compact = %{addr(1) => Account.compact(multi_slot)}
+      {accounts, _store, _hash} = CAccountMap.uncompact_state(compact)
+
+      {5, 1_000, storage, <<5>>} = CAccountMap.get(accounts, addr(1))
+
+      assert CMerkleTree.get(storage, slot(1)) == val(1)
+      assert CMerkleTree.get(storage, slot(2)) == val(2)
+    end
+
+    test "clone preserves lazy storage until materialized" do
+      original =
+        live_state(4)
+        |> State.compact()
+        |> State.uncompact()
+
+      cloned = %{original | accounts: CAccountMap.clone(original.accounts)}
+      assert State.hash(cloned) == State.hash(original)
+
+      for i <- 1..4 do
+        acc = State.account(cloned, addr(i))
+        assert Account.storage_value(acc, slot(i)) == val(i)
+      end
+    end
   end
 
   describe "uncompact performance" do
+    @fixture_path Path.join(System.tmp_dir!(), "diode_uncompact_perf_#{@account_count}.bin")
+
+    @tag :callgrind
+    @tag :slow
+    test "valgrind profile target: NIF uncompact only at production scale" do
+      state =
+        if File.exists?(@fixture_path) do
+          @fixture_path |> File.read!() |> :erlang.binary_to_term()
+        else
+          compact_state(@account_count)
+          |> tap(fn s -> File.write!(@fixture_path, :erlang.term_to_binary(s)) end)
+        end
+
+      restored = State.uncompact(state)
+      assert CAccountMap.size(restored.accounts) == @account_count
+      assert restored.store != nil
+    end
+
     @tag :slow
     test "profiles uncompact at ~14k compact accounts (production scale)" do
       state = compact_state(@account_count)

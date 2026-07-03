@@ -290,6 +290,7 @@ public:
     void insert_item(pair_t &pair);
     void insert_item(bin_t &key, uint256_t &value);
     void insert_items(pair_list_t &items);
+    void insert_items_sorted(std::vector<std::pair<bin_t, uint256_t>> &items);
     void delete_item(bin_t &key) {
         uint256_t null_value = {};
         insert_item(key, null_value);

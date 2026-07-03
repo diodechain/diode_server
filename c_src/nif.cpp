@@ -11,8 +11,10 @@ extern "C" {
 
 #include "merkletree.hpp"
 #include "rlp.hpp"
+#include <algorithm>
 #include <cstring>
 #include <cstdio>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 #ifdef __GLIBC__
@@ -148,12 +150,73 @@ struct hash<uint160_t> {
 };
 }
 
+struct StorageSlot {
+    bin_t key;
+    uint256_t value;
+};
+
+struct CompactStorage {
+    std::vector<StorageSlot> slots;
+};
+
 struct AccountEntry {
     uint64_t nonce;
     uint256_t balance;
     merkletree *storage;
+    std::unique_ptr<CompactStorage> compact_storage;
     bin_t code;
+
+    AccountEntry()
+        : nonce(0), balance(), storage(nullptr), compact_storage(nullptr), code() {}
+
+    AccountEntry(const AccountEntry &other)
+        : nonce(other.nonce), balance(other.balance), storage(other.storage), code(other.code)
+    {
+        if (other.compact_storage) {
+            compact_storage = std::make_unique<CompactStorage>();
+            compact_storage->slots = other.compact_storage->slots;
+        }
+    }
+
+    AccountEntry(AccountEntry &&other) noexcept
+        : nonce(other.nonce), balance(other.balance), storage(other.storage),
+          compact_storage(std::move(other.compact_storage)), code(std::move(other.code))
+    {
+        other.storage = nullptr;
+    }
+
+    AccountEntry &operator=(const AccountEntry &other)
+    {
+        if (this != &other) {
+            nonce = other.nonce;
+            balance = other.balance;
+            storage = other.storage;
+            code = other.code;
+            compact_storage.reset();
+            if (other.compact_storage) {
+                compact_storage = std::make_unique<CompactStorage>();
+                compact_storage->slots = other.compact_storage->slots;
+            }
+        }
+        return *this;
+    }
+
+    AccountEntry &operator=(AccountEntry &&other) noexcept
+    {
+        if (this != &other) {
+            nonce = other.nonce;
+            balance = other.balance;
+            storage = other.storage;
+            compact_storage = std::move(other.compact_storage);
+            code = std::move(other.code);
+            other.storage = nullptr;
+        }
+        return *this;
+    }
 };
+
+static void release_entry_storage(AccountEntry &entry);
+static merkletree *materialize_storage(AccountEntry &entry);
 
 class SharedAccountMap {
 public:
@@ -167,7 +230,7 @@ public:
 
     ~SharedAccountMap() {
         for (auto &entry : accounts) {
-            release_storage_from_map(entry.second.storage);
+            release_entry_storage(entry.second);
         }
         enif_mutex_destroy(mtx);
     }
@@ -210,13 +273,29 @@ static void release_storage_from_map(merkletree *mt)
     }
 }
 
+static void release_entry_storage(AccountEntry &entry)
+{
+    if (entry.storage != nullptr) {
+        release_storage_from_map(entry.storage);
+        entry.storage = nullptr;
+    }
+    entry.compact_storage.reset();
+}
+
 static SharedAccountMap *cow_copy_accountmap(SharedAccountMap *other, ErlNifEnv *env)
 {
     SharedAccountMap *copy = new SharedAccountMap();
     copy->accounts = other->accounts;
     size_t i = 0;
     for (auto &entry : copy->accounts) {
-        keep_storage_in_map(entry.second.storage);
+        if (entry.second.compact_storage) {
+            auto dup = std::make_unique<CompactStorage>();
+            dup->slots = entry.second.compact_storage->slots;
+            entry.second.compact_storage = std::move(dup);
+            entry.second.storage = nullptr;
+        } else if (entry.second.storage != nullptr) {
+            keep_storage_in_map(entry.second.storage);
+        }
         i++;
         accountmap_cow_copy_progress(env, i);
     }
@@ -1026,6 +1105,14 @@ account_map_clone(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     size_t i = 0;
     for (auto &entry : new_shared->accounts) {
         i++;
+        if (entry.second.compact_storage) {
+            auto dup = std::make_unique<CompactStorage>();
+            dup->slots = entry.second.compact_storage->slots;
+            entry.second.compact_storage = std::move(dup);
+            entry.second.storage = nullptr;
+            nif_loop_progress(env, i);
+            continue;
+        }
         merkletree *orig = entry.second.storage;
         if (orig == nullptr) {
             continue;
@@ -1052,13 +1139,14 @@ account_map_clone(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     return res;
 }
 
-static ERL_NIF_TERM account_entry_to_term(ErlNifEnv *env, const AccountEntry &entry)
+static ERL_NIF_TERM account_entry_to_term(ErlNifEnv *env, AccountEntry &entry)
 {
+    merkletree *storage = materialize_storage(entry);
     ERL_NIF_TERM nonce = enif_make_uint64(env, entry.nonce);
     ERL_NIF_TERM balance = balance_to_term(env, entry.balance);
-    ERL_NIF_TERM storage = enif_make_resource(env, entry.storage);
+    ERL_NIF_TERM storage_term = enif_make_resource(env, storage);
     ERL_NIF_TERM code = code_to_term(env, entry.code);
-    return enif_make_tuple4(env, nonce, balance, storage, code);
+    return enif_make_tuple4(env, nonce, balance, storage_term, code);
 }
 
 static ERL_NIF_TERM
@@ -1078,6 +1166,7 @@ account_map_get(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     }
 
     AccountEntry &entry = it->second;
+    materialize_storage(entry);
     return account_entry_to_term(env, entry);
 }
 
@@ -1104,17 +1193,24 @@ account_map_put(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     auto it = am->shared->accounts.find(addr);
     if (it != am->shared->accounts.end()) {
+        materialize_storage(it->second);
         if (it->second.storage != storage) {
             release_storage_from_map(it->second.storage);
             keep_storage_in_map(storage);
         }
+        it->second.compact_storage.reset();
         it->second.nonce = (uint64_t)nonce;
         it->second.balance = balance;
         it->second.storage = storage;
         it->second.code = code;
     } else {
         keep_storage_in_map(storage);
-        am->shared->accounts[addr] = AccountEntry{(uint64_t)nonce, balance, storage, code};
+        AccountEntry entry;
+        entry.nonce = (uint64_t)nonce;
+        entry.balance = balance;
+        entry.storage = storage;
+        entry.code = code;
+        am->shared->accounts[addr] = std::move(entry);
     }
     return argv[0];
 }
@@ -1134,7 +1230,7 @@ account_map_delete(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     auto it = am->shared->accounts.find(addr);
     if (it != am->shared->accounts.end()) {
-        release_storage_from_map(it->second.storage);
+        release_entry_storage(it->second);
         am->shared->accounts.erase(it);
     }
     return argv[0];
@@ -1179,6 +1275,32 @@ static merkletree *alloc_merkletree_resource()
     mt->shared_state = new SharedState();
     mt->locked = false;
     return mt;
+}
+
+static merkletree *materialize_storage(AccountEntry &entry)
+{
+    if (entry.storage != nullptr) {
+        return entry.storage;
+    }
+    if (!entry.compact_storage || entry.compact_storage->slots.empty()) {
+        entry.storage = empty_storage_tree;
+        keep_storage_in_map(empty_storage_tree);
+        entry.compact_storage.reset();
+        return entry.storage;
+    }
+    merkletree *mt = alloc_merkletree_resource();
+    {
+        Lock lock(mt);
+        for (auto &slot : entry.compact_storage->slots) {
+            bin_t key = slot.key;
+            uint256_t val = slot.value;
+            mt->shared_state->tree.insert_item(key, val);
+        }
+    }
+    keep_storage_in_map(mt);
+    entry.storage = mt;
+    entry.compact_storage.reset();
+    return entry.storage;
 }
 
 static void rlp_encode_balance(const uint256_t &balance, std::vector<uint8_t> &out);
@@ -1260,66 +1382,28 @@ static bool map_get_atom(ErlNifEnv *env, ERL_NIF_TERM map, const char *key, ERL_
     return enif_get_map_value(env, map, key_term, &out);
 }
 
-static bool import_binary_map_into_tree(ErlNifEnv *env, merkletree *mt, ERL_NIF_TERM map_term,
-        bin_t &key_scratch)
+static bool parse_compact_storage(ErlNifEnv *env, ERL_NIF_TERM storage_term,
+        AccountEntry &entry, bin_t &key_scratch)
 {
-    Lock lock(mt);
-    ERL_NIF_TERM key, value;
-    ErlNifMapIterator iter;
-    enif_map_iterator_create(env, map_term, &iter, ERL_NIF_MAP_ITERATOR_FIRST);
+    entry.storage = nullptr;
+    entry.compact_storage.reset();
 
-    while (enif_map_iterator_get_pair(env, &iter, &key, &value)) {
-        if (!insert_binary_terms(env, mt->shared_state->tree, key, value, key_scratch)) {
-            enif_map_iterator_destroy(env, &iter);
-            return false;
-        }
-        enif_map_iterator_next(env, &iter);
-    }
-    enif_map_iterator_destroy(env, &iter);
-    return true;
-}
-
-static bool import_pair_list_into_tree(ErlNifEnv *env, merkletree *mt, ERL_NIF_TERM list_term,
-        bin_t &key_scratch)
-{
-    Lock lock(mt);
-    ERL_NIF_TERM head, tail = list_term;
-
-    while (enif_get_list_cell(env, tail, &head, &tail)) {
-        const ERL_NIF_TERM *elems;
-        int arity;
-        if (!enif_get_tuple(env, head, &arity, &elems) || arity != 2) {
-            return false;
-        }
-        ErlNifBinary key_binary, value_binary;
-        if (!enif_inspect_binary(env, elems[0], &key_binary)) {
-            return false;
-        }
-        if (!enif_inspect_binary(env, elems[1], &value_binary)) {
-            return false;
-        }
-        if (!insert_binary_pair(mt->shared_state->tree, key_binary, value_binary, key_scratch)) {
-            return false;
-        }
-    }
-    return true;
-}
-
-static merkletree *uncompact_storage(ErlNifEnv *env, ERL_NIF_TERM storage_term, bin_t &key_scratch)
-{
     merkletree *existing;
     if (enif_get_resource(env, storage_term, merkletree_type, (void **)&existing)) {
-        return existing;
+        entry.storage = existing;
+        return true;
     }
 
     if (enif_is_atom(env, storage_term)) {
         char atom[16];
         if (enif_get_atom(env, storage_term, atom, sizeof(atom), ERL_NIF_LATIN1) &&
             strcmp(atom, "nil") == 0) {
-            return empty_storage_tree;
+            return true;
         }
-        return nullptr;
+        return false;
     }
+
+    entry.compact_storage = std::make_unique<CompactStorage>();
 
     const ERL_NIF_TERM *elems;
     int arity;
@@ -1328,25 +1412,55 @@ static merkletree *uncompact_storage(ErlNifEnv *env, ERL_NIF_TERM storage_term, 
         if (enif_get_atom(env, elems[0], atom, sizeof(atom), ERL_NIF_LATIN1) &&
             (strcmp(atom, "MapMerkleTree") == 0 ||
              strcmp(atom, "Elixir.MapMerkleTree") == 0)) {
-            merkletree *mt = alloc_merkletree_resource();
-            if (!import_binary_map_into_tree(env, mt, elems[2], key_scratch)) {
-                enif_release_resource(mt);
-                return nullptr;
+            ERL_NIF_TERM key, value;
+            ErlNifMapIterator iter;
+            enif_map_iterator_create(env, elems[2], &iter, ERL_NIF_MAP_ITERATOR_FIRST);
+
+            while (enif_map_iterator_get_pair(env, &iter, &key, &value)) {
+                ErlNifBinary key_binary, value_binary;
+                if (!enif_inspect_binary(env, key, &key_binary) ||
+                    !enif_inspect_binary(env, value, &value_binary) ||
+                    value_binary.size != 32) {
+                    enif_map_iterator_destroy(env, &iter);
+                    return false;
+                }
+                key_scratch.assign(key_binary.data, key_binary.data + key_binary.size);
+                StorageSlot slot;
+                slot.key = key_scratch;
+                slot.value = (char*)value_binary.data;
+                entry.compact_storage->slots.push_back(std::move(slot));
+                enif_map_iterator_next(env, &iter);
             }
-            return mt;
+            enif_map_iterator_destroy(env, &iter);
+            return true;
         }
     }
 
     if (enif_is_list(env, storage_term)) {
-        merkletree *mt = alloc_merkletree_resource();
-        if (!import_pair_list_into_tree(env, mt, storage_term, key_scratch)) {
-            enif_release_resource(mt);
-            return nullptr;
+        ERL_NIF_TERM head, tail = storage_term;
+
+        while (enif_get_list_cell(env, tail, &head, &tail)) {
+            const ERL_NIF_TERM *pair_elems;
+            int pair_arity;
+            if (!enif_get_tuple(env, head, &pair_arity, &pair_elems) || pair_arity != 2) {
+                return false;
+            }
+            ErlNifBinary key_binary, value_binary;
+            if (!enif_inspect_binary(env, pair_elems[0], &key_binary) ||
+                !enif_inspect_binary(env, pair_elems[1], &value_binary) ||
+                value_binary.size != 32) {
+                return false;
+            }
+            key_scratch.assign(key_binary.data, key_binary.data + key_binary.size);
+            StorageSlot slot;
+            slot.key = key_scratch;
+            slot.value = (char*)value_binary.data;
+            entry.compact_storage->slots.push_back(std::move(slot));
         }
-        return mt;
+        return true;
     }
 
-    return nullptr;
+    return false;
 }
 
 static void rlp_encode_balance(const uint256_t &balance, std::vector<uint8_t> &out)
@@ -1412,8 +1526,7 @@ static bool parse_compact_account(ErlNifEnv *env, ERL_NIF_TERM account_term,
     out.entry.code = std::move(code_buf);
 
     out.entry.nonce = (uint64_t)nonce;
-    out.entry.storage = uncompact_storage(env, storage_term, storage_key);
-    return out.entry.storage != nullptr;
+    return parse_compact_storage(env, storage_term, out.entry, storage_key);
 }
 
 static ERL_NIF_TERM uncompact_state_fail(ErlNifEnv *env, ErlNifMapIterator *iter,
@@ -1431,29 +1544,41 @@ static ERL_NIF_TERM uncompact_state_fail(ErlNifEnv *env, ErlNifMapIterator *iter
     return enif_make_badarg(env);
 }
 
-static void batch_insert_state_items(merkletree *state_store, std::vector<PendingStateItem> &items,
-        bin_t &addr_key)
+static void batch_insert_state_items(merkletree *state_store, std::vector<PendingStateItem> &items)
 {
     if (items.empty()) {
         return;
     }
+    std::sort(items.begin(), items.end(), [](const PendingStateItem &a, const PendingStateItem &b) {
+        return memcmp(a.addr.value, b.addr.value, 20) < 0;
+    });
     Lock lock(state_store);
+    std::vector<std::pair<bin_t, uint256_t>> pairs;
+    pairs.reserve(items.size());
     for (auto &item : items) {
-        addr_key.assign(item.addr.value, item.addr.value + 20);
-        state_store->shared_state->tree.insert_item(addr_key, item.hash);
+        bin_t key;
+        key.assign(item.addr.value, item.addr.value + 20);
+        pairs.emplace_back(std::move(key), item.hash);
     }
+    state_store->shared_state->tree.insert_items_sorted(pairs);
 }
 
 static bool append_uncompacted_account(ErlNifEnv *env, accountmap *am, AccountHashCtx &hash_ctx,
         std::vector<PendingStateItem> &pending_state, const uint160_t &addr, AccountEntry &entry,
         const uint256_t *storage_root_override, const uint256_t *code_hash_override, size_t i)
 {
+    if (storage_root_override == nullptr && entry.storage == nullptr) {
+        materialize_storage(entry);
+    }
     uint256_t account_hash;
     if (!hash_ctx.compute(entry, storage_root_override, code_hash_override, account_hash)) {
         return false;
     }
-    keep_storage_in_map(entry.storage);
-    am->shared->accounts[addr] = entry;
+    bool has_lazy_storage = entry.compact_storage != nullptr;
+    if (!has_lazy_storage && entry.storage != nullptr) {
+        keep_storage_in_map(entry.storage);
+    }
+    am->shared->accounts[addr] = std::move(entry);
     pending_state.push_back({addr, account_hash});
     nif_loop_progress(env, i);
     return true;
@@ -1528,9 +1653,6 @@ account_map_uncompact_state(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
                 parsed.has_compact_code_hash ? &parsed.compact_code_hash : nullptr;
             if (!append_uncompacted_account(env, am, scratch.hash_ctx, pending_state, addr,
                     parsed.entry, storage_root_override, code_hash_override, i)) {
-                if (parsed.entry.storage != empty_storage_tree) {
-                    enif_release_resource(parsed.entry.storage);
-                }
                 return uncompact_state_fail(env, &iter, am, state_store);
             }
 
@@ -1539,7 +1661,7 @@ account_map_uncompact_state(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
         enif_map_iterator_destroy(env, &iter);
     }
 
-    batch_insert_state_items(state_store, pending_state, scratch.state_addr_key);
+    batch_insert_state_items(state_store, pending_state);
 
     uint256_t state_root;
     {
