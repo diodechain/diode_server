@@ -54,6 +54,10 @@ defmodule CMerkleParallelStress do
   #
   # P8  get_proofs + to_list concurrently on same tree — read-heavy + each() traversal.
   #
+  # P9  Concurrent lock/1 (enter_lock dedup) + difference/2 on overlapping trees —
+  #      reproduces production deadlock: locked_states_mutex held while waiting on a
+  #      second tree mutex vs difference_raw dual-lock ordering.
+  #
 
   def normalize_argv(argv) do
     case argv do
@@ -106,6 +110,7 @@ defmodule CMerkleParallelStress do
       run_named("P4_clone_write_storm", fn -> p4_clone_storm(ctx) end)
       run_named("P5_interleave_mutate_and_diff", fn -> p5_interleave(ctx) end)
       run_named("P6_concurrent_lock", fn -> p6_concurrent_lock(ctx) end)
+      run_named("P9_lock_and_difference", fn -> p9_lock_and_difference(ctx) end)
       run_named("P7_many_shortlived_trees", fn -> p7_shortlived_parallel(ctx) end)
       run_named("P8_proofs_and_to_list", fn -> p8_proofs_to_list(ctx) end)
     end)
@@ -282,6 +287,57 @@ defmodule CMerkleParallelStress do
         :ok
       end,
       max_concurrency: tasks,
+      timeout: :infinity,
+      ordered: false
+    )
+    |> Stream.run()
+  end
+
+  defp p9_lock_and_difference(%{tasks: tasks, ops: ops}) do
+    shared =
+      CMerkleTree.new()
+      |> CMerkleTree.insert_items(
+        Enum.map(1..100, fn i -> {String.pad_leading("s#{i}", 32), CMerkleTree.hash("s#{i}")} end)
+      )
+
+    other =
+      CMerkleTree.new()
+      |> CMerkleTree.insert_items(
+        Enum.map(1..100, fn i -> {String.pad_leading("o#{i}", 32), CMerkleTree.hash("o#{i}")} end)
+      )
+
+    lockers = div(tasks, 3) |> max(1)
+    differ = tasks - lockers
+
+    Task.async_stream(
+      1..lockers,
+      fn _ ->
+        _ =
+          shared
+          |> CMerkleTree.clone()
+          |> CMerkleTree.lock()
+
+        :ok
+      end,
+      max_concurrency: lockers,
+      timeout: :infinity,
+      ordered: false
+    )
+    |> Stream.run()
+
+    Task.async_stream(
+      1..differ,
+      fn w ->
+        Enum.each(1..ops, fn j ->
+          k = String.pad_leading("p9#{w}_#{j}", 32)
+          _ = CMerkleTree.insert(shared, k, CMerkleTree.hash("p9#{w}#{j}"))
+          _ = CMerkleTree.difference(shared, other)
+          _ = CMerkleTree.difference(other, shared)
+        end)
+
+        :ok
+      end,
+      max_concurrency: differ,
       timeout: :infinity,
       ordered: false
     )
