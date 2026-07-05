@@ -56,7 +56,7 @@
 |----|--------|----------|-----|--------|
 | F-3 | **`enif_binary_to_term` in `make_proof`** | Medium | CWE-502 / CWE-400 | Decodes Erlang term bytes embedded in proofs (`proof.type == 2`). Malicious or huge terms can stress atom table / allocation. Mitigations: trust only proofs from your own tree; consider max depth/size for `make_proof` recursion; optional caps via external format limits. |
 | F-4 | **Recursive `make_proof` / `do_get_proofs`** | Low–medium | CWE-674 | Depth follows trie height (bounded by key path; practical depth large for adversarial trie). Stack exhaustion theoretically possible on extreme trees; monitor if accepting untrusted trees. |
-| F-5 | **Interaction `LockedStates::mtx` vs tree mutexes** | Medium | CWE-833 | `enter_lock` takes global mutex then per-tree mutex; `difference` no longer inverts per-tree order (F-2). Still document: no lock held across `enif_*` that could re-enter NIF. |
+| F-5 | **Interaction `LockedStates::mtx` vs tree mutexes** | Medium | CWE-833 | **Fixed:** `enter_lock` drops `locked_states_mutex` before ordered acquisition of a second tree mutex; reserves a canonical `has_clone` ref so concurrent `leave_lock` cannot free it mid-switch. `difference` uses the same `SharedState*` lock order. |
 | F-6 | **Global `locked_states` / `stats_mutex` on upgrade** | Low | CWE-665 | `on_reload`/`on_upgrade` no-op; hot upgrade could leave stale globals. Acceptable if NIF not hot-reloaded. |
 
 ### Information disclosure / introspection
