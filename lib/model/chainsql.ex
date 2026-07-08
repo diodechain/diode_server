@@ -184,8 +184,12 @@ defmodule Model.ChainSql do
   end
 
   def fetch!(sql, param1 \\ nil) do
-    fetch!(__MODULE__, sql, param1)
+    Sql.fetch!(__MODULE__, sql, param1)
+    |> repair_loaded_block()
   end
+
+  defp repair_loaded_block(%Block{} = block), do: Block.repair_transaction_hash(block)
+  defp repair_loaded_block(other), do: other
 
   def init() do
     Ets.init(Model.ChainSql.Writer)
@@ -375,6 +379,31 @@ defmodule Model.ChainSql do
     block
   end
 
+  @doc """
+  Rewrites the serialized block `data` column after an on-demand header repair.
+  """
+  @spec repair_block_data(Chain.Block.t()) :: Chain.Block.t()
+  def repair_block_data(%Block{} = block) do
+    case Block.hash(block) do
+      <<hash::binary-size(32)>> ->
+        Writer.wait_for_flush(hash, "repair_block_data")
+
+        case Writer.peek(hash) do
+          nil -> :ok
+          _ -> Ets.put(Writer, hash, block)
+        end
+
+        query!(__MODULE__, "UPDATE blocks SET data = ?2 WHERE hash = ?1",
+          bind: [hash, prepare_data(block)]
+        )
+
+        block
+
+      _ ->
+        block
+    end
+  end
+
   def put_peak(block_hash) do
     Writer.wait_for_done()
     [number] = BlockProcess.fetch(block_hash, [:number])
@@ -407,6 +436,7 @@ defmodule Model.ChainSql do
 
   def block_by_hash(hash) do
     Writer.query(hash)
+    |> Block.repair_transaction_hash()
   end
 
   def query_last_blocks_by_miners(min_block, max_block, miners) do
@@ -448,7 +478,7 @@ defmodule Model.ChainSql do
       """,
       bind: [hash]
     )
-    |> Enum.map(fn [data: raw] -> BertInt.decode!(raw) end)
+    |> Enum.map(fn [data: raw] -> raw |> BertInt.decode!() |> Block.repair_transaction_hash() end)
   end
 
   def blockquick_window(hash) do
@@ -629,7 +659,9 @@ defmodule Model.ChainSql do
     Sql.query!(__MODULE__, "SELECT data FROM blocks WHERE number IS NULL",
       call_timeout: @infinity
     )
-    |> Enum.map(fn [data: data] -> BertInt.decode!(data) end)
+    |> Enum.map(fn [data: data] ->
+      data |> BertInt.decode!() |> Block.repair_transaction_hash()
+    end)
   end
 
   def clear_alt_blocks() do
@@ -732,7 +764,7 @@ defmodule Model.ChainSql do
       )
 
     case BertInt.decode!(state) do
-      {prev_hash, _delta} -> block_by_hash(prev_hash) != nil
+      {prev_hash, _delta} -> Chain.block_by_hash?(prev_hash)
       %Chain.State{} -> true
     end
   end

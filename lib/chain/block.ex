@@ -58,6 +58,7 @@ defmodule Chain.Block do
              true <- Chain.Block.hash(b) == Chain.Block.hash(b2),
              true <- Chain.Block.state_consistent?(b2) do
           ChainSql.put_block(b2)
+          BlockProcess.cache_block(b2)
           true
         else
           _ -> false
@@ -224,12 +225,10 @@ defmodule Chain.Block do
          {_, sim_block} <- test_tc(:simulate, fn -> simulate(wire_block, true) end),
          {_, true} <- test_tc(:registry_tx, fn -> has_registry_tx?(sim_block) end) do
       %Block{} = sim_block
-      %Header{} = sim_header = sim_block.header
       %Header{} = blk_header = wire_block.header
-      %Chain.State{} = sim_state = sim_header.state_hash
+      %Chain.State{} = sim_state = sim_block.header.state_hash
       new_state = %{sim_state | hash: blk_header.state_hash}
-      new_header = %{sim_header | state_hash: new_state}
-      block = %{sim_block | header: new_header}
+      block = %{sim_block | header: %{blk_header | state_hash: new_state}}
       block = ensure_fast_validate_block_hash(block, wire_block)
 
       tc(:put_new_block, fn -> ChainSql.put_new_block(block) end)
@@ -503,6 +502,39 @@ defmodule Chain.Block do
   @spec encode_transactions(any()) :: binary()
   def encode_transactions(transactions) do
     BertExt.encode!(Enum.map(transactions, &Transaction.to_rlp/1))
+  end
+
+  @doc """
+  Backfills a missing `transaction_hash` from the block's transactions.
+
+  Blocks imported with fast validation historically omitted this field. When
+  detected, the repaired header is persisted so the fix runs at most once per
+  block on disk.
+  """
+  @spec repair_transaction_hash(Chain.Block.t()) :: Chain.Block.t()
+  def repair_transaction_hash(%Block{header: %{transaction_hash: tx_hash}} = block)
+      when is_binary(tx_hash) do
+    block
+  end
+
+  def repair_transaction_hash(%Block{} = block) do
+    tx_hash = Diode.hash(encode_transactions(transactions(block)))
+
+    repaired = %{block | header: %{block.header | transaction_hash: tx_hash}}
+
+    case hash(repaired) do
+      <<block_hash::binary-size(32)>> ->
+        Logger.info(
+          "repair_transaction_hash: backfilled transactionsRoot for block #{number(repaired)} (#{Base16.encode(block_hash, false)})"
+        )
+
+        ChainSql.repair_block_data(repaired)
+
+      _ ->
+        :ok
+    end
+
+    repaired
   end
 
   def simulate_and_check(%Block{} = block) do

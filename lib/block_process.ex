@@ -64,16 +64,13 @@ defmodule BlockProcess do
     if not Chain.block_by_hash?(block_hash) do
       with_block(nil, fun)
     else
-      EtsLru.fetch(__MODULE__, block_hash, fn ->
-        Stats.tc(:sql_block_by_hash, fn ->
-          Model.ChainSql.block_by_hash(block_hash)
-        end)
-      end)
+      block_hash
+      |> load_block()
       |> fun.()
     end
   end
 
-  def with_block(%Block{} = block, fun), do: fun.(block)
+  def with_block(%Block{} = block, fun), do: block |> Block.repair_transaction_hash() |> fun.()
   def with_block("latest", fun), do: with_block(Chain.peak(), fun)
   def with_block("pending", fun), do: Chain.Worker.with_candidate(fun)
   def with_block("earliest", fun), do: with_block(0, fun)
@@ -90,5 +87,22 @@ defmodule BlockProcess do
       # assuming it's a block index
       with_block(Base16.decode_int(ref), fun)
     end
+  end
+
+  defp load_block(block_hash) do
+    raw =
+      EtsLru.fetch(__MODULE__, block_hash, fn ->
+        Stats.tc(:sql_block_by_hash, fn ->
+          Model.ChainSql.block_by_hash(block_hash)
+        end)
+      end)
+
+    repaired = Block.repair_transaction_hash(raw)
+
+    if repaired != raw do
+      EtsLru.put(__MODULE__, block_hash, Block.strip_state(repaired))
+    end
+
+    repaired
   end
 end
