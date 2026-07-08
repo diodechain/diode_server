@@ -16,6 +16,7 @@ extern "C" {
 #include <cstdio>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #ifdef __GLIBC__
 #include <malloc.h>
@@ -1281,6 +1282,51 @@ account_map_clone(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     return res;
 }
 
+static bool get_optional_merkletree(ErlNifEnv *env, ERL_NIF_TERM term, merkletree **out)
+{
+    *out = nullptr;
+    if (enif_is_atom(env, term)) {
+        char atom[16];
+        if (enif_get_atom(env, term, atom, sizeof(atom), ERL_NIF_LATIN1) &&
+            strcmp(atom, "nil") == 0) {
+            return true;
+        }
+        return false;
+    }
+    return enif_get_resource(env, term, merkletree_type, (void **)out);
+}
+
+static ERL_NIF_TERM
+account_map_lock(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    accountmap *am;
+    merkletree *store = nullptr;
+
+    if (argc != 2) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
+    if (!get_optional_merkletree(env, argv[1], &store)) return enif_make_badarg(env);
+
+    {
+        AccountMapLock lock(am);
+        std::unordered_set<merkletree*> locked;
+        size_t i = 0;
+        for (auto &entry : am->shared->accounts) {
+            i++;
+            merkletree *storage = materialize_storage(entry.second);
+            if (storage != nullptr && locked.insert(storage).second) {
+                locked_states->enter_lock(storage);
+            }
+            nif_loop_progress(env, i);
+        }
+    }
+
+    if (store != nullptr) {
+        locked_states->enter_lock(store);
+    }
+
+    return argv[0];
+}
+
 static ERL_NIF_TERM account_entry_to_term(ErlNifEnv *env, AccountEntry &entry)
 {
     merkletree *storage = materialize_storage(entry);
@@ -1867,13 +1913,14 @@ static ErlNifFunc nif_funcs[] = {
     {"root_hashes_raw", 1, merkletree_root_hashes, 0},
     {"bucket_count", 1, merkletree_bucket_count, 0},
     {"size", 1, merkletree_size, 0},
-    {"clone", 1, merkletree_clone, 0},
+    {"clone", 1, merkletree_clone, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"count_zeros", 1, merkletree_count_zeros, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"struct_sizes_raw", 0, merkletree_struct_sizes, 0},
     {"memory_stats_raw", 1, merkletree_memory_stats, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"malloc_info_raw", 0, merkletree_malloc_info, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"account_map_new", 0, account_map_new, 0},
     {"account_map_clone", 1, account_map_clone, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"account_map_lock", 2, account_map_lock, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"account_map_get", 2, account_map_get, 0},
     {"account_map_put", 6, account_map_put, 0},
     {"account_map_delete", 2, account_map_delete, 0},

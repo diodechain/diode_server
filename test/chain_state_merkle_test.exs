@@ -337,6 +337,70 @@ defmodule ChainStateMerkleTest do
     end
   end
 
+  describe "lock → clone writable fork (block sync path)" do
+    test "normalized :store fork writable after parent lock" do
+      base =
+        State.new()
+        |> put_account(1, account_with_storage([{word32(1), val32(1)}]))
+        |> put_account(2, account_u256_slots(0..8))
+        |> State.normalize()
+
+      assert base.store != nil
+      parent_hash = State.hash(base)
+
+      Chain.State.lock(base)
+      fork = State.clone(base)
+
+      fork =
+        put_account(
+          fork,
+          1,
+          account_with_storage([
+            {word32(1), val32(1)},
+            {word32(99), val32(99)}
+          ])
+        )
+
+      assert State.hash(fork) != parent_hash
+      assert Account.storage_value(State.account(fork, addr(1)), word32(99)) == val32(99)
+
+      assert Account.storage_value(State.account(base, addr(1)), word32(99)) ==
+               <<0::unsigned-size(256)>>
+
+      assert is_binary(State.hash(base))
+    end
+
+    test "block-sync composite: lock parent, clone fork, mutate all accounts" do
+      parent =
+        State.new()
+        |> put_account(1, account_u256_slots(0..20))
+        |> put_account(2, account_with_storage([{word32(1), val32(1)}]))
+
+      Chain.State.lock(parent)
+      fork = State.clone(parent)
+
+      fork =
+        Enum.reduce(1..2, fork, fn aid, st ->
+          acc =
+            st
+            |> State.account(addr(aid))
+            |> Account.storage_set_value(slot_u256(500 + aid), val_u256(aid * 100))
+
+          put_account(st, aid, acc)
+        end)
+
+      assert is_binary(State.hash(fork))
+
+      for aid <- 1..2 do
+        assert Account.storage_value(State.account(fork, addr(aid)), slot_u256(500 + aid)) ==
+                 val_u256(aid * 100)
+
+        assert Account.storage_value(State.account(parent, addr(aid)), slot_u256(500 + aid)) ==
+                 <<0::unsigned-size(256)>>
+      end
+    end
+  end
+
   describe "scale: many accounts and keys" do
     test "16 accounts x 48 sequential slots each" do
       prev =

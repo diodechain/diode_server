@@ -15,7 +15,7 @@
 defmodule CMerkleFuzz do
   @moduledoc false
 
-  alias Chain.Account
+  alias Chain.{Account, State}
 
   # mix run script.exs -- --iterations N passes ["--", "--iterations", "N"]; strip the leading "--".
   def normalize_argv(argv) do
@@ -103,7 +103,7 @@ defmodule CMerkleFuzz do
   end
 
   defp run_round(round, ctx) do
-    scenario = :rand.uniform(15)
+    scenario = :rand.uniform(18)
 
     case scenario do
       1 -> s_string_batch_insert_diff(round, ctx)
@@ -121,6 +121,9 @@ defmodule CMerkleFuzz do
       13 -> s_account_get_materialize_diff(round, ctx)
       14 -> s_gc_during_lock_diff(round, ctx)
       15 -> s_import_map_lock_diff(round, ctx)
+      16 -> s_state_lock_clone_mutate(round, ctx)
+      17 -> s_account_map_lock_bulk(round, ctx)
+      18 -> s_account_map_lock_concurrent(round, ctx)
     end
 
     if rem(round, 50) == 0 do
@@ -316,7 +319,7 @@ defmodule CMerkleFuzz do
     _ = CMerkleTree.get_proofs(t, k)
   end
 
-  # --- S8–S15: lock, account map, GC (see c_src/LOCK_ORDER.md) ---
+  # --- S8–S18: lock, account map, GC, bulk account_map_lock (see c_src/LOCK_ORDER.md) ---
 
   defp addr(i), do: <<i::unsigned-size(160)>>
 
@@ -517,6 +520,118 @@ defmodule CMerkleFuzz do
 
     _ = CMerkleTree.difference(tree, sibling)
     _ = CMerkleTree.root_hash(tree)
+  end
+
+  defp s_state_lock_clone_mutate(_round, _ctx) do
+    n = :rand.uniform(60) + 10
+    compact = build_compact_accounts(n)
+
+    parent =
+      compact
+      |> then(fn accounts -> %State{accounts: accounts} end)
+      |> State.uncompact()
+
+    if :rand.uniform(2) == 1 do
+      parent = State.normalize(parent)
+    end
+
+    parent_hash = State.hash(parent)
+    Chain.State.lock(parent)
+    fork = State.clone(parent)
+
+    writes = :rand.uniform(min(n, 12)) + 1
+
+    fork =
+      Enum.reduce(1..writes, fork, fn j, state ->
+        id = addr(rem(j, n) + 1)
+
+        acc =
+          state
+          |> State.account(id)
+          |> Account.storage_set_value(slot(j + 50_000), <<j * 17::unsigned-size(256)>>)
+
+        State.set_account(state, id, acc)
+      end)
+
+    fork_hash = State.hash(fork)
+    unless is_binary(fork_hash), do: raise("fork hash not binary")
+
+    for j <- 1..writes do
+      id = addr(rem(j, n) + 1)
+
+      if Account.storage_value(State.account(parent, id), slot(j + 50_000)) !=
+           <<0::unsigned-size(256)>> do
+        raise("parent mutated after lock->clone fork write")
+      end
+    end
+  end
+
+  defp s_account_map_lock_bulk(_round, _ctx) do
+    n = :rand.uniform(100) + 20
+    group = :rand.uniform(8) + 2
+
+    map =
+      Enum.reduce(1..n, CAccountMap.new(), fn i, acc ->
+        g = div(i - 1, group)
+
+        storage =
+          CMerkleTree.insert_items(CMerkleTree.new(), [
+            {slot(g + 1), <<g + 1::unsigned-size(256)>>}
+          ])
+
+        CAccountMap.put(acc, addr(i), i, i * 1_000, storage, <<i>>)
+      end)
+
+    store =
+      CMerkleTree.insert_items(CMerkleTree.new(), [
+        {slot(88_888), <<88_888::unsigned-size(256)>>}
+      ])
+
+    _ = CAccountMap.lock(map, store)
+
+    fork =
+      map
+      |> CAccountMap.clone()
+      |> CAccountMap.put(addr(1), 77, 77_000, CMerkleTree.new(), <<77>>)
+
+    if CAccountMap.size(fork) != n, do: raise("fork size mismatch")
+
+    if CAccountMap.get(map, addr(1)) == CAccountMap.get(fork, addr(1)),
+      do: raise("parent mutated")
+  end
+
+  defp s_account_map_lock_concurrent(_round, _ctx) do
+    n = :rand.uniform(60) + 20
+
+    map =
+      Enum.reduce(1..n, CAccountMap.new(), fn i, acc ->
+        storage =
+          CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i * 5::unsigned-size(256)>>)
+
+        CAccountMap.put(acc, addr(i), i, i * 1_000, storage, <<i>>)
+      end)
+
+    {_, _, storage_a, _} = CAccountMap.get(map, addr(1))
+    {_, _, storage_b, _} = CAccountMap.get(map, addr(min(n, 2)))
+
+    workers = 6
+
+    1..workers
+    |> Task.async_stream(
+      fn w ->
+        if rem(w, 2) == 0 do
+          _ = CAccountMap.lock(map, nil)
+        else
+          _ = CMerkleTree.difference(storage_a, storage_b)
+        end
+
+        :ok
+      end,
+      max_concurrency: workers,
+      timeout: 60_000,
+      ordered: false
+    )
+    |> Stream.run()
   end
 end
 

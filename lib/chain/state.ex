@@ -182,12 +182,17 @@ defmodule Chain.State do
     |> clone_store()
   end
 
-  def lock(%Chain.State{accounts: accounts} = state) do
+  def lock(%Chain.State{accounts: accounts} = state) when is_map(accounts) do
     for {_id, acc} <- account_list(accounts) do
       do_lock(Account.tree(acc))
     end
 
     do_lock(Map.get(state, :store))
+    state
+  end
+
+  def lock(%Chain.State{accounts: accounts} = state) do
+    CAccountMap.lock(accounts, Map.get(state, :store))
     state
   end
 
@@ -251,7 +256,10 @@ defmodule Chain.State do
     CAccountMap.put_account(accounts, id, account)
   end
 
-  defp clone_accounts(accounts) when is_map(accounts), do: Map.new(accounts)
+  defp clone_accounts(accounts) when is_map(accounts) do
+    Map.new(accounts, fn {id, acc} -> {id, Account.clone(acc)} end)
+  end
+
   defp clone_accounts(accounts), do: CAccountMap.clone(accounts)
 
   defp clone_store(%Chain.State{} = state) do

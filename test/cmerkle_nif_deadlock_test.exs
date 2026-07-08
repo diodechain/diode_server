@@ -134,6 +134,66 @@ defmodule CMerkleNifDeadlockTest do
     end
   end
 
+  describe "D-C5 account_map_lock vs clone and difference" do
+    test "concurrent bulk lock, clone, and storage difference" do
+      n = 120
+
+      map =
+        Enum.reduce(1..n, CAccountMap.new(), fn i, acc ->
+          storage =
+            CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i * 3::unsigned-size(256)>>)
+
+          CAccountMap.put(acc, addr(i), i, i * 1_000, storage, <<i>>)
+        end)
+
+      store =
+        CMerkleTree.insert_items(CMerkleTree.new(), [
+          {slot(99_999), <<99_999::unsigned-size(256)>>}
+        ])
+
+      lockers = div(@tasks, 3) |> max(1)
+      cloners = div(@tasks, 3) |> max(1)
+      differ = @tasks - lockers - cloners
+
+      run_parallel(lockers, fn _ ->
+        _ = CAccountMap.lock(map, store)
+        :ok
+      end)
+
+      run_parallel(cloners, fn w ->
+        fork = CAccountMap.clone(map)
+
+        fork =
+          CAccountMap.put(
+            fork,
+            addr(rem(w, n) + 1),
+            9_999,
+            9_999,
+            CMerkleTree.new(),
+            <<9_999>>
+          )
+
+        if CAccountMap.size(fork) != n, do: raise("clone size mismatch")
+        :ok
+      end)
+
+      run_parallel(differ, fn i ->
+        a = CAccountMap.get(map, addr(rem(i, n) + 1))
+        b = CAccountMap.get(map, addr(rem(i + 1, n) + 1))
+
+        case {a, b} do
+          {{_, _, sa, _}, {_, _, sb, _}} ->
+            _ = CMerkleTree.difference(sa, sb)
+
+          _ ->
+            :ok
+        end
+
+        :ok
+      end)
+    end
+  end
+
   describe "D-B2 three-tree difference overlap" do
     test "difference(A,B) concurrent with difference(A,C)" do
       shared =

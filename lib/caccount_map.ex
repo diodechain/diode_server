@@ -11,6 +11,8 @@ defmodule CAccountMap do
 
   def clone(map), do: CMerkleTree.account_map_clone(map)
 
+  def lock(map, store \\ nil), do: CMerkleTree.account_map_lock(map, store)
+
   def get(map, <<_::160>> = addr) do
     case CMerkleTree.account_map_get(map, addr) do
       :undefined -> :undefined

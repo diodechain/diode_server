@@ -30,6 +30,7 @@
 | `malloc_info_raw` | 0 | — | tests, `cmerkle_memory_bench.exs` |
 | `account_map_new` | 0 | — | `CAccountMap.new/0`, `Chain.State` |
 | `account_map_clone` | 1 | account map resource | `CAccountMap.clone/1`, `Chain.State.clone/1` |
+| `account_map_lock` | 2 | account map resource, optional state trie or `nil` | `CAccountMap.lock/2`, `Chain.State.lock/1` |
 | `account_map_get` | 2 | resource, 20-byte address | `CAccountMap.get/2` |
 | `account_map_put` | 6 | resource, address, nonce, balance, storage resource, code | `CAccountMap.put/5` |
 | `account_map_delete` | 2 | resource, address | `CAccountMap.delete/2` |
@@ -72,7 +73,7 @@
 
 | ID | Topic | Severity | CWE | Notes |
 |----|--------|----------|-----|--------|
-| F-9 | **Unbounded work per NIF** | Medium | CWE-400 | Long-running exports use dirty schedulers: **CPU-bound** — `get_proofs_raw`, `difference_raw`, `to_list`, `import_map`, `count_zeros`, `memory_stats_raw`, `account_map_clone`, `account_map_to_list`, `account_map_uncompact_state`; **IO-bound** — `malloc_info_raw`. `account_map_put`/`delete` stay on normal schedulers; first COW copy uses `enif_consume_timeslice` every 1024 entries. Large dirty-NIF loops also call `enif_consume_timeslice` every 512 iterations. Ensure adequate dirty CPU schedulers at runtime (`+SDcpu` on heavy sync nodes). |
+| F-9 | **Unbounded work per NIF** | Medium | CWE-400 | Long-running exports use dirty schedulers: **CPU-bound** — `get_proofs_raw`, `difference_raw`, `to_list`, `import_map`, `count_zeros`, `memory_stats_raw`, `clone`, `account_map_clone`, `account_map_lock`, `account_map_to_list`, `account_map_uncompact_state`; **IO-bound** — `malloc_info_raw`. `account_map_put`/`delete` stay on normal schedulers; first COW copy uses `enif_consume_timeslice` every 1024 entries. Large dirty-NIF loops also call `enif_consume_timeslice` every 512 iterations. Ensure adequate dirty CPU schedulers at runtime (`+SDcpu` on heavy sync nodes). |
 
 ### Memory safety (manual review)
 

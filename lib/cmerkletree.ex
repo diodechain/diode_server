@@ -136,6 +136,7 @@ defmodule CMerkleTree do
 
   def account_map_new(), do: error()
   def account_map_clone(_map), do: error()
+  def account_map_lock(_map, _store), do: error()
   def account_map_get(_map, _addr), do: error()
   def account_map_put(_map, _addr, _nonce, _balance, _storage, _code), do: error()
   def account_map_delete(_map, _addr), do: error()

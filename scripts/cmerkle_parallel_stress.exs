@@ -66,7 +66,7 @@ defmodule CMerkleParallelStress do
   # P11 mass disposable trees + GC while difference/lock (D-A2, D-A5)
   # P12 account_map uncompact_state + storage difference workers (D-C2, D-D3)
   # P13 account_map clone/put/delete + storage difference (D-C1, D-C4)
-  # P14 Chain.State difference + lock + uncompact composite (D-D1–D-D4)
+  # P14 Chain.State difference + lock + uncompact + lock→clone→write composite (D-D1–D-D4)
   # P15 dirty-scheduler saturation: lock, difference, uncompact, clone, get_proofs
   #
 
@@ -743,9 +743,11 @@ defmodule CMerkleParallelStress do
       end)
 
     compact = State.compact(block)
-    differ = div(tasks, 3) |> max(1)
-    lockers = div(tasks, 3) |> max(1)
-    uncompactors = tasks - differ - lockers
+    quarter = div(tasks, 4) |> max(1)
+    differ = quarter
+    lockers = quarter
+    writers = quarter
+    uncompactors = max(tasks - differ - lockers - writers, 1)
 
     run = fn tag, count, fun ->
       Task.async_stream(
@@ -770,6 +772,21 @@ defmodule CMerkleParallelStress do
       :ok
     end)
 
+    run.(:write, writers, fn w ->
+      locked = State.lock(prev)
+      fork = State.clone(locked)
+      id = addr(rem(w, n) + 1)
+      acc0 = State.account(fork, id)
+      tree = Account.tree(acc0)
+
+      tree =
+        CMerkleTree.insert(tree, slot(w + 300_000), <<w * 13::unsigned-size(256)>>)
+
+      _ = State.set_account(fork, id, Account.put_tree(acc0, tree))
+      _ = State.hash(fork)
+      :ok
+    end)
+
     run.(:uncompact, uncompactors, fn _ ->
       _ = State.uncompact(compact)
       :ok
@@ -778,7 +795,7 @@ defmodule CMerkleParallelStress do
 
   defp p15_dirty_scheduler_saturation(%{tasks: tasks, accounts: n}) do
     compact = build_compact_accounts(min(n, 120))
-    live = build_live_state(min(n, 80))
+    live = build_live_state(min(n, 80)) |> State.normalize()
 
     other =
       live
@@ -803,7 +820,7 @@ defmodule CMerkleParallelStress do
     1..tasks
     |> Task.async_stream(
       fn w ->
-        case rem(w, 5) do
+        case rem(w, 6) do
           0 ->
             _ =
               proof_tree
@@ -825,11 +842,14 @@ defmodule CMerkleParallelStress do
             _ = CMerkleTree.get_proofs(proof_tree, k)
             _ = CMerkleTree.to_list(proof_tree)
 
-          _ ->
+          4 ->
             _ =
               proof_tree
               |> CMerkleTree.clone()
               |> CMerkleTree.insert(String.pad_leading("x#{w}", 32), CMerkleTree.hash("x#{w}"))
+
+          _ ->
+            _ = CAccountMap.lock(live.accounts, Map.get(live, :store))
         end
 
         :ok

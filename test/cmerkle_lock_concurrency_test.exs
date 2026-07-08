@@ -141,6 +141,55 @@ defmodule CMerkleLockConcurrencyTest do
     end
   end
 
+  describe "account_map_lock NIF concurrency" do
+    test "concurrent CAccountMap.lock on maps with deduped shared storage tries" do
+      map = lock_test_shared_storage_map(60, 5)
+
+      store =
+        CMerkleTree.insert_items(CMerkleTree.new(), [
+          {String.pad_leading("store", 32), CMerkleTree.hash("store")}
+        ])
+
+      run_parallel(@tasks, fn _ ->
+        _ = CAccountMap.lock(map, store)
+        :ok
+      end)
+    end
+
+    test "concurrent account_map_lock and storage difference" do
+      map = lock_test_shared_storage_map(48, 4)
+
+      {_, _, storage_a, _} = CAccountMap.get(map, <<1::unsigned-size(160)>>)
+      {_, _, storage_b, _} = CAccountMap.get(map, <<2::unsigned-size(160)>>)
+
+      lockers = div(@tasks, 2) |> max(1)
+      differ = @tasks - lockers
+
+      run_parallel(lockers, fn _ ->
+        _ = CAccountMap.lock(map, nil)
+        :ok
+      end)
+
+      run_parallel(differ, fn _ ->
+        _ = CMerkleTree.difference(storage_a, storage_b)
+        _ = CMerkleTree.difference(storage_b, storage_a)
+        :ok
+      end)
+    end
+  end
+
+  defp lock_test_shared_storage_map(account_count, group_size) do
+    Enum.reduce(1..account_count, CAccountMap.new(), fn i, map ->
+      storage =
+        CMerkleTree.insert_items(CMerkleTree.new(), [
+          {String.pad_leading("g#{div(i - 1, group_size)}", 32),
+           CMerkleTree.hash("g#{div(i - 1, group_size)}")}
+        ])
+
+      CAccountMap.put(map, <<i::unsigned-size(160)>>, i, i * 1_000, storage, <<i>>)
+    end)
+  end
+
   defp run_parallel(count, fun) do
     result =
       1..count

@@ -25,7 +25,9 @@ See also [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) (F-5 fix) and [`scripts/cmer
 | `difference_raw` | `locked_states_mutex` → snapshot pointers → `SharedState*` mutexes (address order) → release global | Prevents UAF between snapshot and dual-lock |
 | `enter_lock` (dedup) | `locked_states_mutex` → tree → pin `has_clone` → **release global** → canonical switch → re-take global | Map entry holds a `has_clone` ref; canonical re-validated before switch |
 | `leave_lock` / GC destructor | `locked_states_mutex` → tree → erase map (drop map ref) → destroy | Map erase always when GC'd tree is the canonical entry |
+| `merkletree_clone` | `Lock(parent)` | Dirty CPU scheduler; O(1) shallow resource alloc (`locked = false`) |
 | `account_map_clone` | `AccountMapLock` → `Lock(parent_storage)` per trie (sequential) | Dirty scheduler; long hold |
+| `account_map_lock` | `AccountMapLock` → `enter_lock` per unique storage trie; optional store trie after map lock released | Dirty scheduler; dedupes shared storage tries |
 | `account_map_uncompact_state` | `AccountMapLock(input)` → `materialize_storage` (brief tree lock) → `batch_insert` (state_store lock) | Dirty scheduler |
 | `account_map_put/delete` | `AccountMapLock` only | May `release_resource` → async GC `leave_lock` |
 | Insert / COW | Tree lock → ItemPool / PreAllocator / stripe pool | Same-thread nesting |
@@ -64,7 +66,7 @@ Each scenario has an ID, hypothesis, and test coverage target.
 | D-C2 | `account_map_uncompact_state` + per-account `difference` | Independent domains unless storage shared | P12, S12, ExUnit D-C2 |
 | D-C3 | `account_map_get` / `to_list` (materialize) + `difference` | Brief tree lock vs diff | S13 |
 | D-C4 | `account_map_put` replacing storage + GC `leave_lock` | Async GC vs diff | P13 |
-| D-C5 | `account_map_clone` + concurrent `State.lock/1` | Correctness / writable fork | P14, chain_state_uncompact_test |
+| D-C5 | `account_map_lock` / `account_map_clone` + concurrent `State.lock/1` | Correctness / writable fork | P14, P15, chain_state_uncompact_test, ExUnit D-C5, fuzz 16–18 |
 | D-C6 | `cow_copy_accountmap` during concurrent `put` | Refcount race (F-4) | TSan on P4, P13 |
 
 ### D. Production composite (block sync)

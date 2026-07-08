@@ -36,6 +36,34 @@ defmodule CAccountMapTest do
     assert CAccountMap.get(map, addr(2)) == :undefined
   end
 
+  test "lock via NIF dedupes shared storage and accepts optional store trie" do
+    shared =
+      CMerkleTree.insert_items(CMerkleTree.new(), [
+        {<<1::unsigned-size(256)>>, <<2::unsigned-size(256)>>}
+      ])
+
+    base =
+      CAccountMap.new()
+      |> CAccountMap.put(addr(1), 1, 1_000, shared, <<1>>)
+      |> CAccountMap.put(addr(2), 2, 2_000, shared, <<2>>)
+
+    store =
+      CMerkleTree.insert_items(CMerkleTree.new(), [
+        {<<9::unsigned-size(256)>>, <<9::unsigned-size(256)>>}
+      ])
+
+    assert ^base = CAccountMap.lock(base, store)
+
+    fork = CAccountMap.clone(base)
+
+    fork =
+      fork
+      |> CAccountMap.put(addr(1), 11, 11_000, CMerkleTree.new(), <<11>>)
+
+    assert {11, 11_000, _, <<11>>} = CAccountMap.get(fork, addr(1))
+    assert {1, 1_000, _, <<1>>} = CAccountMap.get(base, addr(1))
+  end
+
   test "clone copies accounts with equal, writable storage" do
     base = put_sample(CAccountMap.new(), 5)
     fork = CAccountMap.clone(base)

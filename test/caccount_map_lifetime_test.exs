@@ -413,4 +413,132 @@ defmodule CAccountMapLifetimeTest do
       end
     end
   end
+
+  describe "map-account clone after lock (compact in-memory path)" do
+    test "fork of locked map-based state can write storage without mutating parent" do
+      accounts = %{
+        addr(1) => sample_account(1),
+        addr(2) => sample_account(2)
+      }
+
+      base = %State{State.new() | accounts: accounts}
+
+      Chain.State.lock(base)
+      fork = State.clone(base)
+
+      fork =
+        fork
+        |> State.account(addr(1))
+        |> Account.storage_set_value(slot(77), val(77))
+        |> then(&State.set_account(fork, addr(1), &1))
+
+      assert Account.storage_value(State.account(fork, addr(1)), slot(77)) == val(77)
+
+      assert Account.storage_value(State.account(base, addr(1)), slot(77)) ==
+               <<0::unsigned-size(256)>>
+
+      assert is_binary(State.hash(fork))
+    end
+  end
+
+  describe "shared storage trie dedup in account_map_clone" do
+    test "lock then clone with multiple accounts sharing one storage trie stays writable" do
+      shared =
+        CMerkleTree.insert_items(CMerkleTree.new(), [
+          {slot(1), val(1)},
+          {slot(2), val(2)}
+        ])
+
+      accounts =
+        CAccountMap.new()
+        |> CAccountMap.put(addr(1), 1, 1_000, shared, <<1>>)
+        |> CAccountMap.put(addr(2), 2, 2_000, shared, <<2>>)
+
+      base = %State{State.new() | accounts: accounts}
+
+      Chain.State.lock(base)
+      fork = State.clone(base)
+
+      fork =
+        Enum.reduce(1..2, fork, fn i, state ->
+          acc =
+            state
+            |> State.account(addr(i))
+            |> Account.storage_set_value(slot(100 + i), val(100 + i))
+
+          State.set_account(state, addr(i), acc)
+        end)
+
+      for i <- 1..2 do
+        assert Account.storage_value(State.account(fork, addr(i)), slot(100 + i)) ==
+                 val(100 + i)
+
+        assert Account.storage_value(State.account(base, addr(i)), slot(100 + i)) ==
+                 <<0::unsigned-size(256)>>
+      end
+    end
+  end
+
+  describe "account_map_lock NIF bulk path (Chain.State.lock production)" do
+    test "bulk lock on many accounts then clone fork stays writable" do
+      base =
+        Enum.reduce(1..80, State.new(), fn i, state ->
+          State.set_account(state, addr(i), sample_account(i))
+        end)
+
+      Chain.State.lock(base)
+      fork = State.clone(base)
+
+      fork =
+        Enum.reduce(1..10, fork, fn i, state ->
+          acc =
+            state
+            |> State.account(addr(i))
+            |> Account.storage_set_value(slot(200 + i), val(200 + i))
+
+          State.set_account(state, addr(i), acc)
+        end)
+
+      for i <- 1..10 do
+        assert Account.storage_value(State.account(fork, addr(i)), slot(200 + i)) ==
+                 val(200 + i)
+
+        assert Account.storage_value(State.account(base, addr(i)), slot(200 + i)) ==
+                 <<0::unsigned-size(256)>>
+      end
+    end
+
+    test "uncompact normalize lock uses single NIF for accounts and store" do
+      original =
+        Enum.reduce(1..40, State.new(), fn i, state ->
+          State.set_account(state, addr(i), sample_account(i))
+        end)
+
+      restored =
+        original
+        |> State.compact()
+        |> State.uncompact()
+        |> State.normalize()
+
+      assert restored.store != nil
+      Chain.State.lock(restored)
+
+      fork =
+        restored
+        |> State.clone()
+        |> then(fn state ->
+          acc =
+            state
+            |> State.account(addr(1))
+            |> Account.storage_set_value(slot(501), val(501))
+
+          State.set_account(state, addr(1), acc)
+        end)
+
+      assert Account.storage_value(State.account(fork, addr(1)), slot(501)) == val(501)
+
+      assert Account.storage_value(State.account(restored, addr(1)), slot(501)) ==
+               <<0::unsigned-size(256)>>
+    end
+  end
 end
