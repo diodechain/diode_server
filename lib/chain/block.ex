@@ -862,7 +862,22 @@ defmodule Chain.Block do
   end
 
   def miner_pubkey(%Block{} = block) do
-    miner(block) |> Wallet.pubkey!()
+    case Wallet.pubkey(miner(block)) do
+      {:ok, pubkey} ->
+        pubkey
+
+      {:error, nil} ->
+        raise ArgumentError,
+              "block #{number(block)} has no recoverable miner pubkey (miner_signature=#{miner_signature_hex(block)})"
+    end
+  end
+
+  defp miner_signature_hex(%Block{header: %Header{miner_signature: sig}}) do
+    case sig do
+      nil -> "nil"
+      <<>> -> "empty"
+      bin when is_binary(bin) -> Base16.encode(bin, false)
+    end
   end
 
   @spec coinbase(Chain.Block.t()) :: non_neg_integer
