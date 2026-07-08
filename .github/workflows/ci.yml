@@ -23,3 +23,29 @@ jobs:
         make -C deps/libsecp256k1/
         mix lint
         # mix test
+
+  nif_concurrency_smoke:
+    name: "NIF fuzz and stress smoke"
+    runs-on: "ubuntu-latest"
+    steps:
+    - name: Install deps
+      run: sudo apt-get install -y libboost-dev libboost-system-dev
+
+    - name: Setup elixir
+      uses: erlef/setup-elixir@v1
+      with:
+        otp-version: 28.4.2
+        elixir-version: 1.19.5
+
+    - uses: actions/checkout@v1
+    - run: |
+        mix local.hex --force
+        mix local.rebar --force
+        mix deps.get
+        make -C deps/libsecp256k1/
+        mix compile
+        mix nif.fuzz.quick
+        mix nif.stress.quick
+        mix run --no-start scripts/cmerkle_deadlock_watchdog.exs -- \
+          --progress-timeout 120 --wall-timeout 900 \
+          mix run --no-start scripts/cmerkle_parallel_stress.exs -- --waves 1 --tasks 24 --scenario P10 --scenario P11

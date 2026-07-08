@@ -1,0 +1,72 @@
+name: "NIF concurrency nightly"
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  nif_stress_full:
+    name: "NIF stress full (P1–P15)"
+    runs-on: "ubuntu-latest"
+    timeout-minutes: 45
+    steps:
+      - name: Install deps
+        run: sudo apt-get install -y libboost-dev libboost-system-dev
+
+      - name: Setup elixir
+        uses: erlef/setup-elixir@v1
+        with:
+          otp-version: 28.4.2
+          elixir-version: 1.19.5
+
+      - uses: actions/checkout@v1
+
+      - name: Build and run stress-full with watchdog
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          make -C deps/libsecp256k1/
+          mix compile
+          mix run --no-start scripts/cmerkle_deadlock_watchdog.exs -- \
+            --progress-timeout 180 --wall-timeout 2400 \
+            mix nif.stress.full
+
+      - name: ExUnit concurrency suite
+        run: mix test --no-start --only cmerkle_concurrency
+
+  nif_tsan_optional:
+    name: "NIF TSan spot (optional manual build)"
+    runs-on: "ubuntu-latest"
+    if: github.event_name == 'workflow_dispatch'
+    timeout-minutes: 30
+    steps:
+      - name: Install deps
+        run: sudo apt-get install -y libboost-dev libboost-system-dev clang
+
+      - name: Setup elixir
+        uses: erlef/setup-elixir@v1
+        with:
+          otp-version: 28.4.2
+          elixir-version: 1.19.5
+
+      - uses: actions/checkout@v1
+
+      - name: Build NIF with Thread Sanitizer
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          make -C deps/libsecp256k1/
+          make nif CXXFLAGS='-fsanitize=thread -g -O1 -fPIC' LDFLAGS='-fsanitize=thread'
+
+      - name: TSan stress subset
+        env:
+          TSAN_OPTIONS: "halt_on_error=1"
+        run: |
+          mix compile
+          mix run --no-start scripts/cmerkle_deadlock_watchdog.exs -- \
+            --progress-timeout 300 --wall-timeout 1200 \
+            mix run --no-start scripts/cmerkle_parallel_stress.exs -- \
+              --waves 2 --tasks 24 --scenario P4 --scenario P5 --scenario P10 --scenario P12

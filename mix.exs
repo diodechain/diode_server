@@ -55,6 +55,18 @@ defmodule Diode.Mixfile do
         "format --check-formatted",
         "credo --only warning",
         "dialyzer"
+      ],
+      "nif.fuzz.quick": [
+        "run --no-start scripts/cmerkle_fuzz.exs -- --iterations 500 --seed 1"
+      ],
+      "nif.stress.quick": [
+        "run --no-start scripts/cmerkle_parallel_stress.exs -- --waves 1 --tasks 32"
+      ],
+      "nif.stress.full": [
+        "run --no-start scripts/cmerkle_parallel_stress.exs -- --waves 5 --tasks 48"
+      ],
+      "nif.concurrency": [
+        "test --no-start --only cmerkle_concurrency"
       ]
     ]
   end
