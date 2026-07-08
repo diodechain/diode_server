@@ -15,6 +15,8 @@
 defmodule CMerkleFuzz do
   @moduledoc false
 
+  alias Chain.Account
+
   # mix run script.exs -- --iterations N passes ["--", "--iterations", "N"]; strip the leading "--".
   def normalize_argv(argv) do
     case argv do
@@ -101,7 +103,7 @@ defmodule CMerkleFuzz do
   end
 
   defp run_round(round, ctx) do
-    scenario = :rand.uniform(7)
+    scenario = :rand.uniform(15)
 
     case scenario do
       1 -> s_string_batch_insert_diff(round, ctx)
@@ -111,6 +113,14 @@ defmodule CMerkleFuzz do
       5 -> s_triple_fork_diff(round, ctx)
       6 -> s_delete_and_reinsert(round, ctx)
       7 -> s_proofs_and_roots(round, ctx)
+      8 -> s_lock_clone_insert(round, ctx)
+      9 -> s_lock_and_difference(round, ctx)
+      10 -> s_account_map_uncompact(round, ctx)
+      11 -> s_account_map_clone_mutate(round, ctx)
+      12 -> s_uncompact_and_storage_diff(round, ctx)
+      13 -> s_account_get_materialize_diff(round, ctx)
+      14 -> s_gc_during_lock_diff(round, ctx)
+      15 -> s_import_map_lock_diff(round, ctx)
     end
 
     if rem(round, 50) == 0 do
@@ -304,6 +314,209 @@ defmodule CMerkleFuzz do
     _ = CMerkleTree.root_hashes(t)
     k = <<:rand.uniform(hi)::unsigned-size(256)>>
     _ = CMerkleTree.get_proofs(t, k)
+  end
+
+  # --- S8–S15: lock, account map, GC (see c_src/LOCK_ORDER.md) ---
+
+  defp addr(i), do: <<i::unsigned-size(160)>>
+
+  defp slot(i), do: <<i::unsigned-size(256)>>
+
+  defp build_compact_accounts(n) do
+    for i <- 1..n, into: %{} do
+      tree =
+        CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i * 3::unsigned-size(256)>>)
+
+      acc = %Account{nonce: i, balance: i * 1_000, storage_root: tree, code: <<i>>}
+      {addr(i), Account.compact(acc)}
+    end
+  end
+
+  defp s_lock_clone_insert(_round, %{max_keys: mk}) do
+    n = :rand.uniform(min(mk, 120)) + 20
+
+    base =
+      CMerkleTree.new()
+      |> CMerkleTree.insert_items(
+        Enum.map(1..n, fn i -> {String.pad_leading("lk#{i}", 32), CMerkleTree.hash("lk#{i}")} end)
+      )
+
+    locked =
+      if :rand.uniform(2) == 1 do
+        base
+        |> CMerkleTree.clone()
+        |> CMerkleTree.insert(String.pad_leading("pre_lock", 32), CMerkleTree.hash("pre"))
+        |> CMerkleTree.lock()
+      else
+        base
+        |> CMerkleTree.clone()
+        |> CMerkleTree.lock()
+      end
+
+    _ = CMerkleTree.root_hash(locked)
+  end
+
+  defp s_lock_and_difference(_round, %{max_keys: mk}) do
+    n = :rand.uniform(min(mk, 100)) + 30
+
+    shared =
+      CMerkleTree.new()
+      |> CMerkleTree.insert_items(
+        Enum.map(1..n, fn i -> {String.pad_leading("sh#{i}", 32), CMerkleTree.hash("sh#{i}")} end)
+      )
+
+    other =
+      CMerkleTree.new()
+      |> CMerkleTree.insert_items(
+        Enum.map(1..n, fn i -> {String.pad_leading("ot#{i}", 32), CMerkleTree.hash("ot#{i}")} end)
+      )
+
+    _ =
+      shared
+      |> CMerkleTree.clone()
+      |> CMerkleTree.lock()
+
+    _ = CMerkleTree.difference(shared, other)
+    _ = CMerkleTree.difference(other, shared)
+  end
+
+  defp s_account_map_uncompact(_round, _ctx) do
+    n = :rand.uniform(180) + 20
+    compact = build_compact_accounts(n)
+    {accounts, _store, _hash} = CAccountMap.uncompact_state(compact)
+    if CAccountMap.size(accounts) != n, do: raise("uncompact size mismatch")
+  end
+
+  defp s_account_map_clone_mutate(_round, _ctx) do
+    n = :rand.uniform(80) + 10
+    compact = build_compact_accounts(n)
+    {accounts, _store, _hash} = CAccountMap.uncompact_state(compact)
+
+    fork =
+      accounts
+      |> CAccountMap.clone()
+      |> CAccountMap.put(addr(1), 99, 99_000, CMerkleTree.new(), <<99>>)
+
+    _ = CAccountMap.to_list(accounts)
+
+    if CAccountMap.size(fork) != n, do: raise("fork size mismatch")
+  end
+
+  defp s_uncompact_and_storage_diff(_round, _ctx) do
+    n = :rand.uniform(60) + 20
+    compact = build_compact_accounts(n)
+
+    parent = Task.async(fn -> CAccountMap.uncompact_state(compact) end)
+
+    diffs =
+      1..4
+      |> Task.async_stream(
+        fn i ->
+          a =
+            CMerkleTree.insert_items(CMerkleTree.new(), [
+              {slot(i), <<i::unsigned-size(256)>>},
+              {slot(i + 1000), <<i + 1::unsigned-size(256)>>}
+            ])
+
+          b =
+            CMerkleTree.insert_items(CMerkleTree.new(), [
+              {slot(i), <<i + 7::unsigned-size(256)>>},
+              {slot(i + 2000), <<i + 2::unsigned-size(256)>>}
+            ])
+
+          CMerkleTree.difference(a, b)
+        end,
+        max_concurrency: 4,
+        timeout: 60_000,
+        ordered: false
+      )
+      |> Enum.to_list()
+
+    {accounts, _store, _hash} = Task.await(parent, 120_000)
+    if length(diffs) != 4, do: raise("diff task count mismatch")
+    if CAccountMap.size(accounts) != n, do: raise("uncompact size mismatch")
+  end
+
+  defp s_account_get_materialize_diff(_round, _ctx) do
+    n = :rand.uniform(40) + 5
+    compact = build_compact_accounts(n)
+    {accounts, _store, _hash} = CAccountMap.uncompact_state(compact)
+
+    {_, _, storage, _} = CAccountMap.get(accounts, addr(1))
+
+    alt =
+      CMerkleTree.insert(CMerkleTree.clone(storage), slot(9999), <<9999::unsigned-size(256)>>)
+
+    _ = CMerkleTree.difference(storage, alt)
+    _ = CAccountMap.get(accounts, addr(2))
+  end
+
+  defp s_gc_during_lock_diff(_round, %{max_keys: mk}) do
+    n = :rand.uniform(min(mk, 80)) + 20
+
+    shared =
+      CMerkleTree.new()
+      |> CMerkleTree.insert_items(
+        Enum.map(1..n, fn i -> {String.pad_leading("gc#{i}", 32), CMerkleTree.hash("gc#{i}")} end)
+      )
+
+    other =
+      CMerkleTree.new()
+      |> CMerkleTree.insert_items(
+        Enum.map(1..n, fn i -> {String.pad_leading("go#{i}", 32), CMerkleTree.hash("go#{i}")} end)
+      )
+
+    1..6
+    |> Task.async_stream(
+      fn w ->
+        if rem(w, 2) == 0 do
+          _ =
+            shared
+            |> CMerkleTree.clone()
+            |> CMerkleTree.lock()
+        else
+          _ = CMerkleTree.difference(shared, other)
+        end
+
+        :ok
+      end,
+      max_concurrency: 6,
+      timeout: 60_000,
+      ordered: false
+    )
+    |> Stream.run()
+
+    short =
+      Enum.map(1..12, fn i ->
+        {String.pad_leading("tmp#{i}", 32), CMerkleTree.hash("tmp#{i}")}
+      end)
+
+    _ = CMerkleTree.new() |> CMerkleTree.insert_items(short)
+    :erlang.garbage_collect()
+  end
+
+  defp s_import_map_lock_diff(_round, %{max_keys: mk}) do
+    n = :rand.uniform(min(mk, 150)) + 30
+
+    items =
+      for i <- 1..n, into: %{} do
+        {String.pad_leading("im#{i}", 32), CMerkleTree.hash("im#{i}")}
+      end
+
+    tree = CMerkleTree.new() |> CMerkleTree.import_map(items)
+
+    sibling =
+      tree
+      |> CMerkleTree.clone()
+      |> CMerkleTree.insert(String.pad_leading("extra", 32), CMerkleTree.hash("extra"))
+
+    _ =
+      tree
+      |> CMerkleTree.clone()
+      |> CMerkleTree.lock()
+
+    _ = CMerkleTree.difference(tree, sibling)
+    _ = CMerkleTree.root_hash(tree)
   end
 end
 
