@@ -22,9 +22,9 @@ See also [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) (F-5 fix) and [`scripts/cmer
 
 | Path | Order | Notes |
 |------|-------|-------|
-| `difference_raw` | Two tree mutexes by `SharedState*` address | No global mutex |
-| `enter_lock` (dedup) | `locked_states_mutex` → tree → **release global** → dual tree (canonical switch) | F-5 fix |
-| `leave_lock` / GC destructor | `locked_states_mutex` → tree | **Holds global while waiting on tree** — remaining structural risk |
+| `difference_raw` | `locked_states_mutex` → snapshot pointers → `SharedState*` mutexes (address order) → release global | Prevents UAF between snapshot and dual-lock |
+| `enter_lock` (dedup) | `locked_states_mutex` → tree → pin `has_clone` → **release global** → canonical switch → re-take global | Map entry holds a `has_clone` ref; canonical re-validated before switch |
+| `leave_lock` / GC destructor | `locked_states_mutex` → tree → erase map (drop map ref) → destroy | Map erase always when GC'd tree is the canonical entry |
 | `account_map_clone` | `AccountMapLock` → `Lock(parent_storage)` per trie (sequential) | Dirty scheduler; long hold |
 | `account_map_uncompact_state` | `AccountMapLock(input)` → `materialize_storage` (brief tree lock) → `batch_insert` (state_store lock) | Dirty scheduler |
 | `account_map_put/delete` | `AccountMapLock` only | May `release_resource` → async GC `leave_lock` |

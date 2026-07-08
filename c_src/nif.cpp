@@ -186,13 +186,14 @@ static void switch_local_to_canonical(merkletree *mt, SharedState *local, Shared
         return;
     }
 
+    SharedState *orphan = nullptr;
     if (local->has_clone == 0) {
-        mt->shared_state = NULL;
+        mt->shared_state = nullptr;
         enif_mutex_unlock(local->mtx);
-        delete local;
+        orphan = local;
     } else {
         local->has_clone -= 1;
-        mt->shared_state = NULL;
+        mt->shared_state = nullptr;
         enif_mutex_unlock(local->mtx);
     }
     mt->shared_state = canonical;
@@ -202,6 +203,10 @@ static void switch_local_to_canonical(merkletree *mt, SharedState *local, Shared
     } else {
         enif_mutex_unlock(lo->mtx);
     }
+
+    /* Do not delete orphan here: a concurrent difference may have read local
+     * before acquiring SharedStateLock. Orphaned states are rare and small. */
+    (void)orphan;
 }
 
 static void destroy_shared_state(merkletree *mt, Lock &lock);
@@ -635,27 +640,33 @@ public:
                 }
             } else {
                 states[root_hash] = local;
+                local->has_clone += 1;
+            }
+
+            if (canonical) {
+                auto it2 = states.find(root_hash);
+                if (it2 == states.end() || it2->second != canonical) {
+                    canonical = nullptr;
+                }
+            }
+
+            if (canonical) {
+                /* Pin under global + tree lock before releasing either mutex so
+                 * concurrent leave_lock cannot delete local/canonical mid-switch. */
+                local->has_clone += 1;
+                canonical->has_clone += 1;
+                lock.unlock();
+                enif_mutex_unlock(mtx);
+                switch_local_to_canonical(mt, local, canonical);
+                enif_mutex_lock(mtx);
+                if (mt->shared_state != canonical) {
+                    canonical->has_clone -= 1;
+                }
+                enif_mutex_unlock(mtx);
+                return;
             }
         }
         enif_mutex_unlock(mtx);
-
-        if (!canonical) {
-            return;
-        }
-
-        /* Reserve a ref on canonical before taking both tree mutexes so a concurrent
-         * leave_lock cannot delete it after we drop locked_states_mutex. */
-        {
-            SharedStateLock canonical_lock(canonical);
-            canonical->has_clone += 1;
-        }
-
-        switch_local_to_canonical(mt, local, canonical);
-
-        if (mt->shared_state != canonical) {
-            SharedStateLock canonical_lock(canonical);
-            canonical->has_clone -= 1;
-        }
     }
 
     void leave_lock(merkletree *mt) {
@@ -665,12 +676,13 @@ public:
         enif_mutex_lock(mtx);
         Lock lock(mt);
 
-        if (mt->shared_state->has_clone == 0) {
-            uint256_t root_hash = mt->shared_state->tree.root_hash();
-
-            auto it = states.find(root_hash);
-            if (it != states.end() && it->second == mt->shared_state) {
-                states.erase(it);
+        SharedState *state = mt->shared_state;
+        uint256_t root_hash = state->tree.root_hash();
+        auto it = states.find(root_hash);
+        if (it != states.end() && it->second == state) {
+            states.erase(it);
+            if (state->has_clone > 0) {
+                state->has_clone -= 1;
             }
         }
 
@@ -727,13 +739,20 @@ merkletree_clone(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 }
 
 
-bool make_writeable(merkletree *mt)
+/* Caller must hold mt->shared_state->mtx. On COW, releases the old mutex and
+ * acquires the new SharedState mutex before returning. */
+static bool make_writeable_locked(merkletree *mt)
 {
-    if (mt->locked) return false;
+    if (mt->locked) {
+        return false;
+    }
 
-    if (mt->shared_state->has_clone > 0) {
-        mt->shared_state->has_clone -= 1;
-        mt->shared_state = new SharedState(*mt->shared_state);
+    SharedState *state = mt->shared_state;
+    if (state->has_clone > 0) {
+        state->has_clone -= 1;
+        mt->shared_state = new SharedState(*state);
+        enif_mutex_unlock(state->mtx);
+        enif_mutex_lock(mt->shared_state->mtx);
         print("CREATING (UNCLONING)");
     }
     return true;
@@ -787,12 +806,17 @@ merkletree_insert_item(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (!enif_inspect_binary(env, argv[1], &key_binary)) return enif_make_badarg(env);
     if (!enif_inspect_binary(env, argv[2], &value_binary)) return enif_make_badarg(env);
 
-    Lock lock(mt);
-    if (!make_writeable(mt)) return enif_make_badarg(env);
-    bin_t key_scratch;
-    if (!insert_binary_pair(mt->shared_state->tree, key_binary, value_binary, key_scratch)) {
+    enif_mutex_lock(mt->shared_state->mtx);
+    if (!make_writeable_locked(mt)) {
+        enif_mutex_unlock(mt->shared_state->mtx);
         return enif_make_badarg(env);
     }
+    bin_t key_scratch;
+    if (!insert_binary_pair(mt->shared_state->tree, key_binary, value_binary, key_scratch)) {
+        enif_mutex_unlock(mt->shared_state->mtx);
+        return enif_make_badarg(env);
+    }
+    enif_mutex_unlock(mt->shared_state->mtx);
     return argv[0];
 }
 
@@ -983,20 +1007,25 @@ merkletree_difference(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt1)) return enif_make_badarg(env);
     if (!enif_get_resource(env, argv[1], merkletree_type, (void **) &mt2)) return enif_make_badarg(env);
 
-    if (&mt1->shared_state->tree == &mt2->shared_state->tree) {
+    if (mt1 == mt2) {
         return enif_make_list(env, 0);
     }
 
-    /* Lock ordering by SharedState address to avoid deadlock when two schedulers
-     * call difference_raw(A,B) vs difference_raw(B,A). */
-    merkletree *first = mt1->shared_state < mt2->shared_state ? mt1 : mt2;
-    merkletree *second = mt1->shared_state < mt2->shared_state ? mt2 : mt1;
-    Lock lock1(first);
-    Lock lock2(second);
+    SharedState *s1;
+    SharedState *s2;
+    enif_mutex_lock(locked_states->mtx);
+    s1 = mt1->shared_state;
+    s2 = mt2->shared_state;
+    if (s1 == s2) {
+        enif_mutex_unlock(locked_states->mtx);
+        return enif_make_list(env, 0);
+    }
+    SharedStateLock state_lock(s1, s2);
+    enif_mutex_unlock(locked_states->mtx);
 
     Tree output;
-    first->shared_state->tree.difference(second->shared_state->tree, output);
-    second->shared_state->tree.difference(first->shared_state->tree, output);
+    s1->tree.difference(s2->tree, output);
+    s2->tree.difference(s1->tree, output);
 
     ERL_NIF_TERM list = enif_make_list(env, 0);
     size_t i = 0;
@@ -1004,8 +1033,8 @@ merkletree_difference(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
         i++;
         ERL_NIF_TERM key_term = make_binary(env, pair.key.data(), pair.key.size());
 
-        auto pair1 = mt1->shared_state->tree.get_item(pair);
-        auto pair2 = mt2->shared_state->tree.get_item(pair);
+        auto pair1 = s1->tree.get_item(pair);
+        auto pair2 = s2->tree.get_item(pair);
 
         ERL_NIF_TERM value1_term = pair1 == nullptr ? make_atom(env, "nil") : make_binary(env, pair1->value.data(), 32);
         ERL_NIF_TERM value2_term = pair2 == nullptr ? make_atom(env, "nil") : make_binary(env, pair2->value.data(), 32);
@@ -1026,8 +1055,11 @@ merkletree_import_map(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
     if (!enif_is_map(env, argv[1])) return enif_make_badarg(env);
 
-    Lock lock(mt);
-    if (!make_writeable(mt)) return enif_make_badarg(env);
+    enif_mutex_lock(mt->shared_state->mtx);
+    if (!make_writeable_locked(mt)) {
+        enif_mutex_unlock(mt->shared_state->mtx);
+        return enif_make_badarg(env);
+    }
 
     ERL_NIF_TERM key, value;
     ErlNifMapIterator iter;
@@ -1038,11 +1070,13 @@ merkletree_import_map(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     while (enif_map_iterator_get_pair(env, &iter, &key, &value)) {
         i++;
         if (!insert_binary_terms(env, mt->shared_state->tree, key, value, key_scratch)) {
+            enif_mutex_unlock(mt->shared_state->mtx);
             goto import_badarg;
         }
         enif_map_iterator_next(env, &iter);
         nif_loop_progress(env, i);
     }
+    enif_mutex_unlock(mt->shared_state->mtx);
     enif_map_iterator_destroy(env, &iter);
     return argv[0];
 

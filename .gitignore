@@ -12,6 +12,14 @@
 /c_src/mem_stripes_*.bin
 /c_src/massif_merkle.out
 /priv/merkletree_nif.so
+/priv/merkletree_nif.asan.so
+/priv/merkletree_nif.so.bak*
+
+# Profiling / measurement outputs (see scripts/profile_*.sh)
+/tmp/
+/leak_state.bin
+/graph.txt
+/accounts_*.ods
 
 *.pem
 *.o
