@@ -872,6 +872,34 @@ defmodule Chain.Block do
     end
   end
 
+  @doc """
+  True when a wire/export block header carries a miner signature that can be recovered.
+  Used to reject sync payloads before they are stored in SyncSql.
+  """
+  @spec miner_signature_valid?(t()) :: boolean()
+  def miner_signature_valid?(%Block{header: %Header{miner_signature: sig}}) do
+    miner_signature_usable?(sig)
+  end
+
+  @spec sync_wire_reject_reason(t()) :: String.t()
+  def sync_wire_reject_reason(%Block{} = block) do
+    "block #{number(block)} hash #{sync_wire_hash_prefix(block)} rejected: missing miner_signature (#{miner_signature_hex(block)})"
+  end
+
+  defp sync_wire_hash_prefix(%Block{} = block) do
+    case hash(block) do
+      <<h::binary-size(32)>> -> Base16.encode(h, false)
+      _ -> "unknown"
+    end
+  end
+
+  defp miner_signature_usable?(nil), do: false
+  defp miner_signature_usable?(<<>>), do: false
+
+  defp miner_signature_usable?(bin) when is_binary(bin) do
+    :binary.decode_unsigned(bin) != 0
+  end
+
   defp miner_signature_hex(%Block{header: %Header{miner_signature: sig}}) do
     case sig do
       nil -> "nil"

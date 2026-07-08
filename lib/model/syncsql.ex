@@ -36,6 +36,12 @@ defmodule Model.SyncSql do
       """)
     end)
 
+    {purged, _} = purge_invalid_blocks_from_db_and_queue(%{})
+
+    if purged > 0 do
+      Logger.info("SyncSql: purged #{purged} block(s) without miner_signature on startup")
+    end
+
     {:ok, %SyncSql{worker: spawn_link(&worker/0)}}
   end
 
@@ -51,6 +57,14 @@ defmodule Model.SyncSql do
 
   def handle_cast({:done, hash}, state = %SyncSql{queue: queue}) do
     {:noreply, %SyncSql{state | queue: Map.delete(queue, hash)}}
+  end
+
+  @doc """
+  Remove SyncSql rows (and queued blocks) whose wire header has no usable miner signature.
+  Returns the number of rows deleted from the database.
+  """
+  def purge_blocks_without_miner_signature do
+    GenServer.call(__MODULE__, :purge_blocks_without_miner_signature, :infinity)
   end
 
   defp worker_collect() do
@@ -83,24 +97,37 @@ defmodule Model.SyncSql do
   end
 
   defp worker_flush(blocks) do
-    with_transaction(fn db ->
-      Enum.each(blocks, fn block ->
-        Sql.query!(
-          db,
-          "INSERT INTO blocks (hash, parent_hash, number, data) VALUES(?1, ?2, ?3, ?4)",
-          bind: [
-            Chain.Block.hash(block),
-            Chain.Block.parent_hash(block),
-            Chain.Block.number(block),
-            BertInt.encode_zstd!(block)
-          ]
-        )
+    blocks
+    |> Enum.filter(&accept_sync_block/1)
+    |> then(fn accepted ->
+      with_transaction(fn db ->
+        Enum.each(accepted, fn block ->
+          Sql.query!(
+            db,
+            "INSERT INTO blocks (hash, parent_hash, number, data) VALUES(?1, ?2, ?3, ?4)",
+            bind: [
+              Chain.Block.hash(block),
+              Chain.Block.parent_hash(block),
+              Chain.Block.number(block),
+              BertInt.encode_zstd!(block)
+            ]
+          )
+        end)
+      end)
+
+      Enum.each(accepted, fn block ->
+        GenServer.cast(__MODULE__, {:done, Chain.Block.hash(block)})
       end)
     end)
+  end
 
-    Enum.each(blocks, fn block ->
-      GenServer.cast(__MODULE__, {:done, Chain.Block.hash(block)})
-    end)
+  defp accept_sync_block(%Chain.Block{} = block) do
+    if Chain.Block.miner_signature_valid?(block) do
+      true
+    else
+      Logger.warning("SyncSql: skipping insert (#{Chain.Block.sync_wire_reject_reason(block)})")
+      false
+    end
   end
 
   def worker() do
@@ -155,6 +182,17 @@ defmodule Model.SyncSql do
   def handle_call({:search_parent, oblock}, _from, state) do
     {block2, state} = search_parent(state, oblock, oblock)
     {:reply, block2, state}
+  end
+
+  def handle_call(:purge_blocks_without_miner_signature, _from, state = %SyncSql{queue: queue}) do
+    send(state.worker, {:flush, self()})
+
+    receive do
+      :flush_done -> :ok
+    end
+
+    {deleted, queue} = purge_invalid_blocks_from_db_and_queue(queue)
+    {:reply, deleted, %SyncSql{state | queue: queue}}
   end
 
   defp search_parent(%SyncSql{} = state, oblock, block) do
@@ -227,10 +265,53 @@ defmodule Model.SyncSql do
     if Map.has_key?(queue, hash) do
       {queue_top(block, queue), state}
     else
-      send(state.worker, {:insert_block, block})
-      queue = Map.put(queue, hash, block)
-      {block, %SyncSql{state | queue: queue}}
+      if Chain.Block.miner_signature_valid?(block) do
+        send(state.worker, {:insert_block, block})
+        queue = Map.put(queue, hash, block)
+        {block, %SyncSql{state | queue: queue}}
+      else
+        Logger.warning("SyncSql: rejecting block (#{Chain.Block.sync_wire_reject_reason(block)})")
+        {block, state}
+      end
     end
+  end
+
+  defp purge_invalid_blocks_from_db_and_queue(queue) do
+    rows =
+      query!("SELECT hash, data FROM blocks", [])
+
+    {deleted, _} =
+      Enum.reduce(rows, {0, queue}, fn [hash: hash, data: data], {count, queue} ->
+        block = BertInt.decode!(data)
+
+        if Chain.Block.miner_signature_valid?(block) do
+          {count, queue}
+        else
+          query!("DELETE FROM blocks WHERE hash = ?1", [hash])
+          queue = Map.delete(queue, hash)
+
+          Logger.warning(
+            "SyncSql: purged invalid block (#{Chain.Block.sync_wire_reject_reason(block)})"
+          )
+
+          {count + 1, queue}
+        end
+      end)
+
+    queue =
+      Enum.reduce(queue, %{}, fn {hash, block}, acc ->
+        if Chain.Block.miner_signature_valid?(block) do
+          Map.put(acc, hash, block)
+        else
+          Logger.warning(
+            "SyncSql: dropping queued block (#{Chain.Block.sync_wire_reject_reason(block)})"
+          )
+
+          acc
+        end
+      end)
+
+    {deleted, queue}
   end
 
   defp queue_top(block, queue) do
@@ -254,14 +335,30 @@ defmodule Model.SyncSql do
 
   def resolve(blocks) do
     GenServer.call(__MODULE__, {:resolve, blocks}, :infinity)
-    |> Stream.map(fn [hash: hash] ->
-      Sql.fetch!(__MODULE__, "SELECT data FROM blocks WHERE hash=?1", [hash])
-    end)
+    |> Stream.map(fn [hash: hash] -> fetch_sync_block(hash) end)
     # Cause we select .parent_hash the corresponding data will not be present for the
     # first block
     |> Stream.drop_while(fn block -> block == nil end)
     # Buffering 100 blocks each
     |> Stream.chunk_every(100)
     |> Stream.flat_map(fn chunk -> chunk end)
+  end
+
+  defp fetch_sync_block(hash) do
+    case Sql.fetch!(__MODULE__, "SELECT data FROM blocks WHERE hash=?1", [hash]) do
+      %Chain.Block{} = block ->
+        if Chain.Block.miner_signature_valid?(block) do
+          block
+        else
+          Logger.warning(
+            "SyncSql: skipping resolve (#{Chain.Block.sync_wire_reject_reason(block)})"
+          )
+
+          nil
+        end
+
+      other ->
+        other
+    end
   end
 end

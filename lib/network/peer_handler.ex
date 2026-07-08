@@ -314,13 +314,18 @@ defmodule Network.PeerHandler do
   defp handle_msg([@publish, %Chain.Block{} = block], state) do
     block = Block.export(block)
 
-    case Chain.block_by_hash?(Chain.Block.hash(block)) do
-      false ->
-        handle_block(Block.with_parent(block, fn parent -> parent end), block, state)
+    if Chain.Block.miner_signature_valid?(block) do
+      case Chain.block_by_hash?(Chain.Block.hash(block)) do
+        false ->
+          handle_block(Block.with_parent(block, fn parent -> parent end), block, state)
 
-      true ->
-        # log(state, "Chain.add_block: Skipping existing block #{Block.printable(block)}")
-        {[@response, @publish, "ok"], state}
+        true ->
+          # log(state, "Chain.add_block: Skipping existing block #{Block.printable(block)}")
+          {[@response, @publish, "ok"], state}
+      end
+    else
+      log(state, "rejecting sync block: #{Chain.Block.sync_wire_reject_reason(block)}")
+      {[@response, @publish, "ok"], state}
     end
   end
 
@@ -328,12 +333,18 @@ defmodule Network.PeerHandler do
     # if there is a missing parent we're batching 65k blocks at once
     parents =
       Enum.reduce_while(Chain.blocks(parent_hash), [], fn block, blocks ->
-        next = [Block.export(block) | blocks]
+        block = Block.export(block)
 
-        if byte_size(:erlang.term_to_binary(next)) > 260_000 do
-          {:halt, next}
+        if Chain.Block.miner_signature_valid?(block) do
+          next = [block | blocks]
+
+          if byte_size(:erlang.term_to_binary(next)) > 260_000 do
+            {:halt, next}
+          else
+            {:cont, next}
+          end
         else
-          {:cont, next}
+          {:cont, blocks}
         end
       end)
       |> Enum.reverse()
