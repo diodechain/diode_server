@@ -2,6 +2,14 @@
 # Diode Server
 # Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
+#
+# Usage:
+#   ./run                          # start app
+#   ./run remsh                    # interactive remote shell
+#   ./run rpc 'IO.inspect(node())'
+#
+# Bare expressions (e.g. 1+2) do not print with --rpc-eval; use IO.inspect/1 or IO.puts/1.
+
 ulimit -n 120000
 ulimit -c unlimited
 export ERL_CRASH_DUMP_BYTES=5000000000
@@ -10,15 +18,54 @@ export MIX_ENV=${MIX_ENV:-prod}
 export MAKEFLAGS="-j8"
 export CFLAGS="-O3 -march=native"
 export CXXFLAGS="-O3 -march=native"
+export REMSH_NODE="${REMSH_NODE:-diode}"
 
 REAL_HOME=$(eval echo "~$(whoami)")
-if [ -f ${REAL_HOME}/.asdf/asdf.sh ]; then
-    export ASDF_DATA_DIR=${REAL_HOME}/.asdf
-    . ${REAL_HOME}/.asdf/asdf.sh
 
-    asdf install erlang
-    asdf install elixir
-fi
+load_asdf() {
+    if [ -f ${REAL_HOME}/.asdf/asdf.sh ]; then
+        export ASDF_DATA_DIR=${REAL_HOME}/.asdf
+        . ${REAL_HOME}/.asdf/asdf.sh
+    fi
+}
+
+rpc_remsh_env() {
+    load_asdf
+    if [ -f ./.env ]; then
+        export `cat ./.env`
+    fi
+}
+
+case "${1:-}" in
+    rpc)
+        shift
+        if [ -z "$1" ]; then
+            echo "Usage: $0 rpc <expression>" >&2
+            exit 1
+        fi
+        rpc_remsh_env
+        expr="$*"
+        if [ -n "$COOKIE" ]; then
+            exec elixir --hidden --sname "run_rpc_$$" --cookie "$COOKIE" \
+                --rpc-eval "$REMSH_NODE" "$expr"
+        else
+            exec elixir --hidden --sname "run_rpc_$$" \
+                --rpc-eval "$REMSH_NODE" "$expr"
+        fi
+        ;;
+    remsh)
+        rpc_remsh_env
+        if [ -n "$COOKIE" ]; then
+            exec iex --sname "remsh_$$" --cookie "$COOKIE" --remsh "$REMSH_NODE"
+        else
+            exec iex --sname "remsh_$$" --remsh "$REMSH_NODE"
+        fi
+        ;;
+esac
+
+load_asdf
+asdf install erlang
+asdf install elixir
 
 mix deps.get
 mix git_version
@@ -27,5 +74,5 @@ if [ -f ./.env ]; then
     export `cat ./.env`
 fi
 
-export ELIXIR_ERL_OPTIONS="${ELIXIR_ERL_OPTIONS} -kernel inet_dist_use_interface {127,0,0,1} +sbwt none -noinput -noshell -sname diode +A 8"
+export ELIXIR_ERL_OPTIONS="${ELIXIR_ERL_OPTIONS} -kernel inet_dist_use_interface {127,0,0,1} +sbwt none -noinput -noshell -sname ${REMSH_NODE} +A 8"
 exec elixir -S mix run --no-halt

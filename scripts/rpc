@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Remote one-shot RPC against a running diode_server node.
+#
+# Usage:
+#   ./scripts/rpc 'IO.inspect(node())'
+#   DIODE_SERVER_RPC_SSH_HOST=eu2.prenet.diode.io ./scripts/rpc 'IO.inspect(Diode.env())'
+#
+# Env overrides:
+#   DIODE_SERVER_RPC_SSH_HOST   SSH host (default: eu1.prenet.diode.io)
+#   DIODE_SERVER_RPC_REMOTE_DIR App directory on server (default: /opt/diode)
+#   REMSH_NODE                  Remote node short name (default: diode)
+#
+# Bare expressions (e.g. 1+2) do not print with --rpc-eval; use IO.inspect/1 or IO.puts/1.
+#
+# If RPC fails with :noconnection but the node is up, the VM may register on a public IP
+# while EPMD listens on loopback. Add 127.0.0.1 $(hostname) to /etc/hosts on the server.
+
+set -euo pipefail
+
+SSH_HOST="${DIODE_SERVER_RPC_SSH_HOST:-eu1.prenet.diode.io}"
+REMOTE_DIR="${DIODE_SERVER_RPC_REMOTE_DIR:-/opt/diode}"
+REMSH_NODE="${REMSH_NODE:-diode}"
+
+if [ "$#" -eq 0 ]; then
+    echo "usage: $(basename "$0") <elixir-expression>" >&2
+    echo "  example: $(basename "$0") 'IO.inspect(node())'" >&2
+    exit 1
+fi
+
+expr_q=$(printf '%q' "$*")
+inner=$(printf '%q' "cd ${REMOTE_DIR} && REMSH_NODE=${REMSH_NODE} ./run rpc ${expr_q}")
+
+exec ssh "$SSH_HOST" bash -lc "$inner"
