@@ -49,3 +49,4 @@ jobs:
         mix run --no-start scripts/cmerkle_deadlock_watchdog.exs -- \
           --progress-timeout 120 --wall-timeout 900 \
           mix run --no-start scripts/cmerkle_parallel_stress.exs -- --waves 1 --tasks 24 --scenario P10 --scenario P11
+        mix nif.leak.quick

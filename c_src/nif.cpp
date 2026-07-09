@@ -49,6 +49,10 @@ static ERL_NIF_TERM make_binary(ErlNifEnv *env, uint8_t *data, size_t size);
 static volatile int shared_states = 0;
 static volatile int resources = 0;
 static int locked_states_cnt = 0;
+static int orphan_shared_states = 0;
+
+class LockedStates;
+static LockedStates* locked_states;
 
 
 #ifdef DEBUG
@@ -73,19 +77,25 @@ public:
     SharedState() : tree() {
         mtx = enif_mutex_create((char*)"merkletree_mutex");
         has_clone = 0;
-        STAT(shared_states++);
+        enif_mutex_lock(stats_mutex);
+        shared_states++;
+        enif_mutex_unlock(stats_mutex);
         print("CREATE");
     }
 
     SharedState(SharedState &other) : tree(other.tree) {
         mtx = enif_mutex_create((char*)"merkletree_mutex");
         has_clone = 0;
-        STAT(shared_states++);
+        enif_mutex_lock(stats_mutex);
+        shared_states++;
+        enif_mutex_unlock(stats_mutex);
         print("CLONE");
     }
 
     ~SharedState() {
-        STAT(shared_states--);
+        enif_mutex_lock(stats_mutex);
+        shared_states--;
+        enif_mutex_unlock(stats_mutex);
         print("DESTROY");
         enif_mutex_destroy(mtx);
     }
@@ -170,45 +180,7 @@ public:
     }
 };
 
-static void switch_local_to_canonical(merkletree *mt, SharedState *local, SharedState *canonical)
-{
-    if (local == canonical) {
-        return;
-    }
-
-    SharedState *lo = local < canonical ? local : canonical;
-    SharedState *hi = local < canonical ? canonical : local;
-    enif_mutex_lock(lo->mtx);
-    enif_mutex_lock(hi->mtx);
-
-    if (mt->shared_state != local) {
-        enif_mutex_unlock(hi->mtx);
-        enif_mutex_unlock(lo->mtx);
-        return;
-    }
-
-    SharedState *orphan = nullptr;
-    if (local->has_clone == 0) {
-        mt->shared_state = nullptr;
-        enif_mutex_unlock(local->mtx);
-        orphan = local;
-    } else {
-        local->has_clone -= 1;
-        mt->shared_state = nullptr;
-        enif_mutex_unlock(local->mtx);
-    }
-    mt->shared_state = canonical;
-
-    if (local == lo) {
-        enif_mutex_unlock(hi->mtx);
-    } else {
-        enif_mutex_unlock(lo->mtx);
-    }
-
-    /* Do not delete orphan here: a concurrent difference may have read local
-     * before acquiring SharedStateLock. Orphaned states are rare and small. */
-    (void)orphan;
-}
+static void switch_local_to_canonical(merkletree *mt, SharedState *local, SharedState *canonical);
 
 static void destroy_shared_state(merkletree *mt, Lock &lock);
 static void keep_storage_in_map(merkletree *mt);
@@ -612,7 +584,9 @@ static void destroy_shared_accountmap(accountmap *am, AccountMapLock &lock)
 class LockedStates {
 public:
     std::unordered_map<uint256_t, SharedState*> states;
+    std::vector<SharedState*> pending_orphans;
     ErlNifMutex *mtx;
+
     LockedStates() {
         mtx = enif_mutex_create((char*)"locked_states_mutex");
     }
@@ -621,8 +595,47 @@ public:
         enif_mutex_destroy(mtx);
     }
 
+    void enqueue_orphan(SharedState *state) {
+        if (state == nullptr) {
+            return;
+        }
+        enif_mutex_lock(mtx);
+        pending_orphans.push_back(state);
+        orphan_shared_states = (int)pending_orphans.size();
+        enif_mutex_unlock(mtx);
+    }
+
+    void try_reclaim_orphans() {
+        std::vector<SharedState*> snapshot;
+        enif_mutex_lock(mtx);
+        snapshot = pending_orphans;
+        enif_mutex_unlock(mtx);
+
+        for (SharedState *candidate : snapshot) {
+            if (enif_mutex_trylock(candidate->mtx) != 0) {
+                continue;
+            }
+            if (candidate->has_clone != 0) {
+                enif_mutex_unlock(candidate->mtx);
+                continue;
+            }
+            enif_mutex_unlock(candidate->mtx);
+
+            enif_mutex_lock(mtx);
+            auto it = std::find(pending_orphans.begin(), pending_orphans.end(), candidate);
+            if (it != pending_orphans.end() && candidate->has_clone == 0) {
+                pending_orphans.erase(it);
+                orphan_shared_states = (int)pending_orphans.size();
+                enif_mutex_unlock(mtx);
+                delete candidate;
+            } else {
+                enif_mutex_unlock(mtx);
+            }
+        }
+    }
+
     void enter_lock(merkletree *mt) {
-        locked_states_cnt = states.size();
+        locked_states_cnt = (int)states.size();
         print("ENTER_LOCK");
 
         SharedState *local = nullptr;
@@ -652,8 +665,6 @@ public:
             }
 
             if (canonical) {
-                /* Pin under global + tree lock before releasing either mutex so
-                 * concurrent leave_lock cannot delete local/canonical mid-switch. */
                 local->has_clone += 1;
                 canonical->has_clone += 1;
                 lock.unlock();
@@ -664,14 +675,52 @@ public:
                     canonical->has_clone -= 1;
                 }
                 enif_mutex_unlock(mtx);
+                try_reclaim_orphans();
                 return;
             }
         }
         enif_mutex_unlock(mtx);
     }
 
+    /* Lock a trie whose root_hash is already registered; repoint to canonical SharedState. */
+    void apply_canonical_lock(merkletree *mt, const uint256_t &root_hash) {
+        enif_mutex_lock(mtx);
+        auto it = states.find(root_hash);
+        if (it == states.end()) {
+            enif_mutex_unlock(mtx);
+            enter_lock(mt);
+            return;
+        }
+
+        SharedState *canonical = it->second;
+        SharedState *local = nullptr;
+
+        {
+            Lock lock(mt);
+            mt->locked = true;
+            local = mt->shared_state;
+            if (local == canonical) {
+                enif_mutex_unlock(mtx);
+                return;
+            }
+            local->has_clone += 1;
+            canonical->has_clone += 1;
+            lock.unlock();
+        }
+
+        enif_mutex_unlock(mtx);
+        switch_local_to_canonical(mt, local, canonical);
+
+        enif_mutex_lock(mtx);
+        if (mt->shared_state != canonical) {
+            canonical->has_clone -= 1;
+        }
+        enif_mutex_unlock(mtx);
+        try_reclaim_orphans();
+    }
+
     void leave_lock(merkletree *mt) {
-        locked_states_cnt = states.size();
+        locked_states_cnt = (int)states.size();
         print("LEAVE_LOCK");
 
         enif_mutex_lock(mtx);
@@ -690,10 +739,60 @@ public:
         destroy_shared_state(mt, lock);
         lock.unlock();
         enif_mutex_unlock(mtx);
+        try_reclaim_orphans();
+    }
+
+    int locked_count() const {
+        return (int)states.size();
+    }
+
+    int orphan_count() const {
+        return orphan_shared_states;
     }
 };
 
-static LockedStates* locked_states;
+static void switch_local_to_canonical(merkletree *mt, SharedState *local, SharedState *canonical)
+{
+    if (local == canonical) {
+        return;
+    }
+
+    SharedState *lo = local < canonical ? local : canonical;
+    SharedState *hi = local < canonical ? canonical : local;
+    enif_mutex_lock(lo->mtx);
+    enif_mutex_lock(hi->mtx);
+
+    if (mt->shared_state != local) {
+        enif_mutex_unlock(hi->mtx);
+        enif_mutex_unlock(lo->mtx);
+        return;
+    }
+
+    SharedState *abandoned = nullptr;
+    if (local->has_clone == 0) {
+        mt->shared_state = nullptr;
+        enif_mutex_unlock(local->mtx);
+        abandoned = local;
+    } else {
+        local->has_clone -= 1;
+        mt->shared_state = nullptr;
+        enif_mutex_unlock(local->mtx);
+        if (local->has_clone == 0) {
+            abandoned = local;
+        }
+    }
+    mt->shared_state = canonical;
+
+    if (local == lo) {
+        enif_mutex_unlock(hi->mtx);
+    } else {
+        enif_mutex_unlock(lo->mtx);
+    }
+
+    if (abandoned != nullptr) {
+        locked_states->enqueue_orphan(abandoned);
+    }
+}
 
 static ERL_NIF_TERM
 make_atom(ErlNifEnv *env, const char *atom_name)
@@ -1021,6 +1120,12 @@ merkletree_difference(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
         enif_mutex_unlock(locked_states->mtx);
         return enif_make_list(env, 0);
     }
+    if (s1 != nullptr) {
+        s1->has_clone += 1;
+    }
+    if (s2 != nullptr) {
+        s2->has_clone += 1;
+    }
     SharedStateLock state_lock(s1, s2);
     enif_mutex_unlock(locked_states->mtx);
 
@@ -1044,6 +1149,15 @@ merkletree_difference(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
         list = enif_make_list_cell(env, tuple, list);
         nif_loop_progress(env, i);
     });
+
+    if (s2 != nullptr) {
+        s2->has_clone -= 1;
+    }
+    if (s1 != nullptr) {
+        s1->has_clone -= 1;
+    }
+    state_lock.unlock();
+    locked_states->try_reclaim_orphans();
     return list;
 }
 
@@ -1180,6 +1294,38 @@ merkletree_memory_stats(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 }
 
 static ERL_NIF_TERM
+merkletree_nif_stats(ErlNifEnv *env, int argc, const ERL_NIF_TERM /*argv*/[])
+{
+    if (argc != 0) {
+        return enif_make_badarg(env);
+    }
+
+    int locked = 0;
+    int orphans = 0;
+    int shared = 0;
+    int res = 0;
+
+    enif_mutex_lock(stats_mutex);
+    shared = shared_states;
+    res = resources;
+    enif_mutex_unlock(stats_mutex);
+
+    if (locked_states != nullptr) {
+        locked_states->try_reclaim_orphans();
+        enif_mutex_lock(locked_states->mtx);
+        locked = locked_states->locked_count();
+        orphans = locked_states->orphan_count();
+        enif_mutex_unlock(locked_states->mtx);
+    }
+
+    ERL_NIF_TERM locked_term = enif_make_int(env, locked);
+    ERL_NIF_TERM orphans_term = enif_make_int(env, orphans);
+    ERL_NIF_TERM shared_term = enif_make_int(env, shared);
+    ERL_NIF_TERM resources_term = enif_make_int(env, res);
+    return enif_make_tuple4(env, locked_term, orphans_term, shared_term, resources_term);
+}
+
+static ERL_NIF_TERM
 merkletree_malloc_info(ErlNifEnv *env, int argc, const ERL_NIF_TERM /*argv*/[])
 {
     if (argc != 0) {
@@ -1308,12 +1454,25 @@ account_map_lock(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     {
         AccountMapLock lock(am);
-        std::unordered_set<merkletree*> locked;
+        std::unordered_set<uint256_t> locked_roots;
         size_t i = 0;
         for (auto &entry : am->shared->accounts) {
             i++;
             merkletree *storage = materialize_storage(entry.second);
-            if (storage != nullptr && locked.insert(storage).second) {
+            if (storage == nullptr) {
+                nif_loop_progress(env, i);
+                continue;
+            }
+
+            uint256_t root_hash;
+            {
+                Lock tree_lock(storage);
+                root_hash = storage->shared_state->tree.root_hash();
+            }
+
+            if (!locked_roots.insert(root_hash).second) {
+                locked_states->apply_canonical_lock(storage, root_hash);
+            } else {
                 locked_states->enter_lock(storage);
             }
             nif_loop_progress(env, i);
@@ -1324,6 +1483,7 @@ account_map_lock(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
         locked_states->enter_lock(store);
     }
 
+    locked_states->try_reclaim_orphans();
     return argv[0];
 }
 
@@ -1918,6 +2078,7 @@ static ErlNifFunc nif_funcs[] = {
     {"struct_sizes_raw", 0, merkletree_struct_sizes, 0},
     {"memory_stats_raw", 1, merkletree_memory_stats, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"malloc_info_raw", 0, merkletree_malloc_info, ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"nif_stats_raw", 0, merkletree_nif_stats, 0},
     {"account_map_new", 0, account_map_new, 0},
     {"account_map_clone", 1, account_map_clone, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"account_map_lock", 2, account_map_lock, ERL_NIF_DIRTY_JOB_CPU_BOUND},

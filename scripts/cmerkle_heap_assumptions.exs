@@ -103,7 +103,8 @@ defmodule CMerkleHeapAssumptions do
       {:E, "large trie: many inserts (split_node / internal nodes)", &e_large_many_keys/1},
       {:F, "lock + clone chain (NIF locked_states / root_hash dedup)", &f_lock_clone_chain/1},
       {:G, "difference on large divergent trees", &g_difference_heavy/1},
-      {:H, "proofs + root_hashes after deep updates", &h_proofs_and_hashes/1}
+      {:H, "proofs + root_hashes after deep updates", &h_proofs_and_hashes/1},
+      {:I, "account_map_lock bulk identical storage roots", &i_identical_root_lock_bulk/1}
     ]
   end
 
@@ -261,6 +262,28 @@ defmodule CMerkleHeapAssumptions do
       k = Enum.random(keys)
       _ = CMerkleTree.get_proofs(t, k)
       _ = CMerkleTree.root_hashes(t)
+      :ok
+    end)
+  end
+
+  defp i_identical_root_lock_bulk(%{rounds: r}) do
+    n = max(40, min(r, 120))
+
+    Enum.each(1..max(div(r, 2), 20), fn _pass ->
+      map =
+        Enum.reduce(1..n, CAccountMap.new(), fn i, acc ->
+          storage =
+            CMerkleTree.insert_items(CMerkleTree.new(), [
+              {String.pad_leading("i1", 32), CMerkleTree.hash("i1")},
+              {String.pad_leading("i2", 32), CMerkleTree.hash("i2")}
+            ])
+
+          CAccountMap.put(acc, <<i::unsigned-size(160)>>, i, i * 1_000, storage, <<i>>)
+        end)
+
+      _ = CAccountMap.lock(map)
+      {_locked, orphans, _shared, _res} = CMerkleTree.nif_stats()
+      if orphans > 0, do: raise("scenario I orphans=#{orphans}")
       :ok
     end)
   end

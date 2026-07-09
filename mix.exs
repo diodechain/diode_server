@@ -67,6 +67,12 @@ defmodule Diode.Mixfile do
       ],
       "nif.concurrency": [
         "test --no-start --only cmerkle_concurrency"
+      ],
+      "nif.leak.quick": [
+        "run --no-start scripts/cmerkle_leak_test.exs -- --rounds 50 --max-delta-kb 81920"
+      ],
+      "nif.leak": [
+        "test --no-start --only cmerkle_leak"
       ]
     ]
   end

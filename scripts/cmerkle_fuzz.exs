@@ -33,7 +33,8 @@ defmodule CMerkleFuzz do
         strict: [
           iterations: :integer,
           seed: :integer,
-          max_keys: :integer
+          max_keys: :integer,
+          max_rss_delta_kb: :integer
         ]
       )
 
@@ -70,6 +71,15 @@ defmodule CMerkleFuzz do
     """)
 
     ctx = %{max_keys: max_keys, seed: seed}
+
+    case Keyword.fetch(opts, :max_rss_delta_kb) do
+      {:ok, kb} when kb > 0 ->
+        Process.put(:cmerkle_fuzz_baseline_rss, read_proc_rss_kb())
+        Process.put(:cmerkle_fuzz_max_rss_delta, kb)
+
+      _ ->
+        :ok
+    end
 
     if iterations <= 0 do
       Stream.iterate(1, &(&1 + 1))
@@ -128,6 +138,10 @@ defmodule CMerkleFuzz do
 
     if rem(round, 50) == 0 do
       :erlang.garbage_collect()
+
+      if max_rss_delta = Process.get(:cmerkle_fuzz_max_rss_delta) do
+        check_fuzz_rss(max_rss_delta, round)
+      end
     end
 
     IO.puts("FUZZ_OK #{round} #{scenario}")
@@ -632,6 +646,31 @@ defmodule CMerkleFuzz do
       ordered: false
     )
     |> Stream.run()
+  end
+
+  defp read_proc_rss_kb do
+    case File.read("/proc/#{System.pid()}/status") do
+      {:ok, body} ->
+        case Regex.run(~r/VmRSS:\s+(\d+)\s+kB/i, body) do
+          [_, n] -> String.to_integer(n)
+          _ -> 0
+        end
+
+      _ ->
+        0
+    end
+  end
+
+  defp check_fuzz_rss(max_delta_kb, round) do
+    baseline = Process.get(:cmerkle_fuzz_baseline_rss, 0)
+    rss = read_proc_rss_kb()
+    delta = rss - baseline
+    {_locked, orphans, _shared, _res} = CMerkleTree.nif_stats()
+
+    if orphans > 0 or delta > max_delta_kb do
+      IO.puts(:stderr, "FUZZ_RSS_FAIL round=#{round} delta_kb=#{delta} orphans=#{orphans}")
+      System.halt(1)
+    end
   end
 end
 

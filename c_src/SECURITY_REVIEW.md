@@ -60,6 +60,7 @@
 | F-5 | **Interaction `LockedStates::mtx` vs tree mutexes** | Medium | CWE-833 | **Fixed:** `enter_lock` pins `has_clone` on local/canonical under global+tree lock, drops global before `switch_local_to_canonical`, and map entries hold a `has_clone` ref. `difference_raw` snapshots pointers under global, acquires dual tree locks, then releases global. |
 | F-6 | **`make_writeable` COW under `Lock` RAII** | High | CWE-667 | **Fixed:** COW now transfers the held mutex (unlock old `SharedState`, lock new) instead of leaving `Lock` holding a destroyed mutex while mutating a forked tree. |
 | F-7 | **`leave_lock` / canonical map UAF** | High | CWE-416 | **Fixed:** Map erase drops the map's `has_clone` ref; canonical pointers are re-validated before switch; `SharedState` is not deleted while referenced from the dedup map. |
+| F-7b | **Abandoned `SharedState` after canonical switch** | High | CWE-404 | **Fixed:** `switch_local_to_canonical` enqueues unreferenced locals on `pending_orphans`; `try_reclaim_orphans` deletes when `has_clone == 0`; `difference_raw` pins `SharedState` during dual-lock; `account_map_lock` dedupes by `root_hash`. Monitor via `nif_stats_raw/0`. |
 | F-6 | **Global `locked_states` / `stats_mutex` on upgrade** | Low | CWE-665 | `on_reload`/`on_upgrade` no-op; hot upgrade could leave stale globals. Acceptable if NIF not hot-reloaded. |
 
 ### Information disclosure / introspection

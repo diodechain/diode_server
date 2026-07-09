@@ -36,6 +36,13 @@ jobs:
       - name: ExUnit concurrency suite
         run: mix test --no-start --only cmerkle_concurrency
 
+      - name: NIF leak regression (extended)
+        run: |
+          mix run --no-start scripts/cmerkle_leak_watchdog.exs -- \
+            --progress-timeout 300 --wall-timeout 1800 \
+            mix run --no-start scripts/cmerkle_leak_test.exs -- --rounds 200 --max-delta-kb 102400
+          mix test --no-start --only cmerkle_leak
+
   nif_tsan_optional:
     name: "NIF TSan spot (optional manual build)"
     runs-on: "ubuntu-latest"

@@ -134,6 +134,11 @@ defmodule CMerkleTree do
   """
   def malloc_info, do: malloc_info_raw()
 
+  @doc """
+  Returns `{locked_states_count, pending_orphan_count, shared_states_live, merkletree_resources}`.
+  """
+  def nif_stats, do: nif_stats_raw()
+
   def account_map_new(), do: error()
   def account_map_clone(_map), do: error()
   def account_map_lock(_map, _store), do: error()
@@ -147,6 +152,7 @@ defmodule CMerkleTree do
   defp struct_sizes_raw, do: error()
   defp memory_stats_raw(_tree), do: error()
   defp malloc_info_raw, do: error()
+  defp nif_stats_raw, do: error()
   defp error, do: :erlang.nif_error(:nif_not_loaded)
 
   defp to_bytes32(nil) do

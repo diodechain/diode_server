@@ -11,6 +11,8 @@ make nif-asan     # builds ../priv/merkletree_nif.asan.so
 
 `test-asan` sets `ASAN_OPTIONS=detect_leaks=0` because slab memory held in `GlobalStripePool` at process exit is reported as leaks by LeakSanitizer (benign for this allocator design).
 
+`CMerkleTree.nif_stats/0` returns `{locked_states, pending_orphans, shared_states, resources}`; pending orphans should stay at 0 after GC in leak regression tests (`mix nif.leak.quick`).
+
 ## Instrumented NIF + Elixir (optional)
 
 To run a subset of tests against the ASan NIF:

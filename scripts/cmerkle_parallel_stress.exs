@@ -68,9 +68,10 @@ defmodule CMerkleParallelStress do
   # P13 account_map clone/put/delete + storage difference (D-C1, D-C4)
   # P14 Chain.State difference + lock + uncompact + lock→clone→write composite (D-D1–D-D4)
   # P15 dirty-scheduler saturation: lock, difference, uncompact, clone, get_proofs
+  # P16 concurrent State.lock on compact states (block-sync memory path)
   #
 
-  @all_scenarios ~w(P1 P2 P3 P4 P5 P6 P7 P8 P9 P10 P11 P12 P13 P14 P15)
+  @all_scenarios ~w(P1 P2 P3 P4 P5 P6 P7 P8 P9 P10 P11 P12 P13 P14 P15 P16)
 
   def normalize_argv(argv) do
     case argv do
@@ -186,6 +187,9 @@ defmodule CMerkleParallelStress do
 
       "P15" ->
         run_named("P15_dirty_scheduler_saturation", fn -> p15_dirty_scheduler_saturation(ctx) end)
+
+      "P16" ->
+        run_named("P16_block_lock_memory", fn -> p16_block_lock_memory(ctx) end)
 
       other ->
         raise("unknown scenario #{inspect(other)}")
@@ -859,6 +863,52 @@ defmodule CMerkleParallelStress do
       ordered: false
     )
     |> Stream.run()
+  end
+
+  defp p16_block_lock_memory(%{tasks: tasks, accounts: n, ops: ops}) do
+    prev = build_live_state(n)
+
+    block =
+      prev
+      |> State.clone()
+      |> then(fn st ->
+        Enum.reduce(1..min(ops, n), st, fn i, acc ->
+          id = addr(rem(i, n) + 1)
+          acc0 = State.account(acc, id)
+          tree = Account.tree(acc0)
+
+          tree =
+            CMerkleTree.insert(tree, slot(i + 300_000), <<i * 17::unsigned-size(256)>>)
+
+          State.set_account(acc, id, Account.put_tree(acc0, tree))
+        end)
+      end)
+
+    compact = State.compact(block)
+
+    1..tasks
+    |> Task.async_stream(
+      fn _ ->
+        restored =
+          compact
+          |> State.uncompact()
+          |> State.normalize()
+
+        _ = State.lock(restored)
+        _ = State.lock(State.clone(restored))
+        :ok
+      end,
+      max_concurrency: tasks,
+      timeout: :infinity,
+      ordered: false
+    )
+    |> Stream.run()
+
+    {_locked, orphans, _shared, _res} = CMerkleTree.nif_stats()
+
+    if orphans > 0 do
+      raise("P16 pending orphans=#{orphans}")
+    end
   end
 end
 

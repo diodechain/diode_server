@@ -27,7 +27,8 @@ See also [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) (F-5 fix) and [`scripts/cmer
 | `leave_lock` / GC destructor | `locked_states_mutex` → tree → erase map (drop map ref) → destroy | Map erase always when GC'd tree is the canonical entry |
 | `merkletree_clone` | `Lock(parent)` | Dirty CPU scheduler; O(1) shallow resource alloc (`locked = false`) |
 | `account_map_clone` | `AccountMapLock` → `Lock(parent_storage)` per trie (sequential) | Dirty scheduler; long hold |
-| `account_map_lock` | `AccountMapLock` → `enter_lock` per unique storage trie; optional store trie after map lock released | Dirty scheduler; dedupes shared storage tries |
+| `account_map_lock` | `AccountMapLock` → `enter_lock` / `apply_canonical_lock` per unique `root_hash`; optional store trie after map lock released | Dirty scheduler; dedupes by root hash to avoid redundant canonical switches |
+| `switch_local_to_canonical` | tree mutexes (address order) | Abandoned `SharedState` queued on `pending_orphans`; reclaimed via `try_reclaim_orphans` after `enter_lock` / `leave_lock` when mutex trylock succeeds and `has_clone == 0` |
 | `account_map_uncompact_state` | `AccountMapLock(input)` → `materialize_storage` (brief tree lock) → `batch_insert` (state_store lock) | Dirty scheduler |
 | `account_map_put/delete` | `AccountMapLock` only | May `release_resource` → async GC `leave_lock` |
 | Insert / COW | Tree lock → ItemPool / PreAllocator / stripe pool | Same-thread nesting |
