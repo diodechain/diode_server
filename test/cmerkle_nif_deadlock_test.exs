@@ -9,11 +9,59 @@ defmodule CMerkleNifDeadlockTest do
   alias Chain.{Account, State}
 
   @moduletag :cmerkle_concurrency
-  @tag timeout: 180_000
 
   @tasks 32
   @ops 25
   @timeout_ms 180_000
+
+  describe "D-A1/P9 phased lock_and_difference (nightly regression)" do
+    @describetag timeout: 180_000
+
+    test "phase-1 locked clone drop then phase-2 insert and difference load" do
+      tasks = 48
+      ops = 40
+      lockers = div(tasks, 3) |> max(1)
+      differ = tasks - lockers
+
+      shared =
+        CMerkleTree.new()
+        |> CMerkleTree.insert_items(
+          Enum.map(1..100, fn i ->
+            {String.pad_leading("s#{i}", 32), CMerkleTree.hash("s#{i}")}
+          end)
+        )
+
+      other =
+        CMerkleTree.new()
+        |> CMerkleTree.insert_items(
+          Enum.map(1..100, fn i ->
+            {String.pad_leading("o#{i}", 32), CMerkleTree.hash("o#{i}")}
+          end)
+        )
+
+      run_parallel(lockers, fn _ ->
+        _ =
+          shared
+          |> CMerkleTree.clone()
+          |> CMerkleTree.lock()
+
+        :ok
+      end)
+
+      :erlang.garbage_collect()
+
+      run_parallel(differ, fn w ->
+        Enum.each(1..ops, fn j ->
+          k = String.pad_leading("p9#{w}_#{j}", 32)
+          _ = CMerkleTree.insert(shared, k, CMerkleTree.hash("p9#{w}#{j}"))
+          _ = CMerkleTree.difference(shared, other)
+          _ = CMerkleTree.difference(other, shared)
+        end)
+
+        :ok
+      end)
+    end
+  end
 
   describe "D-A2 leave_lock (GC) vs difference on same tree" do
     test "concurrent disposable trees, GC, and difference on anchor" do

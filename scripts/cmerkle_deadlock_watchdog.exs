@@ -167,13 +167,34 @@ defmodule CMerkleDeadlockWatchdog do
 
   defp log_scheduler_snapshot do
     total = :erlang.system_info(:schedulers)
-    run_q = :erlang.statistics(:run_queue) |> elem(1) |> length()
+    run_q = run_queue_total()
     mem = :erlang.memory(:total)
 
     IO.puts(
       :stderr,
       "WATCHDOG_SNAPSHOT schedulers=#{total} run_queue=#{run_q} memory_total=#{mem}"
     )
+  rescue
+    error ->
+      IO.puts(:stderr, "WATCHDOG_SNAPSHOT failed=#{inspect(error)}")
+  end
+
+  # OTP 28+ returns a single non_neg_integer; older releases return
+  # {timestamp, runnable_list} where the queue depth is length(list).
+  defp run_queue_total do
+    case :erlang.statistics(:run_queue) do
+      n when is_integer(n) ->
+        n
+
+      {_timestamp, list} when is_list(list) ->
+        length(list)
+
+      other ->
+        case :erlang.statistics(:run_queue_lengths_all) do
+          lengths when is_list(lengths) -> Enum.sum(lengths)
+          _ -> inspect(other)
+        end
+    end
   end
 end
 
