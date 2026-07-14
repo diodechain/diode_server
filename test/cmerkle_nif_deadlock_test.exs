@@ -14,30 +14,18 @@ defmodule CMerkleNifDeadlockTest do
   @ops 25
   @timeout_ms 180_000
 
+  @p9_tasks 48
+  @p9_ops 40
+
   describe "D-A1/P9 phased lock_and_difference (nightly regression)" do
     @describetag timeout: 180_000
 
     test "phase-1 locked clone drop then phase-2 insert and difference load" do
-      tasks = 48
-      ops = 40
-      lockers = div(tasks, 3) |> max(1)
-      differ = tasks - lockers
+      lockers = div(@p9_tasks, 3) |> max(1)
+      differ = @p9_tasks - lockers
 
-      shared =
-        CMerkleTree.new()
-        |> CMerkleTree.insert_items(
-          Enum.map(1..100, fn i ->
-            {String.pad_leading("s#{i}", 32), CMerkleTree.hash("s#{i}")}
-          end)
-        )
-
-      other =
-        CMerkleTree.new()
-        |> CMerkleTree.insert_items(
-          Enum.map(1..100, fn i ->
-            {String.pad_leading("o#{i}", 32), CMerkleTree.hash("o#{i}")}
-          end)
-        )
+      shared = prefilled_tree("s", 100)
+      other = prefilled_tree("o", 100)
 
       run_parallel(lockers, fn _ ->
         _ =
@@ -51,7 +39,7 @@ defmodule CMerkleNifDeadlockTest do
       :erlang.garbage_collect()
 
       run_parallel(differ, fn w ->
-        Enum.each(1..ops, fn j ->
+        Enum.each(1..@p9_ops, fn j ->
           k = String.pad_leading("p9#{w}_#{j}", 32)
           _ = CMerkleTree.insert(shared, k, CMerkleTree.hash("p9#{w}#{j}"))
           _ = CMerkleTree.difference(shared, other)
@@ -336,6 +324,15 @@ defmodule CMerkleNifDeadlockTest do
   defp addr(i), do: <<i::unsigned-size(160)>>
 
   defp slot(i), do: <<i::unsigned-size(256)>>
+
+  defp prefilled_tree(prefix, n) do
+    CMerkleTree.new()
+    |> CMerkleTree.insert_items(
+      Enum.map(1..n, fn i ->
+        {String.pad_leading("#{prefix}#{i}", 32), CMerkleTree.hash("#{prefix}#{i}")}
+      end)
+    )
+  end
 
   defp build_compact_accounts(n) do
     for i <- 1..n, into: %{} do

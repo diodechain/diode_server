@@ -621,8 +621,24 @@ public:
             return;
         }
         enif_mutex_lock(mtx);
-        pending_orphans.push_back(state);
-        orphan_shared_states = (int)pending_orphans.size();
+        if (std::find(pending_orphans.begin(), pending_orphans.end(), state) ==
+                pending_orphans.end()) {
+            pending_orphans.push_back(state);
+            orphan_shared_states = (int)pending_orphans.size();
+        }
+        enif_mutex_unlock(mtx);
+    }
+
+    void remove_pending_orphan(SharedState *state) {
+        if (state == nullptr) {
+            return;
+        }
+        enif_mutex_lock(mtx);
+        auto it = std::find(pending_orphans.begin(), pending_orphans.end(), state);
+        if (it != pending_orphans.end()) {
+            pending_orphans.erase(it);
+            orphan_shared_states = (int)pending_orphans.size();
+        }
         enif_mutex_unlock(mtx);
     }
 
@@ -633,6 +649,14 @@ public:
         enif_mutex_unlock(mtx);
 
         for (SharedState *candidate : snapshot) {
+            enif_mutex_lock(mtx);
+            if (std::find(pending_orphans.begin(), pending_orphans.end(), candidate) ==
+                    pending_orphans.end()) {
+                enif_mutex_unlock(mtx);
+                continue;
+            }
+            enif_mutex_unlock(mtx);
+
             if (enif_mutex_trylock(candidate->mtx) != 0) {
                 continue;
             }
@@ -751,18 +775,20 @@ public:
         }
 
         enif_mutex_lock(mtx);
+        bool erased_from_map = false;
         for (auto it = states.begin(); it != states.end(); ++it) {
             if (it->second == state) {
                 states.erase(it);
-                if (state->has_clone > 0) {
-                    state->has_clone -= 1;
-                }
+                erased_from_map = true;
                 break;
             }
         }
         enif_mutex_unlock(mtx);
 
         enif_mutex_lock(state->mtx);
+        if (erased_from_map && state->has_clone > 0) {
+            state->has_clone -= 1;
+        }
         SharedState *dead = nullptr;
         SharedState *orphan = nullptr;
         if (mt->shared_state != nullptr) {
@@ -781,6 +807,7 @@ public:
         enif_mutex_unlock(state->mtx);
 
         if (dead != nullptr) {
+            remove_pending_orphan(dead);
             delete dead;
         }
         if (orphan != nullptr) {

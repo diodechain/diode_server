@@ -192,7 +192,7 @@ defmodule CMerkleDeadlockWatchdog do
       other ->
         case :erlang.statistics(:run_queue_lengths_all) do
           lengths when is_list(lengths) -> Enum.sum(lengths)
-          _ -> inspect(other)
+          _ -> 0
         end
     end
   end
