@@ -94,6 +94,55 @@ def setkey(key):
     run("systemctl stop diode")
     run("systemctl start diode")
 
+def setup_rps():
+  rps_sysctl = "net.core.rps_sock_flow_entries=32768"
+  run("grep -q '^net.core.rps_sock_flow_entries=' /etc/sysctl.d/99-diode.conf 2>/dev/null || echo {} >> /etc/sysctl.d/99-diode.conf".format(rps_sysctl))
+  run("sysctl -w net.core.rps_sock_flow_entries=32768")
+
+  rps_script = "/usr/local/bin/diode-rps-setup.sh"
+  script = """#!/bin/sh
+set -e
+
+iface=$(ip -o route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit }}')
+if [ -z "$iface" ]; then
+  iface=$(ip route show default | awk '/default/ { print $5; exit }')
+fi
+if [ -z "$iface" ]; then
+  echo "diode-rps-setup: no default route interface found" >&2
+  exit 1
+fi
+
+rx_queue="/sys/class/net/${iface}/queues/rx-0"
+if [ ! -d "$rx_queue" ]; then
+  echo "diode-rps-setup: ${rx_queue} not found" >&2
+  exit 1
+fi
+
+echo 0f > "${rx_queue}/rps_cpus"
+echo 4096 > "${rx_queue}/rps_flow_cnt"
+"""
+  run("cat > {} << 'EOF'\n{}\nEOF".format(rps_script, script))
+  run("chmod +x {}".format(rps_script))
+
+  rps_service = "/etc/systemd/system/diode-rps.service"
+  unit = """[Unit]
+Description=Diode RPS network tuning
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart={}
+
+[Install]
+WantedBy=multi-user.target
+""".format(rps_script)
+  run("cat > {} << 'EOF'\n{}\nEOF".format(rps_service, unit))
+  run("systemctl daemon-reload")
+  run("systemctl enable diode-rps")
+  run("systemctl restart diode-rps || systemctl start diode-rps")
+
 def optimize():
   if not exists("/etc/sysctl.d/99-diode.conf"):
     # https://access.redhat.com/solutions/30453
@@ -101,13 +150,16 @@ def optimize():
       "net.core.default_qdisc=fq", 
       "net.ipv4.tcp_congestion_control=bbr",
       "net.core.somaxconn=16384",
-      "net.ipv4.tcp_max_syn_backlog=512"
+      "net.ipv4.tcp_max_syn_backlog=512",
+      "net.core.rps_sock_flow_entries=32768",
       ]
     
     for setting in settings:
       run("echo {} >> /etc/sysctl.d/99-diode.conf".format(setting))
   
     run("sysctl --system")
+
+  setup_rps()
 
   if not exists("/etc/modules-load.d/zswap_modules.conf"):
     run("echo z3fold >> /etc/modules-load.d/zswap_modules.conf")
