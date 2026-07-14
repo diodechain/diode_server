@@ -22,9 +22,9 @@ See also [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) (F-5 fix) and [`scripts/cmer
 
 | Path | Order | Notes |
 |------|-------|-------|
-| `difference_raw` | `locked_states_mutex` → snapshot pointers → `SharedState*` mutexes (address order) → release global | Prevents UAF between snapshot and dual-lock |
+| `difference_raw` | `locked_states_mutex` → snapshot pointers + `read_pins` → **release global** → `SharedState*` mutexes (address order) → unpin `read_pins` | `read_pins` prevents COW from consuming `difference` lifetime while global is dropped |
 | `enter_lock` (dedup) | `locked_states_mutex` → tree → pin `has_clone` → **release global** → canonical switch → re-take global | Map entry holds a `has_clone` ref; canonical re-validated before switch |
-| `leave_lock` / GC destructor | `locked_states_mutex` → tree → erase map (drop map ref) → destroy | Map erase always when GC'd tree is the canonical entry |
+| `leave_lock` / GC destructor | `locked_states_mutex` (map erase by `SharedState*`) → **release global** → tree (`SharedState::mtx`) → delete if `has_clone == 0` | Global not held while waiting on tree mutex |
 | `merkletree_clone` | `Lock(parent)` | Dirty CPU scheduler; O(1) shallow resource alloc (`locked = false`) |
 | `account_map_clone` | `AccountMapLock` → `Lock(parent_storage)` per trie (sequential) | Dirty scheduler; long hold |
 | `account_map_lock` | `AccountMapLock` → `enter_lock` / `apply_canonical_lock` per unique `root_hash`; optional store trie after map lock released | Dirty scheduler; dedupes by root hash to avoid redundant canonical switches |
@@ -100,7 +100,7 @@ Each scenario has an ID, hypothesis, and test coverage target.
 
 ## Remaining structural risk
 
-`leave_lock` still acquires `locked_states_mutex` before the per-tree mutex. This mirrors the pre-fix `enter_lock` pattern that caused F-5. If P10/P11 reproduce production hangs, refactor `leave_lock` to release the global mutex before waiting on the tree (while keeping `states` map updates consistent with `enter_lock` dedup).
+`enter_lock` vs `leave_lock` can still contend when both need the same tree mutex and global map in opposite order (tree→global vs global→tree). P10/P11 stress this; no production hang reported yet. If it appears, unify on a single global lock ordering helper.
 
 ## CI / harness commands
 
