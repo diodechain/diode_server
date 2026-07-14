@@ -650,33 +650,26 @@ public:
 
         for (SharedState *candidate : snapshot) {
             enif_mutex_lock(mtx);
-            if (std::find(pending_orphans.begin(), pending_orphans.end(), candidate) ==
-                    pending_orphans.end()) {
+            auto it = std::find(pending_orphans.begin(), pending_orphans.end(), candidate);
+            if (it == pending_orphans.end()) {
                 enif_mutex_unlock(mtx);
                 continue;
             }
+            pending_orphans.erase(it);
+            orphan_shared_states = (int)pending_orphans.size();
             enif_mutex_unlock(mtx);
 
             if (enif_mutex_trylock(candidate->mtx) != 0) {
+                enqueue_orphan(candidate);
                 continue;
             }
-            if (candidate->has_clone != 0 ||
-                    candidate->read_pins.load(std::memory_order_acquire) != 0) {
+            if (!shared_state_reclaimable(candidate)) {
                 enif_mutex_unlock(candidate->mtx);
+                enqueue_orphan(candidate);
                 continue;
             }
             enif_mutex_unlock(candidate->mtx);
-
-            enif_mutex_lock(mtx);
-            auto it = std::find(pending_orphans.begin(), pending_orphans.end(), candidate);
-            if (it != pending_orphans.end() && shared_state_reclaimable(candidate)) {
-                pending_orphans.erase(it);
-                orphan_shared_states = (int)pending_orphans.size();
-                enif_mutex_unlock(mtx);
-                delete candidate;
-            } else {
-                enif_mutex_unlock(mtx);
-            }
+            delete candidate;
         }
     }
 
