@@ -192,6 +192,14 @@ static bool shared_state_reclaimable(SharedState *state) {
         state->read_pins.load(std::memory_order_acquire) == 0;
 }
 
+static void classify_shared_state_reclaim(SharedState *state, SharedState **dead, SharedState **orphan) {
+    if (shared_state_reclaimable(state)) {
+        *dead = state;
+    } else {
+        *orphan = state;
+    }
+}
+
 static void pin_shared_state_read(SharedState *state) {
     if (state != nullptr) {
         state->read_pins.fetch_add(1, std::memory_order_acq_rel);
@@ -673,52 +681,67 @@ public:
         }
     }
 
+    void switch_to_canonical_locked(merkletree *mt, SharedState *local, SharedState *canonical) {
+        enif_mutex_lock(local->mtx);
+        local->has_clone += 1;
+        enif_mutex_unlock(local->mtx);
+        enif_mutex_lock(canonical->mtx);
+        canonical->has_clone += 1;
+        enif_mutex_unlock(canonical->mtx);
+        unpin_shared_state_read(canonical);
+        switch_local_to_canonical(mt, local, canonical);
+        enif_mutex_lock(mtx);
+        if (mt->shared_state != canonical) {
+            enif_mutex_lock(canonical->mtx);
+            if (canonical->has_clone > 0) {
+                canonical->has_clone -= 1;
+            }
+            enif_mutex_unlock(canonical->mtx);
+        }
+        enif_mutex_unlock(mtx);
+        try_reclaim_orphans();
+    }
+
     void enter_lock(merkletree *mt) {
         locked_states_cnt = (int)states.size();
         print("ENTER_LOCK");
 
         SharedState *local = nullptr;
-        SharedState *canonical = nullptr;
+        uint256_t root_hash;
 
-        enif_mutex_lock(mtx);
         {
             Lock lock(mt);
             mt->locked = true;
             local = mt->shared_state;
-            uint256_t root_hash = local->tree.root_hash();
-            auto it = states.find(root_hash);
-            if (it != states.end()) {
-                if (it->second != local) {
-                    canonical = it->second;
-                }
-            } else {
-                states[root_hash] = local;
-                local->has_clone += 1;
-            }
+            root_hash = local->tree.root_hash();
+        }
 
-            if (canonical) {
-                auto it2 = states.find(root_hash);
-                if (it2 == states.end() || it2->second != canonical) {
-                    canonical = nullptr;
-                }
-            }
-
-            if (canonical) {
+        enif_mutex_lock(mtx);
+        SharedState *canonical = nullptr;
+        auto it = states.find(root_hash);
+        if (it != states.end()) {
+            if (it->second == local) {
+                enif_mutex_unlock(mtx);
+                enif_mutex_lock(local->mtx);
                 local->has_clone += 1;
-                canonical->has_clone += 1;
-                lock.unlock();
-                enif_mutex_unlock(mtx);
-                switch_local_to_canonical(mt, local, canonical);
-                enif_mutex_lock(mtx);
-                if (mt->shared_state != canonical) {
-                    canonical->has_clone -= 1;
-                }
-                enif_mutex_unlock(mtx);
-                try_reclaim_orphans();
+                enif_mutex_unlock(local->mtx);
                 return;
             }
+            canonical = it->second;
+            pin_shared_state_read(canonical);
+        } else {
+            states[root_hash] = local;
+            enif_mutex_unlock(mtx);
+            enif_mutex_lock(local->mtx);
+            local->has_clone += 1;
+            enif_mutex_unlock(local->mtx);
+            return;
         }
         enif_mutex_unlock(mtx);
+
+        if (canonical) {
+            switch_to_canonical_locked(mt, local, canonical);
+        }
     }
 
     /* Lock a trie whose root_hash is already registered; repoint to canonical SharedState. */
@@ -732,30 +755,24 @@ public:
         }
 
         SharedState *canonical = it->second;
-        SharedState *local = nullptr;
+        pin_shared_state_read(canonical);
+        enif_mutex_unlock(mtx);
 
+        SharedState *local = nullptr;
         {
             Lock lock(mt);
             mt->locked = true;
             local = mt->shared_state;
             if (local == canonical) {
-                enif_mutex_unlock(mtx);
+                enif_mutex_lock(canonical->mtx);
+                canonical->has_clone += 1;
+                enif_mutex_unlock(canonical->mtx);
+                unpin_shared_state_read(canonical);
                 return;
             }
-            local->has_clone += 1;
-            canonical->has_clone += 1;
-            lock.unlock();
         }
 
-        enif_mutex_unlock(mtx);
-        switch_local_to_canonical(mt, local, canonical);
-
-        enif_mutex_lock(mtx);
-        if (mt->shared_state != canonical) {
-            canonical->has_clone -= 1;
-        }
-        enif_mutex_unlock(mtx);
-        try_reclaim_orphans();
+        switch_to_canonical_locked(mt, local, canonical);
     }
 
     void leave_lock(merkletree *mt) {
@@ -767,37 +784,49 @@ public:
             return;
         }
 
-        enif_mutex_lock(mtx);
-        bool erased_from_map = false;
-        for (auto it = states.begin(); it != states.end(); ++it) {
-            if (it->second == state) {
-                states.erase(it);
-                erased_from_map = true;
-                break;
-            }
-        }
-        enif_mutex_unlock(mtx);
+        bool was_locked = mt->locked;
+        mt->locked = false;
 
-        enif_mutex_lock(state->mtx);
-        if (erased_from_map && state->has_clone > 0) {
-            state->has_clone -= 1;
-        }
+        uint256_t root_hash;
         SharedState *dead = nullptr;
         SharedState *orphan = nullptr;
-        if (mt->shared_state != nullptr) {
-            if (mt->shared_state->has_clone == 0) {
-                if (shared_state_reclaimable(mt->shared_state)) {
-                    dead = mt->shared_state;
-                } else {
-                    orphan = mt->shared_state;
+        bool erase_map_entry = false;
+
+        if (was_locked) {
+            enif_mutex_lock(mtx);
+            enif_mutex_lock(state->mtx);
+            root_hash = state->tree.root_hash();
+
+            if (state->has_clone > 0) {
+                state->has_clone -= 1;
+            }
+            mt->shared_state = nullptr;
+            erase_map_entry = (state->has_clone == 0);
+
+            if (state->has_clone == 0) {
+                classify_shared_state_reclaim(state, &dead, &orphan);
+            }
+
+            if (erase_map_entry) {
+                auto it = states.find(root_hash);
+                if (it != states.end() && it->second == state) {
+                    states.erase(it);
                 }
+            }
+
+            enif_mutex_unlock(state->mtx);
+            enif_mutex_unlock(mtx);
+        } else {
+            enif_mutex_lock(state->mtx);
+            if (state->has_clone == 0) {
+                classify_shared_state_reclaim(state, &dead, &orphan);
                 mt->shared_state = nullptr;
             } else {
-                mt->shared_state->has_clone -= 1;
+                state->has_clone -= 1;
                 mt->shared_state = nullptr;
             }
+            enif_mutex_unlock(state->mtx);
         }
-        enif_mutex_unlock(state->mtx);
 
         if (dead != nullptr) {
             remove_pending_orphan(dead);
@@ -1386,7 +1415,6 @@ merkletree_nif_stats(ErlNifEnv *env, int argc, const ERL_NIF_TERM /*argv*/[])
     enif_mutex_unlock(stats_mutex);
 
     if (locked_states != nullptr) {
-        locked_states->try_reclaim_orphans();
         enif_mutex_lock(locked_states->mtx);
         locked = locked_states->locked_count();
         orphans = locked_states->orphan_count();

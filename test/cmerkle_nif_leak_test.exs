@@ -71,6 +71,26 @@ defmodule CMerkleNifLeakTest do
       assert rss_kb() - baseline < 80_000
     end
 
+    test "locked clone GC retains canonical map until last registration" do
+      shared =
+        CMerkleTree.new()
+        |> CMerkleTree.insert_items(
+          Enum.map(1..80, fn i ->
+            {String.pad_leading("lc#{i}", 32), CMerkleTree.hash("lc#{i}")}
+          end)
+        )
+
+      for _ <- 1..300 do
+        _ = shared |> CMerkleTree.clone() |> CMerkleTree.lock()
+      end
+
+      force_gc()
+      {locked, orphans, shared_count, _res} = CMerkleTree.nif_stats()
+      assert orphans == 0
+      assert locked <= 80
+      assert shared_count < 500
+    end
+
     test "block sync shaped compact uncompact lock loop" do
       baseline = rss_kb()
       n = 40

@@ -23,8 +23,8 @@ See also [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) (F-5 fix) and [`scripts/cmer
 | Path | Order | Notes |
 |------|-------|-------|
 | `difference_raw` | `locked_states_mutex` → snapshot pointers + `read_pins` → **release global** → `SharedState*` mutexes (address order) → unpin `read_pins` | `read_pins` prevents COW from consuming `difference` lifetime while global is dropped |
-| `enter_lock` (dedup) | `locked_states_mutex` → tree → pin `has_clone` → **release global** → canonical switch → re-take global | Map entry holds a `has_clone` ref; canonical re-validated before switch |
-| `leave_lock` / GC destructor | `locked_states_mutex` (map erase by `SharedState*`) → **release global** → tree (`SharedState::mtx`) → delete if `has_clone == 0` | Global not held while waiting on tree mutex |
+| `enter_lock` (dedup) | tree (`mt->locked`) → `locked_states_mutex` → pin `read_pins` on canonical → **release global** → bump `has_clone` / canonical switch | `read_pins` prevents reclaim until registration ref is taken |
+| `leave_lock` / GC destructor | if `mt->locked`: `locked_states_mutex` → tree → decrement registration → erase map when `has_clone == 0`; else tree refcount only | Unlocked resources never touch `LockedStates` map |
 | `merkletree_clone` | `Lock(parent)` | Dirty CPU scheduler; O(1) shallow resource alloc (`locked = false`) |
 | `account_map_clone` | `AccountMapLock` → `Lock(parent_storage)` per trie (sequential) | Dirty scheduler; long hold |
 | `account_map_lock` | `AccountMapLock` → `enter_lock` / `apply_canonical_lock` per unique `root_hash`; optional store trie after map lock released | Dirty scheduler; dedupes by root hash to avoid redundant canonical switches |
@@ -100,7 +100,7 @@ Each scenario has an ID, hypothesis, and test coverage target.
 
 ## Remaining structural risk
 
-`enter_lock` vs `leave_lock` can still contend when both need the same tree mutex and global map in opposite order (tree→global vs global→tree). P10/P11 stress this; no production hang reported yet. If it appears, unify on a single global lock ordering helper.
+`enter_lock` and `leave_lock` now both release the global mutex before blocking on tree mutexes. Monitor `nif_stats_raw/0` (`shared_states` vs `locked_states`) in production; sustained growth indicates a reclaim regression. `nif_stats_raw` is read-only (reclaim runs from lock/unlock paths only).
 
 ## CI / harness commands
 
