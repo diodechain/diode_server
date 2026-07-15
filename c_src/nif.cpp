@@ -688,6 +688,7 @@ public:
         enif_mutex_lock(canonical->mtx);
         canonical->has_clone += 1;
         enif_mutex_unlock(canonical->mtx);
+        unpin_shared_state_read(canonical);
         switch_local_to_canonical(mt, local, canonical);
         enif_mutex_lock(mtx);
         if (mt->shared_state != canonical) {
@@ -727,6 +728,7 @@ public:
                 return;
             }
             canonical = it->second;
+            pin_shared_state_read(canonical);
         } else {
             states[root_hash] = local;
             enif_mutex_unlock(mtx);
@@ -753,6 +755,7 @@ public:
         }
 
         SharedState *canonical = it->second;
+        pin_shared_state_read(canonical);
         enif_mutex_unlock(mtx);
 
         SharedState *local = nullptr;
@@ -764,6 +767,7 @@ public:
                 enif_mutex_lock(canonical->mtx);
                 canonical->has_clone += 1;
                 enif_mutex_unlock(canonical->mtx);
+                unpin_shared_state_read(canonical);
                 return;
             }
         }
@@ -788,10 +792,11 @@ public:
         SharedState *orphan = nullptr;
         bool erase_map_entry = false;
 
-        enif_mutex_lock(state->mtx);
-        root_hash = state->tree.root_hash();
-
         if (was_locked) {
+            enif_mutex_lock(mtx);
+            enif_mutex_lock(state->mtx);
+            root_hash = state->tree.root_hash();
+
             if (state->has_clone > 0) {
                 state->has_clone -= 1;
             }
@@ -801,17 +806,18 @@ public:
             if (state->has_clone == 0) {
                 classify_shared_state_reclaim(state, &dead, &orphan);
             }
-            enif_mutex_unlock(state->mtx);
 
             if (erase_map_entry) {
-                enif_mutex_lock(mtx);
                 auto it = states.find(root_hash);
                 if (it != states.end() && it->second == state) {
                     states.erase(it);
                 }
-                enif_mutex_unlock(mtx);
             }
+
+            enif_mutex_unlock(state->mtx);
+            enif_mutex_unlock(mtx);
         } else {
+            enif_mutex_lock(state->mtx);
             if (state->has_clone == 0) {
                 classify_shared_state_reclaim(state, &dead, &orphan);
                 mt->shared_state = nullptr;

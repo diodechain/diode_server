@@ -23,8 +23,8 @@ See also [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) (F-5 fix) and [`scripts/cmer
 | Path | Order | Notes |
 |------|-------|-------|
 | `difference_raw` | `locked_states_mutex` → snapshot pointers + `read_pins` → **release global** → `SharedState*` mutexes (address order) → unpin `read_pins` | `read_pins` prevents COW from consuming `difference` lifetime while global is dropped |
-| `enter_lock` (dedup) | tree (`mt->locked`) → `locked_states_mutex` → pin `has_clone` → **release global** → canonical switch → re-take global | Map entry holds a `has_clone` ref; canonical re-validated before switch |
-| `leave_lock` / GC destructor | if `mt->locked`: tree → decrement lock registration → erase map only when `has_clone == 0`; else tree refcount only | Unlocked resources never touch `LockedStates` map |
+| `enter_lock` (dedup) | tree (`mt->locked`) → `locked_states_mutex` → pin `read_pins` on canonical → **release global** → bump `has_clone` / canonical switch | `read_pins` prevents reclaim until registration ref is taken |
+| `leave_lock` / GC destructor | if `mt->locked`: `locked_states_mutex` → tree → decrement registration → erase map when `has_clone == 0`; else tree refcount only | Unlocked resources never touch `LockedStates` map |
 | `merkletree_clone` | `Lock(parent)` | Dirty CPU scheduler; O(1) shallow resource alloc (`locked = false`) |
 | `account_map_clone` | `AccountMapLock` → `Lock(parent_storage)` per trie (sequential) | Dirty scheduler; long hold |
 | `account_map_lock` | `AccountMapLock` → `enter_lock` / `apply_canonical_lock` per unique `root_hash`; optional store trie after map lock released | Dirty scheduler; dedupes by root hash to avoid redundant canonical switches |
