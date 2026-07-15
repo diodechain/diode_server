@@ -1,0 +1,69 @@
+# Diode Server
+# Copyright 2021-2024 Diode
+# Licensed under the Diode License, Version 1.1
+defmodule Network.Status do
+  @moduledoc false
+
+  @shared_state_warn 10_000
+
+  def summary do
+    {locked, orphans, shared_states, nif_resources} = CMerkleTree.nif_stats()
+    memory = :erlang.memory()
+    run_queue = run_queue_total()
+
+    %{
+      status: health(shared_states, orphans, run_queue),
+      node: node() |> Atom.to_string(),
+      uptime_ms: Diode.uptime(),
+      version: Diode.version(),
+      chain_peak: safe_peak(),
+      schedulers: %{
+        online: :erlang.system_info(:schedulers_online),
+        run_queue: run_queue,
+        process_count: :erlang.system_info(:process_count)
+      },
+      memory: %{
+        total: memory[:total],
+        processes: memory[:processes],
+        system: memory[:system]
+      },
+      nif: %{
+        locked_states: locked,
+        orphan_shared_states: orphans,
+        shared_states: shared_states,
+        merkletree_resources: nif_resources
+      }
+    }
+  end
+
+  defp safe_peak do
+    Chain.peak()
+  catch
+    :exit, _ -> nil
+  end
+
+  defp health(shared_states, orphans, run_queue) do
+    cond do
+      orphans > 0 -> "degraded"
+      shared_states >= @shared_state_warn -> "degraded"
+      run_queue > 1_000 -> "degraded"
+      true -> "ok"
+    end
+  end
+
+  defp run_queue_total do
+    case :erlang.statistics(:run_queue) do
+      n when is_integer(n) ->
+        n
+
+      {_timestamp, list} when is_list(list) ->
+        length(list)
+
+      _ ->
+        case :erlang.statistics(:run_queue_lengths_all) do
+          lengths when is_list(lengths) -> Enum.sum(lengths)
+          _ -> 0
+        end
+    end
+  end
+end

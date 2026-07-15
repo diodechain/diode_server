@@ -31,6 +31,15 @@ defmodule Network.RpcHttp do
     cors(conn) |> send_resp(204, "")
   end
 
+  options "/status" do
+    cors(conn) |> send_resp(204, "")
+  end
+
+  get "/status" do
+    conn = cors(conn)
+    send_resp(conn, 200, Poison.encode!(Network.Status.summary()))
+  end
+
   post "/" do
     conn = cors(conn)
     local = is_local(conn.remote_ip)
