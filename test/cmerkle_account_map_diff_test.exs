@@ -25,9 +25,16 @@ defmodule CMerkleAccountMapDiffTest do
     end)
   end
 
+  defp legacy_diff(map_a, map_b) do
+    CMerkleTree.list_difference(
+      CAccountMap.to_account_list(map_a),
+      CAccountMap.to_account_list(map_b)
+    )
+  end
+
   defp assert_diff_equivalent(map_a, map_b) do
     native = CAccountMap.list_difference(map_a, map_b)
-    legacy = CAccountMap.legacy_list_difference(map_a, map_b)
+    legacy = legacy_diff(map_a, map_b)
 
     assert Map.keys(native) |> Enum.sort() == Map.keys(legacy) |> Enum.sort()
 

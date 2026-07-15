@@ -563,7 +563,7 @@ defmodule CMerkleFuzz do
       parent = State.normalize(parent)
     end
 
-    parent_hash = State.hash(parent)
+    _ = State.hash(parent)
     Chain.State.lock(parent)
     fork = State.clone(parent)
 
@@ -686,7 +686,6 @@ defmodule CMerkleFuzz do
       end)
 
     _ = CAccountMap.list_difference(base, fork)
-    _ = CAccountMap.legacy_list_difference(base, fork)
   end
 
   defp s_list_diff_vs_to_list(_round, _ctx) do
@@ -795,7 +794,10 @@ defmodule CMerkleFuzz do
     b = CAccountMap.clone(a)
     i = :rand.uniform(10) + 1
     {nonce, balance, storage, code} = CAccountMap.get(b, addr(i))
-    storage = CMerkleTree.insert(CMerkleTree.clone(storage), slot(88_888), <<88_888::unsigned-size(256)>>)
+
+    storage =
+      CMerkleTree.insert(CMerkleTree.clone(storage), slot(88_888), <<88_888::unsigned-size(256)>>)
+
     b = CAccountMap.put(b, addr(i), nonce + 1, balance, storage, code)
 
     workers = 4

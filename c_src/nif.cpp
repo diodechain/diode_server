@@ -228,6 +228,10 @@ struct uint160_t {
     bool operator==(const uint160_t &other) const {
         return memcmp(value, other.value, sizeof(value)) == 0;
     }
+
+    bool operator<(const uint160_t &other) const {
+        return memcmp(value, other.value, sizeof(value)) < 0;
+    }
 };
 
 namespace std {
@@ -356,7 +360,6 @@ public:
     }
 };
 
-/* Lock two SharedAccountMap mutexes in fixed pointer order (matches difference_raw). */
 class DualAccountMapLock {
     ErlNifMutex *first_mtx;
     ErlNifMutex *second_mtx;
@@ -393,11 +396,6 @@ public:
         enif_mutex_unlock(first_mtx);
     }
 };
-
-static bool uint160_less(const uint160_t &a, const uint160_t &b)
-{
-    return memcmp(a.value, b.value, sizeof(a.value)) < 0;
-}
 
 static void keep_storage_in_map(merkletree *mt)
 {
@@ -1850,15 +1848,27 @@ static void snapshot_side(const AccountEntry &src, DiffAccountSide &out)
     }
 }
 
-static AccountEntry side_to_entry(const DiffAccountSide &side)
+static AccountEntry side_to_entry(DiffAccountSide &side)
 {
     AccountEntry entry;
     entry.nonce = side.nonce;
     entry.balance = side.balance;
     entry.code = side.code;
     entry.storage = side.storage;
-    entry.compact_storage = clone_compact_storage(side.compact_storage.get());
+    entry.compact_storage = std::move(side.compact_storage);
     return entry;
+}
+
+static ERL_NIF_TERM diff_side_to_term(ErlNifEnv *env, DiffAccountSide &side)
+{
+    if (!side.present) {
+        return make_atom(env, "nil");
+    }
+    AccountEntry entry = side_to_entry(side);
+    ERL_NIF_TERM term = account_entry_to_term(env, entry);
+    release_entry_storage(entry);
+    side.storage = nullptr;
+    return term;
 }
 
 static bool entries_equal(ErlNifEnv *env, const AccountEntry &a, const AccountEntry &b, size_t progress_base)
@@ -1866,13 +1876,12 @@ static bool entries_equal(ErlNifEnv *env, const AccountEntry &a, const AccountEn
     if (a.nonce != b.nonce || a.balance != b.balance || a.code != b.code) {
         return false;
     }
+    if (a.storage != nullptr && a.storage == b.storage) {
+        return true;
+    }
     uint256_t root_a, root_b;
-    if (!storage_root_hash_for_entry(env, a, root_a, progress_base)) {
-        return false;
-    }
-    if (!storage_root_hash_for_entry(env, b, root_b, progress_base + 1)) {
-        return false;
-    }
+    storage_root_hash_for_entry(env, a, root_a, progress_base);
+    storage_root_hash_for_entry(env, b, root_b, progress_base + 1);
     return root_a == root_b;
 }
 
@@ -1910,7 +1919,7 @@ account_map_list_difference_raw(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
         }
 
         std::vector<uint160_t> keys(key_set.begin(), key_set.end());
-        std::sort(keys.begin(), keys.end(), uint160_less);
+        std::sort(keys.begin(), keys.end());
 
         size_t i = 0;
         for (auto &addr : keys) {
@@ -1920,27 +1929,20 @@ account_map_list_difference_raw(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
             bool in_a = it_a != am_a->shared->accounts.end();
             bool in_b = it_b != am_b->shared->accounts.end();
 
-            if (in_a && in_b) {
-                if (entries_equal(env, it_a->second, it_b->second, i * 2)) {
-                    nif_loop_progress(env, i);
-                    continue;
-                }
-                DiffItem item;
-                item.addr = addr;
-                snapshot_side(it_a->second, item.a);
-                snapshot_side(it_b->second, item.b);
-                diffs.push_back(std::move(item));
-            } else if (in_a) {
-                DiffItem item;
-                item.addr = addr;
-                snapshot_side(it_a->second, item.a);
-                diffs.push_back(std::move(item));
-            } else {
-                DiffItem item;
-                item.addr = addr;
-                snapshot_side(it_b->second, item.b);
-                diffs.push_back(std::move(item));
+            if (in_a && in_b && entries_equal(env, it_a->second, it_b->second, i)) {
+                nif_loop_progress(env, i);
+                continue;
             }
+
+            DiffItem item;
+            item.addr = addr;
+            if (in_a) {
+                snapshot_side(it_a->second, item.a);
+            }
+            if (in_b) {
+                snapshot_side(it_b->second, item.b);
+            }
+            diffs.push_back(std::move(item));
             nif_loop_progress(env, i);
         }
     }
@@ -1950,20 +1952,8 @@ account_map_list_difference_raw(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
     for (auto &item : diffs) {
         j++;
         ERL_NIF_TERM addr_term = make_binary(env, (uint8_t *)item.addr.value, 20);
-        ERL_NIF_TERM side_a;
-        if (item.a.present) {
-            AccountEntry entry_a = side_to_entry(item.a);
-            side_a = account_entry_to_term(env, entry_a);
-        } else {
-            side_a = make_atom(env, "nil");
-        }
-        ERL_NIF_TERM side_b;
-        if (item.b.present) {
-            AccountEntry entry_b = side_to_entry(item.b);
-            side_b = account_entry_to_term(env, entry_b);
-        } else {
-            side_b = make_atom(env, "nil");
-        }
+        ERL_NIF_TERM side_a = diff_side_to_term(env, item.a);
+        ERL_NIF_TERM side_b = diff_side_to_term(env, item.b);
         ERL_NIF_TERM pair = enif_make_tuple2(env, side_a, side_b);
         ERL_NIF_TERM triple = enif_make_tuple2(env, addr_term, pair);
         list = enif_make_list_cell(env, triple, list);
