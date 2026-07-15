@@ -71,7 +71,7 @@ defmodule CMerkleParallelStress do
   # P16 concurrent State.lock on compact states (block-sync memory path)
   #
 
-  @all_scenarios ~w(P1 P2 P3 P4 P5 P6 P7 P8 P9 P10 P11 P12 P13 P14 P15 P16)
+  @all_scenarios ~w(P1 P2 P3 P4 P5 P6 P7 P8 P9 P10 P11 P12 P13 P14 P15 P16 P17 P18 P19 P20)
 
   def normalize_argv(argv) do
     case argv do
@@ -190,6 +190,18 @@ defmodule CMerkleParallelStress do
 
       "P16" ->
         run_named("P16_block_lock_memory", fn -> p16_block_lock_memory(ctx) end)
+
+      "P17" ->
+        run_named("P17_prepare_state_pipeline", fn -> p17_prepare_state_pipeline(ctx) end)
+
+      "P18" ->
+        run_named("P18_writer_sim", fn -> p18_writer_sim(ctx) end)
+
+      "P19" ->
+        run_named("P19_large_map_small_delta", fn -> p19_large_map_small_delta(ctx) end)
+
+      "P20" ->
+        run_named("P20_dirty_saturation_diff", fn -> p20_dirty_saturation_diff(ctx) end)
 
       other ->
         raise("unknown scenario #{inspect(other)}")
@@ -909,6 +921,157 @@ defmodule CMerkleParallelStress do
     if orphans > 0 do
       raise("P16 pending orphans=#{orphans}")
     end
+  end
+
+  defp p17_prepare_state_pipeline(%{tasks: tasks, accounts: n, ops: ops}) do
+    prev = build_live_state(n)
+
+    block =
+      prev
+      |> State.clone()
+      |> then(fn st ->
+        Enum.reduce(1..min(ops, n), st, fn i, acc ->
+          id = addr(rem(i, n) + 1)
+          acc0 = State.account(acc, id)
+          tree = Account.tree(acc0)
+
+          tree =
+            CMerkleTree.insert(tree, slot(i + 100_000), <<i * 11::unsigned-size(256)>>)
+
+          State.set_account(acc, id, Account.put_tree(acc0, tree))
+        end)
+      end)
+
+    quarter = div(tasks, 4) |> max(1)
+    differ = quarter
+    lockers = quarter
+    legacy = quarter
+    native = max(tasks - differ - lockers - legacy, 1)
+
+    run = fn tag, count, fun ->
+      Task.async_stream(1..count, fun, max_concurrency: count, timeout: :infinity, ordered: false)
+      |> Stream.run()
+
+      IO.puts(:stderr, "P17_#{tag}_done")
+    end
+
+    run.(:diff, differ, fn _ -> State.difference(prev, block) end)
+    run.(:lock, lockers, fn _ -> State.lock(State.clone(block)) end)
+    run.(:legacy, legacy, fn _ -> CAccountMap.to_list(block.accounts) end)
+    run.(:native, native, fn _ -> CAccountMap.list_difference(prev.accounts, block.accounts) end)
+  end
+
+  defp p18_writer_sim(%{tasks: tasks, accounts: n}) do
+    prev = build_live_state(n)
+
+    block =
+      prev
+      |> State.clone()
+      |> then(fn st ->
+        acc = State.account(st, addr(1))
+
+        tree =
+          Account.tree(acc)
+          |> CMerkleTree.insert(slot(400_000), <<400_000::unsigned-size(256)>>)
+
+        State.set_account(st, addr(1), Account.put_tree(acc, tree))
+      end)
+
+    writer =
+      Task.async(fn ->
+        for _ <- 1..20 do
+          _ = State.difference(prev, block)
+        end
+      end)
+
+    1..max(tasks - 1, 1)
+    |> Task.async_stream(
+      fn w ->
+        map = block.accounts
+
+        case rem(w, 4) do
+          0 -> _ = CAccountMap.lock(map, nil)
+          1 -> _ = CAccountMap.to_list(map)
+          2 -> {_, _, sa, _} = CAccountMap.get(map, addr(1))
+          {_, _, sb, _} = CAccountMap.get(map, addr(rem(w, n) + 1))
+          _ = CMerkleTree.difference(sa, sb)
+          _ -> _ = CAccountMap.delete(CAccountMap.clone(map), addr(rem(w, n) + 1))
+        end
+
+        :ok
+      end,
+      max_concurrency: tasks,
+      timeout: :infinity,
+      ordered: false
+    )
+    |> Stream.run()
+
+    Task.await(writer, :infinity)
+  end
+
+  defp p19_large_map_small_delta(%{tasks: tasks}) do
+    n = 400
+    base = build_live_state(n)
+
+    block =
+      base
+      |> State.clone()
+      |> then(fn st ->
+        Enum.reduce(1..5, st, fn i, acc ->
+          id = addr(i)
+          acc0 = State.account(acc, id)
+          tree = Account.tree(acc0) |> CMerkleTree.insert(slot(i + 500_000), <<i * 13::unsigned-size(256)>>)
+          State.set_account(acc, id, Account.put_tree(acc0, tree))
+        end)
+      end)
+
+    workers = min(tasks, 48)
+
+    1..workers
+    |> Task.async_stream(
+      fn _ -> State.difference(base, block) end,
+      max_concurrency: workers,
+      timeout: :infinity,
+      ordered: false
+    )
+    |> Stream.run()
+  end
+
+  defp p20_dirty_saturation_diff(%{tasks: tasks, accounts: n}) do
+    live = build_live_state(min(n, 80))
+
+    other =
+      live
+      |> State.clone()
+      |> then(fn st ->
+        State.set_account(st, addr(1), %Account{
+          nonce: 999,
+          balance: 999,
+          storage_root: CMerkleTree.new(),
+          code: <<>>
+        })
+      end)
+
+    map = live.accounts
+
+    1..tasks
+    |> Task.async_stream(
+      fn w ->
+        case rem(w, 5) do
+          0 -> _ = CAccountMap.list_difference(map, other.accounts)
+          1 -> _ = CAccountMap.lock(map, nil)
+          2 -> _ = State.difference(live, other)
+          3 -> _ = CMerkleTree.difference(Account.tree(State.account(live, addr(1))), Account.tree(State.account(other, addr(1))))
+          _ -> _ = CAccountMap.to_list(map)
+        end
+
+        :ok
+      end,
+      max_concurrency: tasks,
+      timeout: :infinity,
+      ordered: false
+    )
+    |> Stream.run()
   end
 end
 

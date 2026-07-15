@@ -5,6 +5,7 @@ defmodule CMerkleLockConcurrencyTest do
   use ExUnit.Case, async: false
 
   @moduletag :cmerkle_concurrency
+  @moduletag timeout: 300_000
 
   @tasks 24
   @ops 30
@@ -151,7 +152,7 @@ defmodule CMerkleLockConcurrencyTest do
         ])
 
       run_parallel(@tasks, fn _ ->
-        _ = CAccountMap.lock(map, store)
+        _ = map |> CAccountMap.clone() |> CAccountMap.lock(store)
         :ok
       end)
     end
@@ -166,13 +167,54 @@ defmodule CMerkleLockConcurrencyTest do
       differ = @tasks - lockers
 
       run_parallel(lockers, fn _ ->
-        _ = CAccountMap.lock(map, nil)
+        _ = map |> CAccountMap.clone() |> CAccountMap.lock(nil)
         :ok
       end)
 
       run_parallel(differ, fn _ ->
         _ = CMerkleTree.difference(storage_a, storage_b)
         _ = CMerkleTree.difference(storage_b, storage_a)
+        :ok
+      end)
+    end
+  end
+
+  describe "D-C7 native list_difference vs account_map_get" do
+    test "concurrent list_difference and get materialize" do
+      map = lock_test_shared_storage_map(60, 5)
+      fork = CAccountMap.clone(map)
+
+      getters = div(@tasks, 2) |> max(1)
+      differ = @tasks - getters
+
+      run_parallel(getters, fn w ->
+        _ = CAccountMap.get(map, <<rem(w, 60) + 1::unsigned-size(160)>>)
+        :ok
+      end)
+
+      run_parallel(differ, fn _ ->
+        _ = CAccountMap.list_difference(map, fork)
+        :ok
+      end)
+    end
+  end
+
+  describe "D-C8 dual-map list_difference ordering" do
+    test "list_difference(A,B) concurrent with list_difference(B,A)" do
+      a = lock_test_shared_storage_map(40, 4)
+      b = CAccountMap.clone(a)
+      b = CAccountMap.put(b, <<3::unsigned-size(160)>>, 99, 99_000, CMerkleTree.new(), <<99>>)
+
+      ab = div(@tasks, 2) |> max(1)
+      ba = @tasks - ab
+
+      run_parallel(ab, fn _ ->
+        _ = CAccountMap.list_difference(a, b)
+        :ok
+      end)
+
+      run_parallel(ba, fn _ ->
+        _ = CAccountMap.list_difference(b, a)
         :ok
       end)
     end

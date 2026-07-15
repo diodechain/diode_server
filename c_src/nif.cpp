@@ -313,6 +313,7 @@ struct AccountEntry {
 
 static void release_entry_storage(AccountEntry &entry);
 static merkletree *materialize_storage(AccountEntry &entry);
+static ERL_NIF_TERM account_entry_to_term(ErlNifEnv *env, AccountEntry &entry);
 
 class SharedAccountMap {
 public:
@@ -354,6 +355,49 @@ public:
         unlock();
     }
 };
+
+/* Lock two SharedAccountMap mutexes in fixed pointer order (matches difference_raw). */
+class DualAccountMapLock {
+    ErlNifMutex *first_mtx;
+    ErlNifMutex *second_mtx;
+    bool dual;
+
+public:
+    DualAccountMapLock(SharedAccountMap *s1, SharedAccountMap *s2)
+        : first_mtx(nullptr), second_mtx(nullptr), dual(false) {
+        if (s1 == s2) {
+            first_mtx = s1->mtx;
+            enif_mutex_lock(first_mtx);
+        } else if (s1 < s2) {
+            dual = true;
+            first_mtx = s1->mtx;
+            second_mtx = s2->mtx;
+            enif_mutex_lock(s1->mtx);
+            enif_mutex_lock(s2->mtx);
+        } else {
+            dual = true;
+            first_mtx = s2->mtx;
+            second_mtx = s1->mtx;
+            enif_mutex_lock(s2->mtx);
+            enif_mutex_lock(s1->mtx);
+        }
+    }
+
+    ~DualAccountMapLock() {
+        if (!first_mtx) {
+            return;
+        }
+        if (dual) {
+            enif_mutex_unlock(second_mtx);
+        }
+        enif_mutex_unlock(first_mtx);
+    }
+};
+
+static bool uint160_less(const uint160_t &a, const uint160_t &b)
+{
+    return memcmp(a.value, b.value, sizeof(a.value)) < 0;
+}
 
 static void keep_storage_in_map(merkletree *mt)
 {
@@ -1747,6 +1791,190 @@ static merkletree *materialize_storage(AccountEntry &entry)
     return entry.storage;
 }
 
+static bool storage_root_hash_for_entry(ErlNifEnv *env, const AccountEntry &entry,
+        uint256_t &out, size_t progress_base)
+{
+    if (entry.storage != nullptr) {
+        Lock lock(entry.storage);
+        out = entry.storage->shared_state->tree.root_hash();
+        return true;
+    }
+    if (!entry.compact_storage || entry.compact_storage->slots.empty()) {
+        Lock lock(empty_storage_tree);
+        out = empty_storage_tree->shared_state->tree.root_hash();
+        return true;
+    }
+    Tree temp;
+    size_t i = 0;
+    for (auto &slot : entry.compact_storage->slots) {
+        i++;
+        temp.insert_item(slot.key, slot.value);
+        nif_loop_progress(env, progress_base + i);
+    }
+    out = temp.root_hash();
+    return true;
+}
+
+struct DiffAccountSide {
+    bool present;
+    uint64_t nonce;
+    uint256_t balance;
+    bin_t code;
+    merkletree *storage;
+    std::unique_ptr<CompactStorage> compact_storage;
+
+    DiffAccountSide()
+        : present(false), nonce(0), balance(), storage(nullptr), compact_storage(nullptr) {}
+};
+
+static void release_snapshot_side(DiffAccountSide &side)
+{
+    if (side.present && side.storage != nullptr) {
+        enif_release_resource(side.storage);
+        side.storage = nullptr;
+    }
+    side.compact_storage.reset();
+    side.present = false;
+}
+
+static void snapshot_side(const AccountEntry &src, DiffAccountSide &out)
+{
+    out.present = true;
+    out.nonce = src.nonce;
+    out.balance = src.balance;
+    out.code = src.code;
+    out.storage = src.storage;
+    out.compact_storage = clone_compact_storage(src.compact_storage.get());
+    if (src.storage != nullptr) {
+        enif_keep_resource(src.storage);
+    }
+}
+
+static AccountEntry side_to_entry(const DiffAccountSide &side)
+{
+    AccountEntry entry;
+    entry.nonce = side.nonce;
+    entry.balance = side.balance;
+    entry.code = side.code;
+    entry.storage = side.storage;
+    entry.compact_storage = clone_compact_storage(side.compact_storage.get());
+    return entry;
+}
+
+static bool entries_equal(ErlNifEnv *env, const AccountEntry &a, const AccountEntry &b, size_t progress_base)
+{
+    if (a.nonce != b.nonce || a.balance != b.balance || a.code != b.code) {
+        return false;
+    }
+    uint256_t root_a, root_b;
+    if (!storage_root_hash_for_entry(env, a, root_a, progress_base)) {
+        return false;
+    }
+    if (!storage_root_hash_for_entry(env, b, root_b, progress_base + 1)) {
+        return false;
+    }
+    return root_a == root_b;
+}
+
+struct DiffItem {
+    uint160_t addr;
+    DiffAccountSide a;
+    DiffAccountSide b;
+};
+
+static ERL_NIF_TERM
+account_map_list_difference_raw(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    accountmap *am_a;
+    accountmap *am_b;
+
+    if (argc != 2) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am_a)) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[1], accountmap_type, (void **)&am_b)) return enif_make_badarg(env);
+
+    if (am_a->shared == am_b->shared) {
+        return enif_make_list(env, 0);
+    }
+
+    std::vector<DiffItem> diffs;
+    std::unordered_set<uint160_t> key_set;
+
+    {
+        DualAccountMapLock map_lock(am_a->shared, am_b->shared);
+
+        for (auto &entry : am_a->shared->accounts) {
+            key_set.insert(entry.first);
+        }
+        for (auto &entry : am_b->shared->accounts) {
+            key_set.insert(entry.first);
+        }
+
+        std::vector<uint160_t> keys(key_set.begin(), key_set.end());
+        std::sort(keys.begin(), keys.end(), uint160_less);
+
+        size_t i = 0;
+        for (auto &addr : keys) {
+            i++;
+            auto it_a = am_a->shared->accounts.find(addr);
+            auto it_b = am_b->shared->accounts.find(addr);
+            bool in_a = it_a != am_a->shared->accounts.end();
+            bool in_b = it_b != am_b->shared->accounts.end();
+
+            if (in_a && in_b) {
+                if (entries_equal(env, it_a->second, it_b->second, i * 2)) {
+                    nif_loop_progress(env, i);
+                    continue;
+                }
+                DiffItem item;
+                item.addr = addr;
+                snapshot_side(it_a->second, item.a);
+                snapshot_side(it_b->second, item.b);
+                diffs.push_back(std::move(item));
+            } else if (in_a) {
+                DiffItem item;
+                item.addr = addr;
+                snapshot_side(it_a->second, item.a);
+                diffs.push_back(std::move(item));
+            } else {
+                DiffItem item;
+                item.addr = addr;
+                snapshot_side(it_b->second, item.b);
+                diffs.push_back(std::move(item));
+            }
+            nif_loop_progress(env, i);
+        }
+    }
+
+    ERL_NIF_TERM list = enif_make_list(env, 0);
+    size_t j = 0;
+    for (auto &item : diffs) {
+        j++;
+        ERL_NIF_TERM addr_term = make_binary(env, (uint8_t *)item.addr.value, 20);
+        ERL_NIF_TERM side_a;
+        if (item.a.present) {
+            AccountEntry entry_a = side_to_entry(item.a);
+            side_a = account_entry_to_term(env, entry_a);
+        } else {
+            side_a = make_atom(env, "nil");
+        }
+        ERL_NIF_TERM side_b;
+        if (item.b.present) {
+            AccountEntry entry_b = side_to_entry(item.b);
+            side_b = account_entry_to_term(env, entry_b);
+        } else {
+            side_b = make_atom(env, "nil");
+        }
+        ERL_NIF_TERM pair = enif_make_tuple2(env, side_a, side_b);
+        ERL_NIF_TERM triple = enif_make_tuple2(env, addr_term, pair);
+        list = enif_make_list_cell(env, triple, list);
+        release_snapshot_side(item.a);
+        release_snapshot_side(item.b);
+        nif_loop_progress(env, j);
+    }
+
+    return list;
+}
+
 struct AccountHashCtx {
     std::vector<uint8_t> nonce_rlp;
     std::vector<uint8_t> balance_rlp;
@@ -2180,6 +2408,7 @@ static ErlNifFunc nif_funcs[] = {
     {"account_map_delete", 2, account_map_delete, 0},
     {"account_map_size", 1, account_map_size, 0},
     {"account_map_to_list", 1, account_map_to_list, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"account_map_list_difference_raw", 2, account_map_list_difference_raw, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"account_map_uncompact_state", 1, account_map_uncompact_state, ERL_NIF_DIRTY_JOB_CPU_BOUND},
 };
 

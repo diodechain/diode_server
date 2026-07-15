@@ -123,5 +123,43 @@ defmodule CMerkleNifLeakTest do
       assert orphans == 0
       assert rss_kb() - baseline < 100_000
     end
+
+    test "account_map list_difference loop does not grow shared_states" do
+      n = 80
+      base = build_diff_map(n)
+
+      fork =
+        CAccountMap.clone(base)
+        |> then(fn map ->
+          {nonce, balance, storage, code} = CAccountMap.get(map, addr(3))
+
+          storage =
+            CMerkleTree.insert(
+              CMerkleTree.clone(storage),
+              slot(99_999),
+              <<99_999::unsigned-size(256)>>
+            )
+
+          CAccountMap.put(map, addr(3), nonce + 1, balance, storage, code)
+        end)
+
+      {_locked0, _orphans0, shared0, _res0} = CMerkleTree.nif_stats()
+
+      for _ <- 1..100 do
+        _ = CAccountMap.list_difference(base, fork)
+      end
+
+      force_gc()
+      {_locked, orphans, shared, _res} = CMerkleTree.nif_stats()
+      assert orphans == 0
+      assert shared - shared0 < 500
+    end
+  end
+
+  defp build_diff_map(n) do
+    Enum.reduce(1..n, CAccountMap.new(), fn i, acc ->
+      storage = CMerkleTree.insert_items(CMerkleTree.new(), [{slot(i), val(i)}])
+      CAccountMap.put(acc, addr(i), i, i * 1_000, storage, <<i>>)
+    end)
   end
 end

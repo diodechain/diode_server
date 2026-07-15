@@ -104,7 +104,8 @@ defmodule CMerkleHeapAssumptions do
       {:F, "lock + clone chain (NIF locked_states / root_hash dedup)", &f_lock_clone_chain/1},
       {:G, "difference on large divergent trees", &g_difference_heavy/1},
       {:H, "proofs + root_hashes after deep updates", &h_proofs_and_hashes/1},
-      {:I, "account_map_lock bulk identical storage roots", &i_identical_root_lock_bulk/1}
+      {:I, "account_map_lock bulk identical storage roots", &i_identical_root_lock_bulk/1},
+      {:J, "account_map list_difference bounded shared_states growth", &j_list_difference_heap/1}
     ]
   end
 
@@ -287,6 +288,46 @@ defmodule CMerkleHeapAssumptions do
       :ok
     end)
   end
+
+  defp j_list_difference_heap(%{rounds: r}) do
+    n = max(40, min(r, 150))
+
+    base =
+      Enum.reduce(1..n, CAccountMap.new(), fn i, acc ->
+        storage = CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i::unsigned-size(256)>>)
+        CAccountMap.put(acc, <<i::unsigned-size(160)>>, i, i * 1_000, storage, <<i>>)
+      end)
+
+    fork =
+      CAccountMap.clone(base)
+      |> then(fn map ->
+        {nonce, balance, storage, code} = CAccountMap.get(map, <<1::unsigned-size(160)>>)
+
+        storage =
+          CMerkleTree.insert(
+            CMerkleTree.clone(storage),
+            slot(99_999),
+            <<99_999::unsigned-size(256)>>
+          )
+
+        CAccountMap.put(map, <<1::unsigned-size(160)>>, nonce + 1, balance, storage, code)
+      end)
+
+    {_l0, orphans0, shared0, _r0} = CMerkleTree.nif_stats()
+    if orphans0 > 0, do: raise("scenario J initial orphans=#{orphans0}")
+
+    Enum.each(1..max(div(r, 2), 30), fn _ ->
+      _ = CAccountMap.list_difference(base, fork)
+      :erlang.garbage_collect()
+    end)
+
+    {_l1, orphans1, shared1, _r1} = CMerkleTree.nif_stats()
+    if orphans1 > 0, do: raise("scenario J orphans=#{orphans1}")
+    if shared1 - shared0 > 800, do: raise("scenario J shared_states growth #{shared1 - shared0}")
+    :ok
+  end
+
+  defp slot(i), do: <<i::unsigned-size(256)>>
 end
 
 CMerkleHeapAssumptions.main(System.argv())

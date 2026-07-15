@@ -54,6 +54,24 @@ defmodule CAccountMap do
     end)
   end
 
+  def list_difference(map_a, map_b) do
+    CMerkleTree.account_map_list_difference_raw(map_a, map_b)
+    |> Enum.map(fn {addr, {side_a, side_b}} ->
+      {addr, {decode_account_side(side_a), decode_account_side(side_b)}}
+    end)
+    |> Map.new()
+  end
+
+  defp decode_account_side(nil), do: nil
+
+  defp decode_account_side({nonce, balance, storage, code}) do
+    Account.from_parts(nonce, decode_balance(balance), storage, code)
+  end
+
+  def legacy_list_difference(map_a, map_b) do
+    CMerkleTree.list_difference(to_account_list(map_a), to_account_list(map_b))
+  end
+
   def uncompact_state(accounts), do: CMerkleTree.account_map_uncompact_state(accounts)
 
   defp decode_entry({nonce, balance, storage, code}) do
