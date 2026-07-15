@@ -147,6 +147,7 @@ defmodule CMerkleTree do
   def account_map_delete(_map, _addr), do: error()
   def account_map_size(_map), do: error()
   def account_map_to_list(_map), do: error()
+  def account_map_list_difference_raw(_map_a, _map_b), do: error()
   def account_map_uncompact_state(_map), do: error()
 
   defp struct_sizes_raw, do: error()

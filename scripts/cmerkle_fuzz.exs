@@ -34,7 +34,8 @@ defmodule CMerkleFuzz do
           iterations: :integer,
           seed: :integer,
           max_keys: :integer,
-          max_rss_delta_kb: :integer
+          max_rss_delta_kb: :integer,
+          scenario: :integer
         ]
       )
 
@@ -70,7 +71,7 @@ defmodule CMerkleFuzz do
     seed=#{seed} iterations=#{iterations |> format_iters()} max_keys=#{max_keys}
     """)
 
-    ctx = %{max_keys: max_keys, seed: seed}
+    ctx = %{max_keys: max_keys, seed: seed, scenario: Keyword.get(opts, :scenario)}
 
     case Keyword.fetch(opts, :max_rss_delta_kb) do
       {:ok, kb} when kb > 0 ->
@@ -113,7 +114,7 @@ defmodule CMerkleFuzz do
   end
 
   defp run_round(round, ctx) do
-    scenario = :rand.uniform(18)
+    scenario = ctx[:scenario] || :rand.uniform(30)
 
     case scenario do
       1 -> s_string_batch_insert_diff(round, ctx)
@@ -134,6 +135,19 @@ defmodule CMerkleFuzz do
       16 -> s_state_lock_clone_mutate(round, ctx)
       17 -> s_account_map_lock_bulk(round, ctx)
       18 -> s_account_map_lock_concurrent(round, ctx)
+      19 -> s_account_map_list_diff_large_compact(round, ctx)
+      20 -> s_list_diff_vs_to_list(round, ctx)
+      21 -> s_list_diff_vs_account_map_lock(round, ctx)
+      22 -> s_list_diff_vs_clone_put(round, ctx)
+      23 -> s_list_diff_vs_storage_difference(round, ctx)
+      24 -> s_dual_map_list_diff_order(round, ctx)
+      25 -> s_list_diff_compact_vs_live(round, ctx)
+      26 -> s_list_diff_vs_uncompact(round, ctx)
+      27 -> s_list_diff_vs_state_lock(round, ctx)
+      28 -> s_list_diff_vs_account_map_get(round, ctx)
+      29 -> s_list_diff_gc_pressure(round, ctx)
+      30 -> s_prepare_state_composite(round, ctx)
+      other -> raise("unknown fuzz scenario #{inspect(other)}")
     end
 
     if rem(round, 50) == 0 do
@@ -549,7 +563,7 @@ defmodule CMerkleFuzz do
       parent = State.normalize(parent)
     end
 
-    parent_hash = State.hash(parent)
+    _ = State.hash(parent)
     Chain.State.lock(parent)
     fork = State.clone(parent)
 
@@ -646,6 +660,324 @@ defmodule CMerkleFuzz do
       ordered: false
     )
     |> Stream.run()
+  end
+
+  # --- S19–S30: native account_map list_difference (see c_src/LOCK_ORDER.md D-C7, D-D7) ---
+
+  defp s_account_map_list_diff_large_compact(_round, _ctx) do
+    n = :rand.uniform(200) + 100
+    compact = build_compact_accounts(n)
+    {base, _store, _hash} = CAccountMap.uncompact_state(compact)
+
+    fork =
+      CAccountMap.clone(base)
+      |> then(fn map ->
+        i = :rand.uniform(n)
+        {nonce, balance, storage, code} = CAccountMap.get(map, addr(i))
+
+        storage =
+          CMerkleTree.insert(
+            CMerkleTree.clone(storage),
+            slot(i + 400_000),
+            <<i::unsigned-size(256)>>
+          )
+
+        CAccountMap.put(map, addr(i), nonce + 1, balance, storage, code)
+      end)
+
+    _ = CAccountMap.list_difference(base, fork)
+  end
+
+  defp s_list_diff_vs_to_list(_round, _ctx) do
+    n = :rand.uniform(80) + 20
+    map = build_account_map(n)
+    fork = CAccountMap.clone(map)
+
+    workers = 6
+
+    1..workers
+    |> Task.async_stream(
+      fn w ->
+        if rem(w, 2) == 0 do
+          _ = CAccountMap.list_difference(map, fork)
+        else
+          _ = CAccountMap.to_list(map)
+        end
+
+        :ok
+      end,
+      max_concurrency: workers,
+      timeout: 60_000,
+      ordered: false
+    )
+    |> Stream.run()
+  end
+
+  defp s_list_diff_vs_account_map_lock(_round, _ctx) do
+    map = build_account_map(:rand.uniform(60) + 20)
+    fork = CAccountMap.clone(map)
+
+    workers = 6
+
+    1..workers
+    |> Task.async_stream(
+      fn w ->
+        if rem(w, 2) == 0 do
+          _ = CAccountMap.list_difference(map, fork)
+        else
+          _ = CAccountMap.lock(map, nil)
+        end
+
+        :ok
+      end,
+      max_concurrency: workers,
+      timeout: 60_000,
+      ordered: false
+    )
+    |> Stream.run()
+  end
+
+  defp s_list_diff_vs_clone_put(_round, _ctx) do
+    map = build_account_map(:rand.uniform(50) + 15)
+
+    workers = 6
+
+    1..workers
+    |> Task.async_stream(
+      fn w ->
+        fork = CAccountMap.clone(map)
+
+        if rem(w, 2) == 0 do
+          _ = CAccountMap.list_difference(map, fork)
+        else
+          i = rem(w, 10) + 1
+          storage = CMerkleTree.insert(CMerkleTree.new(), slot(w + i), <<w::unsigned-size(256)>>)
+          _ = CAccountMap.put(fork, addr(i), w, w * 100, storage, <<w>>)
+        end
+
+        :ok
+      end,
+      max_concurrency: workers,
+      timeout: 60_000,
+      ordered: false
+    )
+    |> Stream.run()
+  end
+
+  defp s_list_diff_vs_storage_difference(_round, _ctx) do
+    map = build_account_map(:rand.uniform(40) + 10)
+    {_, _, sa, _} = CAccountMap.get(map, addr(1))
+    {_, _, sb, _} = CAccountMap.get(map, addr(2))
+
+    workers = 6
+
+    1..workers
+    |> Task.async_stream(
+      fn w ->
+        if rem(w, 2) == 0 do
+          _ = CAccountMap.list_difference(map, CAccountMap.clone(map))
+        else
+          _ = CMerkleTree.difference(sa, sb)
+        end
+
+        :ok
+      end,
+      max_concurrency: workers,
+      timeout: 60_000,
+      ordered: false
+    )
+    |> Stream.run()
+  end
+
+  defp s_dual_map_list_diff_order(_round, _ctx) do
+    a = build_account_map(:rand.uniform(50) + 10)
+    b = CAccountMap.clone(a)
+    i = :rand.uniform(10) + 1
+    {nonce, balance, storage, code} = CAccountMap.get(b, addr(i))
+
+    storage =
+      CMerkleTree.insert(CMerkleTree.clone(storage), slot(88_888), <<88_888::unsigned-size(256)>>)
+
+    b = CAccountMap.put(b, addr(i), nonce + 1, balance, storage, code)
+
+    workers = 4
+
+    1..workers
+    |> Task.async_stream(
+      fn w ->
+        if rem(w, 2) == 0 do
+          _ = CAccountMap.list_difference(a, b)
+        else
+          _ = CAccountMap.list_difference(b, a)
+        end
+
+        :ok
+      end,
+      max_concurrency: workers,
+      timeout: 60_000,
+      ordered: false
+    )
+    |> Stream.run()
+  end
+
+  defp s_list_diff_compact_vs_live(_round, _ctx) do
+    n = :rand.uniform(60) + 20
+    live = build_live_state(n)
+    compact = State.compact(live)
+    compact_nif = State.uncompact(compact).accounts
+
+    fork =
+      live
+      |> State.clone()
+      |> then(fn st ->
+        id = addr(rem(:rand.uniform(n), n) + 1)
+        acc = State.account(st, id)
+
+        tree =
+          Account.tree(acc)
+          |> CMerkleTree.insert(slot(55_555), <<55_555::unsigned-size(256)>>)
+
+        State.set_account(st, id, Account.put_tree(acc, tree))
+      end)
+
+    _ = CAccountMap.list_difference(compact_nif, fork.accounts)
+  end
+
+  defp s_list_diff_vs_uncompact(_round, _ctx) do
+    compact = build_compact_accounts(:rand.uniform(80) + 20)
+
+    workers = 4
+
+    1..workers
+    |> Task.async_stream(
+      fn w ->
+        if rem(w, 2) == 0 do
+          {accounts, _store, _hash} = CAccountMap.uncompact_state(compact)
+          _ = CAccountMap.list_difference(accounts, CAccountMap.clone(accounts))
+        else
+          _ = CAccountMap.uncompact_state(compact)
+        end
+
+        :ok
+      end,
+      max_concurrency: workers,
+      timeout: 120_000,
+      ordered: false
+    )
+    |> Stream.run()
+  end
+
+  defp s_list_diff_vs_state_lock(_round, _ctx) do
+    st = build_live_state(:rand.uniform(60) + 15)
+    fork = State.clone(st)
+
+    workers = 6
+
+    1..workers
+    |> Task.async_stream(
+      fn w ->
+        if rem(w, 2) == 0 do
+          _ = State.difference(st, fork)
+        else
+          _ = State.lock(State.clone(st))
+        end
+
+        :ok
+      end,
+      max_concurrency: workers,
+      timeout: 60_000,
+      ordered: false
+    )
+    |> Stream.run()
+  end
+
+  defp s_list_diff_vs_account_map_get(_round, _ctx) do
+    map = build_account_map(:rand.uniform(40) + 10)
+
+    workers = 6
+
+    1..workers
+    |> Task.async_stream(
+      fn w ->
+        if rem(w, 2) == 0 do
+          _ = CAccountMap.list_difference(map, CAccountMap.clone(map))
+        else
+          _ = CAccountMap.get(map, addr(rem(w, 10) + 1))
+        end
+
+        :ok
+      end,
+      max_concurrency: workers,
+      timeout: 60_000,
+      ordered: false
+    )
+    |> Stream.run()
+  end
+
+  defp s_list_diff_gc_pressure(_round, _ctx) do
+    map = build_account_map(:rand.uniform(50) + 10)
+    fork = CAccountMap.clone(map)
+
+    for _ <- 1..8 do
+      _ = CAccountMap.list_difference(map, fork)
+      short = CMerkleTree.new() |> CMerkleTree.clone() |> CMerkleTree.lock()
+      _ = short
+      :erlang.garbage_collect()
+    end
+  end
+
+  defp s_prepare_state_composite(_round, _ctx) do
+    n = :rand.uniform(80) + 20
+    prev = build_live_state(n)
+
+    block =
+      prev
+      |> State.clone()
+      |> then(fn st ->
+        i = :rand.uniform(n)
+        acc = State.account(st, addr(i))
+
+        tree =
+          Account.tree(acc)
+          |> CMerkleTree.insert(slot(i + 200_000), <<i * 11::unsigned-size(256)>>)
+
+        State.set_account(st, addr(i), Account.put_tree(acc, tree))
+      end)
+
+    workers = 8
+
+    1..workers
+    |> Task.async_stream(
+      fn w ->
+        case rem(w, 4) do
+          0 -> _ = State.difference(prev, block)
+          1 -> _ = State.lock(State.clone(block))
+          2 -> _ = CAccountMap.to_list(block.accounts)
+          _ -> _ = CAccountMap.list_difference(prev.accounts, block.accounts)
+        end
+
+        :ok
+      end,
+      max_concurrency: workers,
+      timeout: 120_000,
+      ordered: false
+    )
+    |> Stream.run()
+  end
+
+  defp build_account_map(n) do
+    Enum.reduce(1..n, CAccountMap.new(), fn i, acc ->
+      storage = CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i * 3::unsigned-size(256)>>)
+      CAccountMap.put(acc, addr(i), i, i * 1_000, storage, <<i>>)
+    end)
+  end
+
+  defp build_live_state(n) do
+    Enum.reduce(1..n, State.new(), fn i, st ->
+      storage = CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i::unsigned-size(256)>>)
+      State.set_account(st, addr(i), Account.put_tree(Account.new(nonce: i), storage))
+    end)
+    |> State.normalize()
   end
 
   defp read_proc_rss_kb do

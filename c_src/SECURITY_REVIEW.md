@@ -36,6 +36,7 @@
 | `account_map_delete` | 2 | resource, address | `CAccountMap.delete/2` |
 | `account_map_size` | 1 | resource | `CAccountMap.size/1` |
 | `account_map_to_list` | 1 | resource | `CAccountMap.to_list/1`, RPC export |
+| `account_map_list_difference_raw` | 2 | two account map resources | `CAccountMap.list_difference/2`, `Chain.State.difference/2` |
 | `account_map_uncompact_state` | 1 | compact account map or account map resource | `CAccountMap.uncompact_state/1`, `Chain.State.uncompact/1` |
 
 **Trust:** Erlang validates some shapes (e.g. `to_bytes32`), but the NIF must treat all binaries and terms as hostile (size, allocation, scheduler impact).
@@ -74,7 +75,7 @@
 
 | ID | Topic | Severity | CWE | Notes |
 |----|--------|----------|-----|--------|
-| F-9 | **Unbounded work per NIF** | Medium | CWE-400 | Long-running exports use dirty schedulers: **CPU-bound** — `get_proofs_raw`, `difference_raw`, `to_list`, `import_map`, `count_zeros`, `memory_stats_raw`, `clone`, `account_map_clone`, `account_map_lock`, `account_map_to_list`, `account_map_uncompact_state`; **IO-bound** — `malloc_info_raw`. `account_map_put`/`delete` stay on normal schedulers; first COW copy uses `enif_consume_timeslice` every 1024 entries. Large dirty-NIF loops also call `enif_consume_timeslice` every 512 iterations. Ensure adequate dirty CPU schedulers at runtime (`+SDcpu` on heavy sync nodes). |
+| F-9 | **Unbounded work per NIF** | Medium | CWE-400 | Long-running exports use dirty schedulers: **CPU-bound** — `get_proofs_raw`, `difference_raw`, `to_list`, `import_map`, `count_zeros`, `memory_stats_raw`, `clone`, `account_map_clone`, `account_map_lock`, `account_map_to_list`, `account_map_list_difference_raw`, `account_map_uncompact_state`; **IO-bound** — `malloc_info_raw`. `account_map_put`/`delete` stay on normal schedulers; first COW copy uses `enif_consume_timeslice` every 1024 entries. Large dirty-NIF loops also call `enif_consume_timeslice` every 512 iterations. Ensure adequate dirty CPU schedulers at runtime (`+SDcpu` on heavy sync nodes). |
 
 ### Memory safety (manual review)
 

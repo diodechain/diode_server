@@ -22,11 +22,8 @@ defmodule CAccountMap do
 
   def get_account(map, addr) do
     case get(map, addr) do
-      :undefined ->
-        nil
-
-      {nonce, balance, storage, code} ->
-        Account.from_parts(nonce, balance, storage, code)
+      :undefined -> nil
+      entry -> account_from_parts(entry)
     end
   end
 
@@ -54,10 +51,23 @@ defmodule CAccountMap do
     end)
   end
 
+  def list_difference(map_a, map_b) do
+    Map.new(CMerkleTree.account_map_list_difference_raw(map_a, map_b), fn {addr, {side_a, side_b}} ->
+      {addr, {decode_account_side(side_a), decode_account_side(side_b)}}
+    end)
+  end
+
+  defp decode_account_side(nil), do: nil
+  defp decode_account_side(entry), do: entry |> decode_entry() |> account_from_parts()
+
   def uncompact_state(accounts), do: CMerkleTree.account_map_uncompact_state(accounts)
 
   defp decode_entry({nonce, balance, storage, code}) do
     {nonce, decode_balance(balance), storage, code}
+  end
+
+  defp account_from_parts({nonce, balance, storage, code}) do
+    Account.from_parts(nonce, balance, storage, code)
   end
 
   defp encode_balance(balance) when is_integer(balance) and balance >= 0 do

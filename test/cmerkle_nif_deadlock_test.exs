@@ -321,6 +321,54 @@ defmodule CMerkleNifDeadlockTest do
     end
   end
 
+  describe "D-D7 prepare_state composite (us1-shaped)" do
+    test "concurrent list_difference, to_list, and State.lock" do
+      n = 100
+      prev = build_live_state(n) |> State.normalize()
+
+      block =
+        prev
+        |> State.clone()
+        |> then(fn st ->
+          Enum.reduce(1..20, st, fn i, acc ->
+            id = addr(rem(i, n) + 1)
+            acc0 = State.account(acc, id)
+            tree = Account.tree(acc0)
+
+            tree =
+              CMerkleTree.insert(tree, slot(i + 300_000), <<i * 13::unsigned-size(256)>>)
+
+            State.set_account(acc, id, Account.put_tree(acc0, tree))
+          end)
+        end)
+
+      differ = div(@tasks, 4) |> max(1)
+      lockers = div(@tasks, 4) |> max(1)
+      legacy = div(@tasks, 4) |> max(1)
+      native = @tasks - differ - lockers - legacy
+
+      run_parallel(differ, fn _ ->
+        _ = State.difference(prev, block)
+        :ok
+      end)
+
+      run_parallel(lockers, fn _ ->
+        _ = State.lock(State.clone(block))
+        :ok
+      end)
+
+      run_parallel(legacy, fn _ ->
+        _ = CAccountMap.to_list(block.accounts)
+        :ok
+      end)
+
+      run_parallel(native, fn _ ->
+        _ = CAccountMap.list_difference(prev.accounts, block.accounts)
+        :ok
+      end)
+    end
+  end
+
   defp addr(i), do: <<i::unsigned-size(160)>>
 
   defp slot(i), do: <<i::unsigned-size(256)>>

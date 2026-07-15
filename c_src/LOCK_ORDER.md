@@ -31,6 +31,7 @@ See also [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) (F-5 fix) and [`scripts/cmer
 | `switch_local_to_canonical` | tree mutexes (address order) | Abandoned `SharedState` queued on `pending_orphans`; reclaimed via `try_reclaim_orphans` after `enter_lock` / `leave_lock` when mutex trylock succeeds and `has_clone == 0` |
 | `account_map_uncompact_state` | `AccountMapLock(input)` → `materialize_storage` (brief tree lock) → `batch_insert` (state_store lock) | Dirty scheduler |
 | `account_map_put/delete` | `AccountMapLock` only | May `release_resource` → async GC `leave_lock` |
+| `account_map_list_difference_raw` | `SharedAccountMap*` mutexes (address order) → brief tree lock per entry for root read → release all before materialize | Dirty CPU; never hold map lock across `materialize_storage` |
 | Insert / COW | Tree lock → ItemPool / PreAllocator / stripe pool | Same-thread nesting |
 
 ## Deadlock scenario registry
@@ -69,6 +70,8 @@ Each scenario has an ID, hypothesis, and test coverage target.
 | D-C4 | `account_map_put` replacing storage + GC `leave_lock` | Async GC vs diff | P13 |
 | D-C5 | `account_map_lock` / `account_map_clone` + concurrent `State.lock/1` | Correctness / writable fork | P14, P15, chain_state_uncompact_test, ExUnit D-C5, fuzz 16–18 |
 | D-C6 | `cow_copy_accountmap` during concurrent `put` | Refcount race (F-4) | TSan on P4, P13 |
+| D-C7 | `account_map_list_difference_raw` + `account_map_to_list` same map | Map mutex convoy / materialize stall | S20, ExUnit D-D7, D-C7 |
+| D-C8 | Dual-map `list_difference` lock order (A,B) vs (B,A) | Ordering regression | S24, ExUnit D-C8 |
 
 ### D. Production composite (block sync)
 
@@ -80,6 +83,8 @@ Each scenario has an ID, hypothesis, and test coverage target.
 | D-D4 | compact → uncompact → clone → apply_difference | P14, S10, S11 |
 | D-D5 | Storage get/insert + block import | P1, P5 |
 | D-D6 | Dirty scheduler saturation | P15 |
+| D-D7 | prepare_state composite (native diff + lock + legacy to_list) | S30, P17, ExUnit D-D7 |
+| D-D8 | `list_difference` compact storage root compare (no full map materialize) | account_map_diff_test, S19 |
 
 ### E. C++ internal mutexes
 
@@ -110,4 +115,5 @@ Each scenario has an ID, hypothesis, and test coverage target.
 | stress-quick | `mix run --no-start scripts/cmerkle_parallel_stress.exs -- --waves 1 --tasks 32` |
 | stress-full | `mix run --no-start scripts/cmerkle_parallel_stress.exs -- --waves 5 --tasks 48` |
 | watchdog | `mix run --no-start scripts/cmerkle_deadlock_watchdog.exs -- -- cmd ...` |
+| prepare_state | `mix run --no-start scripts/cmerkle_deadlock_watchdog.exs -- --timeout 120 mix run --no-start scripts/cmerkle_parallel_stress.exs -- --waves 1 --tasks 48 --scenario P17` |
 | ExUnit | `mix test test/cmerkle_nif_deadlock_test.exs --exclude external --no-start` |

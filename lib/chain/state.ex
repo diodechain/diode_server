@@ -131,7 +131,7 @@ defmodule Chain.State do
         %Chain.State{accounts: accounts_a} = state_a,
         %Chain.State{accounts: accounts_b} = state_b
       ) do
-    diff = CMerkleTree.list_difference(account_list(accounts_a), account_list(accounts_b))
+    diff = account_maps_diff(accounts_a, accounts_b)
 
     Enum.map(diff, fn {id, {acc_a, acc_b}} ->
       acc_a = acc_a || ensure_account(state_a, id)
@@ -246,6 +246,14 @@ defmodule Chain.State do
 
   defp account_list(accounts) do
     CAccountMap.to_account_list(accounts)
+  end
+
+  defp account_maps_diff(accounts_a, accounts_b) when is_map(accounts_a) or is_map(accounts_b) do
+    CMerkleTree.list_difference(account_list(accounts_a), account_list(accounts_b))
+  end
+
+  defp account_maps_diff(accounts_a, accounts_b) do
+    CAccountMap.list_difference(accounts_a, accounts_b)
   end
 
   defp put_account_in(accounts, id, account) when is_map(accounts) do
