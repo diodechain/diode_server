@@ -453,6 +453,23 @@ defmodule Diode do
     uptime
   end
 
+  # OTP 28+ returns a single integer; older releases return {timestamp, runnable_list}.
+  def run_queue_total() do
+    case :erlang.statistics(:run_queue) do
+      n when is_integer(n) ->
+        n
+
+      {_timestamp, list} when is_list(list) ->
+        length(list)
+
+      _ ->
+        case :erlang.statistics(:run_queue_lengths_all) do
+          lengths when is_list(lengths) -> Enum.sum(lengths)
+          _ -> 0
+        end
+    end
+  end
+
   def garbage_collect() do
     before = :erlang.memory(:total)
 

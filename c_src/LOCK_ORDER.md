@@ -100,7 +100,7 @@ Each scenario has an ID, hypothesis, and test coverage target.
 
 ## Remaining structural risk
 
-`enter_lock` and `leave_lock` now both release the global mutex before blocking on tree mutexes. Monitor `nif_stats_raw/0` (`shared_states` vs `locked_states`) in production; sustained growth indicates a reclaim regression.
+`enter_lock` and `leave_lock` now both release the global mutex before blocking on tree mutexes. Monitor `nif_stats_raw/0` (`shared_states` vs `locked_states`) in production; sustained growth indicates a reclaim regression. `nif_stats_raw` is read-only (reclaim runs from lock/unlock paths only).
 
 ## CI / harness commands
 

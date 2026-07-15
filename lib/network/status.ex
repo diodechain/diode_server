@@ -5,11 +5,12 @@ defmodule Network.Status do
   @moduledoc false
 
   @shared_state_warn 10_000
+  @run_queue_warn 1_000
 
   def summary do
     {locked, orphans, shared_states, nif_resources} = CMerkleTree.nif_stats()
     memory = :erlang.memory()
-    run_queue = run_queue_total()
+    run_queue = Diode.run_queue_total()
 
     %{
       status: health(shared_states, orphans, run_queue),
@@ -39,6 +40,7 @@ defmodule Network.Status do
   defp safe_peak do
     Chain.peak()
   catch
+    :exit, {:noproc, _} -> nil
     :exit, _ -> nil
   end
 
@@ -46,24 +48,8 @@ defmodule Network.Status do
     cond do
       orphans > 0 -> "degraded"
       shared_states >= @shared_state_warn -> "degraded"
-      run_queue > 1_000 -> "degraded"
+      run_queue > @run_queue_warn -> "degraded"
       true -> "ok"
-    end
-  end
-
-  defp run_queue_total do
-    case :erlang.statistics(:run_queue) do
-      n when is_integer(n) ->
-        n
-
-      {_timestamp, list} when is_list(list) ->
-        length(list)
-
-      _ ->
-        case :erlang.statistics(:run_queue_lengths_all) do
-          lengths when is_list(lengths) -> Enum.sum(lengths)
-          _ -> 0
-        end
     end
   end
 end

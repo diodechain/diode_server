@@ -36,8 +36,7 @@ defmodule Network.RpcHttp do
   end
 
   get "/status" do
-    conn = cors(conn)
-    send_resp(conn, 200, Poison.encode!(Network.Status.summary()))
+    json_resp(cors(conn), 200, Network.Status.summary())
   end
 
   post "/" do
@@ -52,11 +51,15 @@ defmodule Network.RpcHttp do
     {status, body} =
       Network.Rpc.handle_jsonrpc(conn.body_params, private: local, strip_nonce: strip_nonce)
 
-    send_resp(conn, status, Poison.encode!(body))
+    json_resp(conn, status, body)
   end
 
   match _ do
-    send_resp(conn, 404, Poison.encode!("not found"))
+    json_resp(conn, 404, "not found")
+  end
+
+  defp json_resp(conn, status, body) do
+    send_resp(conn, status, Poison.encode!(body))
   end
 
   defp is_local({127, 0, 0, _any}), do: true
