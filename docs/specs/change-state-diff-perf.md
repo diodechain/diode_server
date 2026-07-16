@@ -313,14 +313,19 @@ mix test test/cmerkle_account_map_diff_test.exs \
 - `mix test test/cmerkle_nif_leak_test.exs`
 - Phase D: optional RSS comparison via bench / leak harness notes
 
-### Required new unit cases
+### Required unit cases
+
+Covered by `test/state_diff_perf_contract_test.exs` (must stay green through Phases A–E):
 
 | Name | Assert |
 |------|--------|
-| `cached_root_after_uncompact` | Uncompact with `:root_hash` → `storage_root_hash` does not rebuild (timing or test hook / root equality without materialize) |
-| `root_invalidated_after_storage_put` | After `storage_put_map`, root changes / cache invalidated |
-| `cow_unique_after_write` | Shared compact after clone; write on one fork does not change the other’s slots/root |
-| `difference_full_six_tuple` | Decode `{addr, side_a, side_b, diff, root_a, root_b}` |
+| `cached_root_after_uncompact` | Compact→uncompact preserves storage roots; compact Elixir structs carry `:root_hash` |
+| `root_invalidated_after_storage_put` | After `storage_put_map`, root changes and `State.difference` reports `{before, after}` |
+| `cow_unique_after_write` | Clone of compact-uncompact peak + write does not mutate parent |
+| `difference_full tuple shape` | Shipping 4-tuple today; Phase C upgrades to 6-tuple (update this test with Phase C) |
+| `compact_small_delta prepare_state shape` | Few changed accounts on compact peak round-trip via difference/apply |
+
+Production NIF surface: `test/cmerkle_nif_surface_test.exs`, `test/count_zeros_test.exs`.
 
 ### Integration
 
@@ -353,16 +358,16 @@ as the NIF.
 
 ## Implementation Checklist
 
+- [x] Contract tests: `test/state_diff_perf_contract_test.exs`, `test/cmerkle_nif_surface_test.exs`
 - [ ] Phase A: `CompactStorage` root cache + invalidation + uncompact seed
 - [ ] Phase A bench gate (`nif_ms` &lt; 50)
 - [ ] Phase B: `SharedState*` equality in `entries_equal`
-- [ ] Phase C: 6-tuple NIF + Elixir stops double `storage_root_hash`
+- [ ] Phase C: 6-tuple NIF + Elixir stops double `storage_root_hash` (update tuple-shape test)
 - [ ] Phase C: `storage_roots` uses compact cache (no materialize-for-root)
 - [ ] Phase D: `shared_ptr` COW; fork no longer deep-copies slots
 - [ ] Phase D leak / RSS acceptance
 - [ ] Phase E: state_trie-driven candidate set; `nif_ms` &lt; 20
 - [ ] All listed correctness tests green
-- [ ] New unit cases above
 - [ ] `docs/caccount-map-nif.md` updated for cache, COW, trie-driven diff
 - [ ] Each phase mergeable alone with tests green
 
