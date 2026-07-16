@@ -25,10 +25,12 @@ See also [`c_src/LOCK_ORDER.md`](../c_src/LOCK_ORDER.md) and
   `<<root::32, hashes16::512>>`.
 - `account_map_proof/2` (account) and `/3` (storage key).
 - `account_map_compact/1` — one NIF for `Chain.State.compact/1`.
-- Map-backed `%Chain.Account{}` values set `map_backed: true` (via
-  `Account.from_parts/4` with a 32-byte root hash) and carry `:root_hash`.
-  Storage is accessed only through `State.storage_*` / `CAccountMap.storage_*`.
-  Genesis uses `genesis_storage/0` + `State.storage_put_map/2`.
+- Map-backed `%Chain.Account{}` values set `map_backed: true` and `root_hash`
+  (struct field) via `Account.from_parts/4`. Storage is accessed only through
+  `State.storage_*` / `CAccountMap.storage_*`. Edge `getaccount` /
+  `getaccountroot` use `Account.root_hash/1` (no extra storage-roots NIF).
+- Every chain definition exports `genesis_storage/0` (Devnet has slots;
+  others return `%{}`). Genesis applies accounts then `State.storage_put_map/2`.
 
 ## Clone and lock
 

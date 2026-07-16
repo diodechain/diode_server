@@ -46,7 +46,7 @@ defmodule ChainStateMerkleTest do
 
   defp account_from_evm_map(kvs) when is_map(kvs) do
     tree = CMerkleTree.insert_items(CMerkleTree.new(), Map.to_list(kvs))
-    Account.put_tree(Account.new(), tree)
+    %{Account.new() | storage_root: tree, map_backed: false, root_hash: nil}
   end
 
   defp account_with_storage(pairs) do
@@ -59,7 +59,7 @@ defmodule ChainStateMerkleTest do
         CMerkleTree.insert(t, k, v)
       end)
 
-    Account.put_tree(acc, tree)
+    %{acc | storage_root: tree, map_backed: false, root_hash: nil}
   end
 
   defp put_account(%State{} = st, i, acc), do: State.set_account(st, addr(i), acc)

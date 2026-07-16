@@ -139,22 +139,7 @@ defmodule CMerkleTree do
   defp nif_stats_raw, do: error()
   defp error, do: :erlang.nif_error(:nif_not_loaded)
 
-  defp to_bytes32(nil) do
-    <<0::unsigned-size(256)>>
-  end
-
-  defp to_bytes32(int) when is_integer(int) do
-    <<int::unsigned-size(256)>>
-  end
-
-  defp to_bytes32(string) when byte_size(string) < 32 do
-    missing = (32 - byte_size(string)) * 8
-    <<0::unsigned-size(missing), string::binary>>
-  end
-
-  defp to_bytes32(string) when byte_size(string) == 32 do
-    string
-  end
+  defp to_bytes32(value), do: Hash.to_bytes32(value)
 
   defp to_bytes(string) when is_binary(string), do: string
   defp to_bytes(int) when is_integer(int), do: to_bytes32(int)

@@ -74,9 +74,9 @@ defmodule Network.EdgeV2 do
             nil ->
               error("account does not exist")
 
-            %Chain.Account{} ->
+            account = %Chain.Account{} ->
               proof = Chain.Block.account_proof(block, id)
-              root = Chain.Block.account_storage_root_hash(block, id)
+              root = Chain.Account.root_hash(account)
               response(root, proof)
           end
         end)
@@ -98,7 +98,7 @@ defmodule Network.EdgeV2 do
                 %{
                   nonce: account.nonce,
                   balance: account.balance,
-                  storage_root: Chain.Block.account_storage_root_hash(block, id),
+                  storage_root: Chain.Account.root_hash(account),
                   code: Chain.Account.codehash(account)
                 },
                 proof

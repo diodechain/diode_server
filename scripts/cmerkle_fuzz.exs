@@ -354,20 +354,8 @@ defmodule CMerkleFuzz do
 
   defp slot(i), do: <<i::unsigned-size(256)>>
 
-  defp compact_live(%Account{storage_root: tree} = acc) when is_reference(tree) do
-    items = Map.new(CMerkleTree.to_list(tree))
-
-    %Account{
-      acc
-      | storage_root: if(map_size(items) == 0, do: nil, else: {MapMerkleTree, [], items}),
-        map_backed: false
-    }
-    |> Map.put(:root_hash, CMerkleTree.root_hash(tree))
-    |> Map.put(:code_hash, Account.codehash(acc))
-  end
-
   defp build_compact_accounts(n) do
-    for i <- 1..n, into: %{} do
+    Enum.reduce(1..n, State.new(), fn i, st ->
       tree =
         CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i * 3::unsigned-size(256)>>)
 
@@ -379,8 +367,10 @@ defmodule CMerkleFuzz do
         map_backed: false
       }
 
-      {addr(i), compact_live(acc)}
-    end
+      State.set_account(st, addr(i), acc)
+    end)
+    |> State.compact()
+    |> Map.fetch!(:accounts)
   end
 
   defp s_lock_clone_insert(_round, %{max_keys: mk}) do
@@ -987,7 +977,13 @@ defmodule CMerkleFuzz do
   defp build_live_state(n) do
     Enum.reduce(1..n, State.new(), fn i, st ->
       storage = CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i::unsigned-size(256)>>)
-      State.set_account(st, addr(i), Account.put_tree(Account.new(nonce: i), storage))
+
+      State.set_account(st, addr(i), %{
+        Account.new(nonce: i)
+        | storage_root: storage,
+          map_backed: false,
+          root_hash: nil
+      })
     end)
     |> State.normalize()
   end

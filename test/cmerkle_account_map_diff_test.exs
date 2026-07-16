@@ -136,7 +136,14 @@ defmodule CMerkleAccountMapDiffTest do
         |> then(fn st ->
           Enum.reduce(1..80, st, fn i, acc ->
             storage = CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i::unsigned-size(256)>>)
-            acc0 = Account.put_tree(Account.new(nonce: i, balance: i), storage)
+
+            acc0 = %{
+              Account.new(nonce: i, balance: i)
+              | storage_root: storage,
+                map_backed: false,
+                root_hash: nil
+            }
+
             State.set_account(acc, addr(i), acc0)
           end)
         end)
@@ -216,7 +223,13 @@ defmodule CMerkleAccountMapDiffTest do
         |> then(fn st ->
           Enum.reduce(1..30, st, fn i, acc ->
             storage = CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i::unsigned-size(256)>>)
-            State.set_account(acc, addr(i), Account.put_tree(Account.new(nonce: i), storage))
+
+            State.set_account(acc, addr(i), %{
+              Account.new(nonce: i)
+              | storage_root: storage,
+                map_backed: false,
+                root_hash: nil
+            })
           end)
         end)
 

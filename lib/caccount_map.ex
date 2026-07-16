@@ -159,15 +159,7 @@ defmodule CAccountMap do
     :binary.decode_unsigned(balance)
   end
 
-  defp to_bytes32(nil), do: @null
-  defp to_bytes32(int) when is_integer(int), do: <<int::unsigned-size(256)>>
-
-  defp to_bytes32(string) when is_binary(string) and byte_size(string) < 32 do
-    missing = (32 - byte_size(string)) * 8
-    <<0::unsigned-size(missing), string::binary>>
-  end
-
-  defp to_bytes32(string) when is_binary(string) and byte_size(string) == 32, do: string
+  defp to_bytes32(value), do: Hash.to_bytes32(value)
 
   defp to_bytes(string) when is_binary(string), do: string
   defp to_bytes(int) when is_integer(int), do: to_bytes32(int)

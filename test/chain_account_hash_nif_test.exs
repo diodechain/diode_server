@@ -23,20 +23,23 @@ defmodule ChainAccountHashNifTest do
     %Account{nonce: i, balance: i * 1_000, storage_root: tree, code: <<i>>, map_backed: false}
   end
 
-  defp compact_live(%Account{storage_root: tree} = acc) when is_reference(tree) do
-    items = Map.new(CMerkleTree.to_list(tree))
+  defp live_state(accounts) when is_list(accounts) do
+    Enum.reduce(accounts, State.new(), fn {id, acc}, st ->
+      State.set_account(st, id, acc)
+    end)
+  end
 
-    %Account{
-      acc
-      | storage_root: if(map_size(items) == 0, do: nil, else: {MapMerkleTree, [], items}),
-        map_backed: false
-    }
-    |> Map.put(:root_hash, CMerkleTree.root_hash(tree))
-    |> Map.put(:code_hash, Account.codehash(acc))
+  defp compact_accounts(accounts) when is_list(accounts) do
+    live_state(accounts) |> State.compact() |> Map.fetch!(:accounts)
   end
 
   defp hash_from_live(%Account{storage_root: tree} = acc) when is_reference(tree) do
-    Account.hash(%{acc | map_backed: false} |> Map.put(:root_hash, CMerkleTree.root_hash(tree)))
+    Account.hash(%{
+      acc
+      | root_hash: CMerkleTree.root_hash(tree),
+        storage_root: nil,
+        map_backed: true
+    })
   end
 
   defp hash_from_compact(%Account{} = acc) do
@@ -58,10 +61,11 @@ defmodule ChainAccountHashNifTest do
         map_backed: false
       }
 
-    compact = %{
-      addr(1) => compact_live(multi_slot),
-      addr(2) => compact_live(sample_account(2))
-    }
+    compact =
+      compact_accounts([
+        {addr(1), multi_slot},
+        {addr(2), sample_account(2)}
+      ])
 
     {accounts, hash} = CAccountMap.uncompact_state(compact)
 
@@ -83,9 +87,7 @@ defmodule ChainAccountHashNifTest do
 
   test "uncompact_state account hashes match Account.hash/1" do
     compact =
-      for i <- 1..8, into: %{} do
-        {addr(i), compact_live(sample_account(i))}
-      end
+      compact_accounts(Enum.map(1..8, fn i -> {addr(i), sample_account(i)} end))
 
     {accounts, hash} = CAccountMap.uncompact_state(compact)
 
@@ -142,9 +144,7 @@ defmodule ChainAccountHashNifTest do
 
   test "uncompact_state uses compact root_hash when present" do
     compact =
-      for i <- 1..4, into: %{} do
-        {addr(i), compact_live(sample_account(i))}
-      end
+      compact_accounts(Enum.map(1..4, fn i -> {addr(i), sample_account(i)} end))
 
     assert Enum.all?(compact, fn {_id, acc} -> Map.has_key?(acc, :root_hash) end)
     assert Enum.all?(compact, fn {_id, acc} -> Map.has_key?(acc, :code_hash) end)
@@ -176,7 +176,8 @@ defmodule ChainAccountHashNifTest do
       balance: acc.balance,
       storage_root: {MapMerkleTree, [], Map.new(CMerkleTree.to_list(tree))},
       code: acc.code,
-      map_backed: false
+      map_backed: false,
+      root_hash: nil
     }
 
     legacy_compact = %{addr(1) => legacy_account}
@@ -199,15 +200,14 @@ defmodule ChainAccountHashNifTest do
     acc = sample_account(1)
     tree = acc.storage_root
 
-    legacy_account =
-      %Chain.Account{
-        nonce: acc.nonce,
-        balance: acc.balance,
-        storage_root: {MapMerkleTree, [], Map.new(CMerkleTree.to_list(tree))},
-        code: acc.code,
-        map_backed: false
-      }
-      |> Map.put(:root_hash, CMerkleTree.root_hash(tree))
+    legacy_account = %Chain.Account{
+      nonce: acc.nonce,
+      balance: acc.balance,
+      storage_root: {MapMerkleTree, [], Map.new(CMerkleTree.to_list(tree))},
+      code: acc.code,
+      map_backed: false,
+      root_hash: CMerkleTree.root_hash(tree)
+    }
 
     legacy_compact = %{addr(1) => legacy_account}
 

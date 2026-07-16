@@ -32,33 +32,6 @@ defmodule ChainStateUncompactTest do
     }
   end
 
-  defp compact_account(%Account{storage_root: root} = acc) when is_reference(root) do
-    items = Map.new(CMerkleTree.to_list(root))
-
-    storage =
-      if map_size(items) == 0 do
-        nil
-      else
-        {MapMerkleTree, [], items}
-      end
-
-    %Account{acc | storage_root: storage, map_backed: false}
-    |> Map.put(:root_hash, CMerkleTree.root_hash(root))
-    |> Map.put(:code_hash, Account.codehash(acc))
-  end
-
-  defp compact_account(%Account{} = acc), do: acc
-
-  defp compact_accounts_map(n_accounts) do
-    for i <- 1..n_accounts, into: %{} do
-      {addr(i), sample_account(i) |> compact_account()}
-    end
-  end
-
-  defp compact_state(n_accounts) do
-    %State{accounts: compact_accounts_map(n_accounts)}
-  end
-
   defp live_state(n_accounts) do
     State.new()
     |> then(fn st ->
@@ -66,6 +39,18 @@ defmodule ChainStateUncompactTest do
         State.set_account(acc, addr(i), sample_account(i))
       end)
     end)
+  end
+
+  defp compact_state(n_accounts), do: State.compact(live_state(n_accounts))
+
+  defp compact_accounts_map(n_accounts), do: compact_state(n_accounts).accounts
+
+  defp compact_via_state(%Account{} = acc, id \\ addr(1)) do
+    State.new()
+    |> State.set_account(id, acc)
+    |> State.compact()
+    |> Map.fetch!(:accounts)
+    |> Map.fetch!(id)
   end
 
   describe "uncompact correctness" do
@@ -173,13 +158,7 @@ defmodule ChainStateUncompactTest do
         %{
           addr(1) => list_storage_account,
           addr(2) =>
-            %Account{
-              nonce: 7,
-              balance: 42,
-              storage_root: nil,
-              code: nil
-            }
-            |> compact_account()
+            compact_via_state(%Account{nonce: 7, balance: 42, storage_root: nil, code: nil})
         }
 
       restored = State.uncompact(%State{accounts: compact})
@@ -209,12 +188,12 @@ defmodule ChainStateUncompactTest do
           code: <<5>>
         }
 
-      compact = %{addr(1) => compact_account(multi_slot)}
+      compact = %{addr(1) => compact_via_state(multi_slot)}
       {accounts, _hash} = CAccountMap.uncompact_state(compact)
 
       {5, 1_000, root, <<5>>} = CAccountMap.get(accounts, addr(1))
       assert is_binary(root) and byte_size(root) == 32
-      assert root == Account.root_hash(multi_slot)
+      assert root == CMerkleTree.root_hash(multi_slot.storage_root)
 
       assert CAccountMap.storage_get(accounts, addr(1), slot(1)) == val(1)
       assert CAccountMap.storage_get(accounts, addr(1), slot(2)) == val(2)
@@ -245,16 +224,16 @@ defmodule ChainStateUncompactTest do
       |> then(fn st -> elem(CAccountMap.uncompact_state(st.accounts), 0) end)
     end
 
-    test "compact_account stores code_hash matching Account.codehash/1" do
+    test "State.compact stores code_hash matching Account.codehash/1" do
       acc = sample_account(3) |> Map.put(:code, :binary.copy(<<0xEE>>, 256))
-      compact = compact_account(acc)
+      compact = compact_via_state(acc)
 
       assert compact.code_hash == Account.codehash(acc)
-      assert compact.root_hash == Account.root_hash(acc)
+      assert compact.root_hash == CMerkleTree.root_hash(acc.storage_root)
     end
 
     test "put overwrites lazy account without prior get" do
-      compact = %{addr(1) => sample_account(1) |> compact_account()}
+      compact = %{addr(1) => compact_via_state(sample_account(1))}
       {accounts, _} = CAccountMap.uncompact_state(compact)
 
       new_storage =
@@ -286,7 +265,7 @@ defmodule ChainStateUncompactTest do
         assert code == <<i>>
         assert is_binary(root) and byte_size(root) == 32
         assert CAccountMap.storage_get(accounts, addr(i), slot(i)) == val(i)
-        assert root == Account.root_hash(sample_account(i))
+        assert root == CMerkleTree.root_hash(sample_account(i).storage_root)
         assert CAccountMap.storage_root_hash(accounts, addr(i)) == root
       end
     end

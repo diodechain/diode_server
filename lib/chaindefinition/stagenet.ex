@@ -83,6 +83,8 @@ defmodule ChainDefinition.Stagenet do
     File.read!("data/genesis.bin") |> Chain.State.from_binary() |> Chain.State.accounts()
   end
 
+  def genesis_storage(), do: %{}
+
   @spec genesis_transactions(Wallet.t()) :: [Chain.Transaction.t()]
   def genesis_transactions(_miner) do
     []

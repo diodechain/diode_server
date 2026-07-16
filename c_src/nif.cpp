@@ -2836,22 +2836,27 @@ static bool parse_compact_account(ErlNifEnv *env, ERL_NIF_TERM account_term,
 
     ERL_NIF_TERM root_hash_term;
     if (map_get_atom(env, account_term, "root_hash", root_hash_term)) {
-        ErlNifBinary root_bin;
-        if (!enif_inspect_binary(env, root_hash_term, &root_bin) || root_bin.size != 32) {
-            return false;
+        if (!enif_is_atom(env, root_hash_term)) {
+            ErlNifBinary root_bin;
+            if (!enif_inspect_binary(env, root_hash_term, &root_bin) || root_bin.size != 32) {
+                return false;
+            }
+            out.compact_root_hash = (char*)root_bin.data;
+            out.has_compact_root_hash = true;
         }
-        out.compact_root_hash = (char*)root_bin.data;
-        out.has_compact_root_hash = true;
     }
 
     ERL_NIF_TERM code_hash_term;
     if (map_get_atom(env, account_term, "code_hash", code_hash_term)) {
-        ErlNifBinary code_hash_bin;
-        if (!enif_inspect_binary(env, code_hash_term, &code_hash_bin) || code_hash_bin.size != 32) {
-            return false;
+        if (!enif_is_atom(env, code_hash_term)) {
+            ErlNifBinary code_hash_bin;
+            if (!enif_inspect_binary(env, code_hash_term, &code_hash_bin) ||
+                code_hash_bin.size != 32) {
+                return false;
+            }
+            out.compact_code_hash = (char*)code_hash_bin.data;
+            out.has_compact_code_hash = true;
         }
-        out.compact_code_hash = (char*)code_hash_bin.data;
-        out.has_compact_code_hash = true;
     }
 
     ErlNifUInt64 nonce;

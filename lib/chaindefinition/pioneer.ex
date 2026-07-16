@@ -1,6 +1,8 @@
 defmodule ChainDefinition.Pioneer do
   alias Chain.{State, Account}
 
+  def genesis_storage(), do: %{}
+
   def apply(%State{} = state) do
     id = Base16.decode("0x5000000000000000000000000000000000000000")
     acc = State.ensure_account(state, id)

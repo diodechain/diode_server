@@ -7,16 +7,19 @@ defmodule Hash do
     :binary.decode_unsigned(hash)
   end
 
+  def to_bytes32(nil), do: <<0::unsigned-size(256)>>
+
   def to_bytes32(hash = <<_::256>>) do
     hash
   end
 
-  def to_bytes32(hash = <<_::160>>) do
-    <<0::96, hash::binary-size(20)>>
-  end
-
   def to_bytes32(hash) when is_integer(hash) do
     <<hash::unsigned-big-size(256)>>
+  end
+
+  def to_bytes32(bin) when is_binary(bin) and byte_size(bin) < 32 do
+    missing = (32 - byte_size(bin)) * 8
+    <<0::unsigned-size(missing), bin::binary>>
   end
 
   def printable(nil) do

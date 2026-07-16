@@ -1,6 +1,8 @@
 defmodule ChainDefinition.Voyager do
   alias Chain.State
 
+  def genesis_storage(), do: %{}
+
   def apply(%State{} = state) do
     Enum.reduce(patch(), state, fn account, state ->
       id = Base16.decode(account["addr"])
@@ -13,7 +15,7 @@ defmodule ChainDefinition.Voyager do
         |> Map.put(:balance, balance)
         |> Map.put(:code, code)
         |> Map.put(:map_backed, false)
-        |> Map.delete(:root_hash)
+        |> Map.put(:root_hash, nil)
 
       if Map.has_key?(account, "state_patch") do
         state = State.set_account(state, id, %{acc0 | storage_root: nil})

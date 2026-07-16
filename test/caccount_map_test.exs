@@ -27,7 +27,7 @@ defmodule CAccountMapTest do
     assert CAccountMap.size(map) == 1
     assert {3, 3000, root, <<3>>} = CAccountMap.get(map, addr(3))
     assert is_binary(root) and byte_size(root) == 32
-    assert root == Account.root_hash(sample_account(3))
+    assert root == CMerkleTree.root_hash(sample_account(3).storage_root)
     assert CAccountMap.storage_root_hash(map, addr(3)) == root
   end
 
