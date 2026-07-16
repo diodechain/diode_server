@@ -36,12 +36,12 @@ defmodule Chain.State do
     CAccountMap.state_root_hashes(accounts)
   end
 
-  def get_proofs(%Chain.State{accounts: accounts}, <<_::160>> = addr) do
-    CAccountMap.get_proofs(accounts, addr)
+  def get_proofs(%Chain.State{accounts: accounts}, addr) do
+    CAccountMap.get_proofs(accounts, normalize_address(addr))
   end
 
-  def storage_value(%Chain.State{accounts: accounts}, <<_::160>> = addr, key) do
-    case CAccountMap.storage_get(accounts, addr, key) do
+  def storage_value(%Chain.State{accounts: accounts}, addr, key) do
+    case CAccountMap.storage_get(accounts, normalize_address(addr), key) do
       nil -> <<0::unsigned-size(256)>>
       bin -> bin
     end
@@ -51,23 +51,23 @@ defmodule Chain.State do
     %{state | accounts: CAccountMap.storage_put_map(accounts, updates), hash: nil}
   end
 
-  def storage_to_list(%Chain.State{accounts: accounts}, <<_::160>> = addr),
-    do: CAccountMap.storage_to_list(accounts, addr)
+  def storage_to_list(%Chain.State{accounts: accounts}, addr),
+    do: CAccountMap.storage_to_list(accounts, normalize_address(addr))
 
-  def storage_size(%Chain.State{accounts: accounts}, <<_::160>> = addr),
-    do: CAccountMap.storage_size(accounts, addr)
+  def storage_size(%Chain.State{accounts: accounts}, addr),
+    do: CAccountMap.storage_size(accounts, normalize_address(addr))
 
-  def storage_get_range(%Chain.State{accounts: accounts}, <<_::160>> = addr, key, count),
-    do: CAccountMap.storage_get_range(accounts, addr, key, count)
+  def storage_get_range(%Chain.State{accounts: accounts}, addr, key, count),
+    do: CAccountMap.storage_get_range(accounts, normalize_address(addr), key, count)
 
-  def storage_root_hash(%Chain.State{accounts: accounts}, <<_::160>> = addr),
-    do: CAccountMap.storage_root_hash(accounts, addr)
+  def storage_root_hash(%Chain.State{accounts: accounts}, addr),
+    do: CAccountMap.storage_root_hash(accounts, normalize_address(addr))
 
-  def storage_root_hashes(%Chain.State{accounts: accounts}, <<_::160>> = addr),
-    do: CAccountMap.storage_root_hashes(accounts, addr)
+  def storage_root_hashes(%Chain.State{accounts: accounts}, addr),
+    do: CAccountMap.storage_root_hashes(accounts, normalize_address(addr))
 
-  def storage_get_proofs(%Chain.State{accounts: accounts}, <<_::160>> = addr, key),
-    do: CAccountMap.storage_get_proofs(accounts, addr, key)
+  def storage_get_proofs(%Chain.State{accounts: accounts}, addr, key),
+    do: CAccountMap.storage_get_proofs(accounts, normalize_address(addr), key)
 
   def hash(%Chain.State{hash: nil} = state) do
     CAccountMap.root_hash(state.accounts)
