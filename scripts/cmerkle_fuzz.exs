@@ -114,7 +114,7 @@ defmodule CMerkleFuzz do
   end
 
   defp run_round(round, ctx) do
-    scenario = ctx[:scenario] || :rand.uniform(30)
+    scenario = ctx[:scenario] || :rand.uniform(31)
 
     case scenario do
       1 -> s_string_batch_insert_diff(round, ctx)
@@ -147,6 +147,7 @@ defmodule CMerkleFuzz do
       28 -> s_list_diff_vs_account_map_get(round, ctx)
       29 -> s_list_diff_gc_pressure(round, ctx)
       30 -> s_prepare_state_composite(round, ctx)
+      31 -> s_lazy_clone_equivalence(round, ctx)
       other -> raise("unknown fuzz scenario #{inspect(other)}")
     end
 
@@ -414,14 +415,14 @@ defmodule CMerkleFuzz do
   defp s_account_map_uncompact(_round, _ctx) do
     n = :rand.uniform(180) + 20
     compact = build_compact_accounts(n)
-    {accounts, _store, _hash} = CAccountMap.uncompact_state(compact)
+    {accounts, _hash} = CAccountMap.uncompact_state(compact)
     if CAccountMap.size(accounts) != n, do: raise("uncompact size mismatch")
   end
 
   defp s_account_map_clone_mutate(_round, _ctx) do
     n = :rand.uniform(80) + 10
     compact = build_compact_accounts(n)
-    {accounts, _store, _hash} = CAccountMap.uncompact_state(compact)
+    {accounts, _hash} = CAccountMap.uncompact_state(compact)
 
     fork =
       accounts
@@ -463,7 +464,7 @@ defmodule CMerkleFuzz do
       )
       |> Enum.to_list()
 
-    {accounts, _store, _hash} = Task.await(parent, 120_000)
+    {accounts, _hash} = Task.await(parent, 120_000)
     if length(diffs) != 4, do: raise("diff task count mismatch")
     if CAccountMap.size(accounts) != n, do: raise("uncompact size mismatch")
   end
@@ -471,7 +472,7 @@ defmodule CMerkleFuzz do
   defp s_account_get_materialize_diff(_round, _ctx) do
     n = :rand.uniform(40) + 5
     compact = build_compact_accounts(n)
-    {accounts, _store, _hash} = CAccountMap.uncompact_state(compact)
+    {accounts, _hash} = CAccountMap.uncompact_state(compact)
 
     {_, _, storage, _} = CAccountMap.get(accounts, addr(1))
 
@@ -615,7 +616,7 @@ defmodule CMerkleFuzz do
         {slot(88_888), <<88_888::unsigned-size(256)>>}
       ])
 
-    _ = CAccountMap.lock(map, store)
+    _ = CAccountMap.lock(map)
 
     fork =
       map
@@ -648,7 +649,7 @@ defmodule CMerkleFuzz do
     |> Task.async_stream(
       fn w ->
         if rem(w, 2) == 0 do
-          _ = CAccountMap.lock(map, nil)
+          _ = CAccountMap.lock(map)
         else
           _ = CMerkleTree.difference(storage_a, storage_b)
         end
@@ -667,7 +668,7 @@ defmodule CMerkleFuzz do
   defp s_account_map_list_diff_large_compact(_round, _ctx) do
     n = :rand.uniform(200) + 100
     compact = build_compact_accounts(n)
-    {base, _store, _hash} = CAccountMap.uncompact_state(compact)
+    {base, _hash} = CAccountMap.uncompact_state(compact)
 
     fork =
       CAccountMap.clone(base)
@@ -725,7 +726,7 @@ defmodule CMerkleFuzz do
         if rem(w, 2) == 0 do
           _ = CAccountMap.list_difference(map, fork)
         else
-          _ = CAccountMap.lock(map, nil)
+          _ = CAccountMap.lock(map)
         end
 
         :ok
@@ -852,7 +853,7 @@ defmodule CMerkleFuzz do
     |> Task.async_stream(
       fn w ->
         if rem(w, 2) == 0 do
-          {accounts, _store, _hash} = CAccountMap.uncompact_state(compact)
+          {accounts, _hash} = CAccountMap.uncompact_state(compact)
           _ = CAccountMap.list_difference(accounts, CAccountMap.clone(accounts))
         else
           _ = CAccountMap.uncompact_state(compact)
@@ -993,11 +994,43 @@ defmodule CMerkleFuzz do
     end
   end
 
+  defp s_lazy_clone_equivalence(_round, _ctx) do
+    n = :rand.uniform(40) + 10
+
+    map =
+      Enum.reduce(1..n, CAccountMap.new(), fn i, acc ->
+        storage = CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i::unsigned-size(256)>>)
+        CAccountMap.put(acc, addr(i), i, i * 500, storage, <<i>>)
+      end)
+
+    state = %Chain.State{accounts: map}
+    id = addr(:rand.uniform(n))
+
+    mutate = fn st ->
+      acc = Chain.State.account(st, id)
+      tree = Chain.Account.tree(acc) |> CMerkleTree.insert(slot(888_888), <<99::unsigned-size(256)>>)
+      Chain.State.set_account(st, id, Chain.Account.put_tree(acc, tree))
+    end
+
+    lazy = state |> Chain.State.clone_lazy() |> mutate.()
+    eager = state |> Chain.State.clone() |> mutate.()
+
+    if Chain.State.hash(lazy) != Chain.State.hash(eager) do
+      raise "lazy/eager fork hash mismatch"
+    end
+
+    parent_hash = CMerkleTree.root_hash(elem(CAccountMap.get(map, id), 2))
+    {_, _, storage, _} = CAccountMap.get(map, id)
+    if CMerkleTree.get(storage, slot(888_888)) != nil do
+      raise "lazy clone corrupted parent storage"
+    end
+  end
+
   defp check_fuzz_rss(max_delta_kb, round) do
     baseline = Process.get(:cmerkle_fuzz_baseline_rss, 0)
     rss = read_proc_rss_kb()
     delta = rss - baseline
-    {_locked, orphans, _shared, _res} = CMerkleTree.nif_stats()
+    {_locked, orphans, _shared, _res, _lazy, _eager} = CMerkleTree.nif_stats()
 
     if orphans > 0 or delta > max_delta_kb do
       IO.puts(:stderr, "FUZZ_RSS_FAIL round=#{round} delta_kb=#{delta} orphans=#{orphans}")

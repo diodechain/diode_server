@@ -37,6 +37,7 @@ defmodule Chain.Account do
     }
   end
 
+  @deprecated "Use CMerkleTree.clone/1 on Account.tree/1 instead"
   def clone(%Chain.Account{} = acc) do
     %Chain.Account{acc | storage_root: CMerkleTree.clone(tree(acc))}
   end

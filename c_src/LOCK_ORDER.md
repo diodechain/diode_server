@@ -27,11 +27,14 @@ See also [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) (F-5 fix) and [`scripts/cmer
 | `leave_lock` / GC destructor | if `mt->locked`: `locked_states_mutex` → tree → decrement registration → erase map when `has_clone == 0`; else tree refcount only | Unlocked resources never touch `LockedStates` map |
 | `merkletree_clone` | `Lock(parent)` | Dirty CPU scheduler; O(1) shallow resource alloc (`locked = false`) |
 | `account_map_clone` | `AccountMapLock` → `Lock(parent_storage)` per trie (sequential) | Dirty scheduler; long hold |
-| `account_map_lock` | `AccountMapLock` → `enter_lock` / `apply_canonical_lock` per unique `root_hash`; optional store trie after map lock released | Dirty scheduler; dedupes by root hash to avoid redundant canonical switches |
+| `account_map_lock` | `AccountMapLock` only (sets `frozen`; no per-trie `enter_lock` sweep) | Dirty scheduler |
 | `switch_local_to_canonical` | tree mutexes (address order) | Abandoned `SharedState` queued on `pending_orphans`; reclaimed via `try_reclaim_orphans` after `enter_lock` / `leave_lock` when mutex trylock succeeds and `has_clone == 0` |
 | `account_map_uncompact_state` | `AccountMapLock(input)` → `materialize_storage` (brief tree lock) → `batch_insert` (state_store lock) | Dirty scheduler |
 | `account_map_put/delete` | `AccountMapLock` only | May `release_resource` → async GC `leave_lock` |
 | `account_map_list_difference_raw` | `SharedAccountMap*` mutexes (address order) → brief tree lock per entry for root read → release all before materialize | Dirty CPU; never hold map lock across `materialize_storage` |
+| `account_map_difference_full` | Dual map lock → snapshot → release → storage diffs | Dirty CPU; same D-C7 pattern as list_difference |
+| `account_map_apply_difference` | `AccountMapLock` → per-account storage writes via `make_writeable_locked` | Dirty CPU |
+| `account_map_clone_lazy` | `AccountMapLock`; rejects `frozen` parent; distinct storage wrappers | Dirty CPU |
 | Insert / COW | Tree lock → ItemPool / PreAllocator / stripe pool | Same-thread nesting |
 
 ## Deadlock scenario registry
@@ -85,6 +88,10 @@ Each scenario has an ID, hypothesis, and test coverage target.
 | D-D6 | Dirty scheduler saturation | P15 |
 | D-D7 | prepare_state composite (native diff + lock + legacy to_list) | S30, P17, ExUnit D-D7 |
 | D-D8 | `list_difference` compact storage root compare (no full map materialize) | account_map_diff_test, S19 |
+| D-L1 | `clone_lazy` + put storage + discard | `cmerkle_clone_lazy_test`, P18L |
+| D-L2 | `difference_full` + `apply_difference` round-trip | chain_state_merkle_test, account_map_diff_test |
+| D-M1 | frozen map + eager clone writable fork | chain_state_merkle_test lock→clone |
+| D-M2 | concurrent difference_raw + apply_difference | lock concurrency, stress |
 
 ### E. C++ internal mutexes
 

@@ -146,13 +146,13 @@ defmodule CMerkleLockConcurrencyTest do
     test "concurrent CAccountMap.lock on maps with deduped shared storage tries" do
       map = lock_test_shared_storage_map(60, 5)
 
-      store =
+      _store =
         CMerkleTree.insert_items(CMerkleTree.new(), [
           {String.pad_leading("store", 32), CMerkleTree.hash("store")}
         ])
 
       run_parallel(@tasks, fn _ ->
-        _ = map |> CAccountMap.clone() |> CAccountMap.lock(store)
+        _ = map |> CAccountMap.clone() |> CAccountMap.lock()
         :ok
       end)
     end
@@ -167,7 +167,7 @@ defmodule CMerkleLockConcurrencyTest do
       differ = @tasks - lockers
 
       run_parallel(lockers, fn _ ->
-        _ = map |> CAccountMap.clone() |> CAccountMap.lock(nil)
+        _ = map |> CAccountMap.clone() |> CAccountMap.lock()
         :ok
       end)
 

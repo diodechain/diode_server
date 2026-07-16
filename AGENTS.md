@@ -39,12 +39,15 @@ Ethereum-compatible JSON-RPC endpoint plus the Diode PEER/EDGE protocols.
 - `make test` generates test PEM certs, then runs each `test/*_test.exs` file in
   a separate `mix test --max-failures 1` invocation (per-file isolation). Test
   env pins ports `RPC_PORT=18001`, `EDGE2_PORT=18003`, `PEER_PORT=18004`.
-- `Chain.State` is a MUTABLE NIF-backed `CMerkleTree`: `Chain.Transaction.apply/3`
-  mutates the state passed to it in place. Use `Chain.State.clone/1` to get an
-  independent copy before reapplying. `test/evm_test.exs` "create contract"
-  currently fails for this reason (it reuses `state` across `apply` calls
-  without cloning). This is a pre-existing repo issue — CI has `mix test`
-  commented out and does not gate on it.
+- `Chain.State` is backed by the `CAccountMap` NIF. Account storage tries and the
+  state root trie live in C++; Elixir `Chain.State` no longer carries a separate
+  `:store` field. Use `Chain.State.hash/1` or `CAccountMap.root_hash/1`.
+- **Clone modes:** `Chain.State.clone_lazy/1` for speculative execution
+  (`eth_call`, RPC, EdgeV2) where the fork is discarded; `Chain.State.clone/1`
+  (eager storage fork) after `Chain.State.lock/1` for block sync / delta replay.
+  `Chain.Transaction.apply/3` mutates state in place on an unlocked candidate.
+- `Chain.State` is MUTABLE: use `Chain.State.clone/1` or `clone_lazy/1` before
+  applying transactions on a shared cached state.
 
 ### Running the node (dev mode)
 - `./dev` runs `MIX_ENV=dev iex -S mix run` (wipes `data_dev/` first). For a

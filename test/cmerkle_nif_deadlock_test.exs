@@ -103,7 +103,7 @@ defmodule CMerkleNifDeadlockTest do
 
       run_parallel(workers, fn i ->
         if rem(i, 2) == 0 do
-          {accounts, _store, _hash} = CAccountMap.uncompact_state(compact)
+          {accounts, _hash} = CAccountMap.uncompact_state(compact)
           if CAccountMap.size(accounts) != n, do: raise("size mismatch")
         else
           a =
@@ -182,7 +182,7 @@ defmodule CMerkleNifDeadlockTest do
           CAccountMap.put(acc, addr(i), i, i * 1_000, storage, <<i>>)
         end)
 
-      store =
+      _store =
         CMerkleTree.insert_items(CMerkleTree.new(), [
           {slot(99_999), <<99_999::unsigned-size(256)>>}
         ])
@@ -192,7 +192,7 @@ defmodule CMerkleNifDeadlockTest do
       differ = @tasks - lockers - cloners
 
       run_parallel(lockers, fn _ ->
-        _ = CAccountMap.lock(map, store)
+        _ = CAccountMap.lock(map)
         :ok
       end)
 

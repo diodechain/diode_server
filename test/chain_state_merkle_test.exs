@@ -338,14 +338,14 @@ defmodule ChainStateMerkleTest do
   end
 
   describe "lock → clone writable fork (block sync path)" do
-    test "normalized :store fork writable after parent lock" do
+    test "normalized state fork writable after parent lock" do
       base =
         State.new()
         |> put_account(1, account_with_storage([{word32(1), val32(1)}]))
         |> put_account(2, account_u256_slots(0..8))
         |> State.normalize()
 
-      assert base.store != nil
+      assert is_binary(State.hash(base))
       parent_hash = State.hash(base)
 
       Chain.State.lock(base)

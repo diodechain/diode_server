@@ -197,6 +197,9 @@ defmodule CMerkleParallelStress do
       "P18" ->
         run_named("P18_writer_sim", fn -> p18_writer_sim(ctx) end)
 
+      "P18L" ->
+        run_named("P18_lazy_clone_eth_call", fn -> p18_lazy_clone_eth_call(ctx) end)
+
       "P19" ->
         run_named("P19_large_map_small_delta", fn -> p19_large_map_small_delta(ctx) end)
 
@@ -650,7 +653,7 @@ defmodule CMerkleParallelStress do
       Task.async_stream(
         1..uncompact_workers,
         fn _ ->
-          {accounts, _store, _hash} = CAccountMap.uncompact_state(compact)
+          {accounts, _hash} = CAccountMap.uncompact_state(compact)
           CAccountMap.size(accounts)
         end,
         max_concurrency: uncompact_workers,
@@ -693,7 +696,7 @@ defmodule CMerkleParallelStress do
   defp p13_account_map_contention(%{tasks: tasks, ops: ops}) do
     n = min(tasks, 80)
     compact = build_compact_accounts(n)
-    {base, _store, _hash} = CAccountMap.uncompact_state(compact)
+    {base, _hash} = CAccountMap.uncompact_state(compact)
 
     1..tasks
     |> Task.async_stream(
@@ -865,7 +868,7 @@ defmodule CMerkleParallelStress do
               |> CMerkleTree.insert(String.pad_leading("x#{w}", 32), CMerkleTree.hash("x#{w}"))
 
           _ ->
-            _ = CAccountMap.lock(live.accounts, Map.get(live, :store))
+            _ = CAccountMap.lock(live.accounts)
         end
 
         :ok
@@ -916,7 +919,7 @@ defmodule CMerkleParallelStress do
     )
     |> Stream.run()
 
-    {_locked, orphans, _shared, _res} = CMerkleTree.nif_stats()
+    {_locked, orphans, _shared, _res, _lazy, _eager} = CMerkleTree.nif_stats()
 
     if orphans > 0 do
       raise("P16 pending orphans=#{orphans}")
@@ -990,7 +993,7 @@ defmodule CMerkleParallelStress do
         map = block.accounts
 
         case rem(w, 4) do
-          0 -> _ = CAccountMap.lock(map, nil)
+          0 -> _ = CAccountMap.lock(map)
           1 -> _ = CAccountMap.to_list(map)
           2 -> {_, _, sa, _} = CAccountMap.get(map, addr(1))
           {_, _, sb, _} = CAccountMap.get(map, addr(rem(w, n) + 1))
@@ -1007,6 +1010,36 @@ defmodule CMerkleParallelStress do
     |> Stream.run()
 
     Task.await(writer, :infinity)
+  end
+
+  defp p18_lazy_clone_eth_call(%{tasks: tasks, accounts: n}) do
+    base = build_live_state(max(n, 50))
+
+    1..tasks
+    |> Task.async_stream(
+      fn w ->
+        fork =
+          base
+          |> State.clone_lazy()
+          |> then(fn st ->
+            id = addr(rem(w, max(n, 50)) + 1)
+            acc = State.account(st, id)
+
+            tree =
+              Account.tree(acc)
+              |> CMerkleTree.insert(slot(900_000 + w), <<w::unsigned-size(256)>>)
+
+            State.set_account(st, id, Account.put_tree(acc, tree))
+          end)
+
+        _ = State.hash(fork)
+        :ok
+      end,
+      max_concurrency: tasks,
+      timeout: :infinity,
+      ordered: false
+    )
+    |> Stream.run()
   end
 
   defp p19_large_map_small_delta(%{tasks: tasks}) do
@@ -1059,7 +1092,7 @@ defmodule CMerkleParallelStress do
       fn w ->
         case rem(w, 5) do
           0 -> _ = CAccountMap.list_difference(map, other.accounts)
-          1 -> _ = CAccountMap.lock(map, nil)
+          1 -> _ = CAccountMap.lock(map)
           2 -> _ = State.difference(live, other)
           3 -> _ = CMerkleTree.difference(Account.tree(State.account(live, addr(1))), Account.tree(State.account(other, addr(1))))
           _ -> _ = CAccountMap.to_list(map)

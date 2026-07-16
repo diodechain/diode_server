@@ -134,7 +134,7 @@ defmodule Chain.Block do
     try do
       hash = state_hash(block)
       hash2 = if is_binary(block.header.state_hash), do: block.header.state_hash, else: hash
-      hash3 = CMerkleTree.root_hash(Chain.State.tree(state(block)))
+      hash3 = Chain.State.hash(state(block))
 
       consistent = hash2 == hash3 and (not is_binary(hash) or hash == hash2)
 

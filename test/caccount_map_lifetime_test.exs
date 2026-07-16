@@ -415,13 +415,11 @@ defmodule CAccountMapLifetimeTest do
   end
 
   describe "map-account clone after lock (compact in-memory path)" do
-    test "fork of locked map-based state can write storage without mutating parent" do
-      accounts = %{
-        addr(1) => sample_account(1),
-        addr(2) => sample_account(2)
-      }
-
-      base = %State{State.new() | accounts: accounts}
+    test "fork of locked CAccountMap state can write storage without mutating parent" do
+      base =
+        State.new()
+        |> State.set_account(addr(1), sample_account(1))
+        |> State.set_account(addr(2), sample_account(2))
 
       Chain.State.lock(base)
       fork = State.clone(base)
@@ -520,7 +518,7 @@ defmodule CAccountMapLifetimeTest do
         |> State.uncompact()
         |> State.normalize()
 
-      assert restored.store != nil
+      assert is_binary(Chain.State.hash(restored))
       Chain.State.lock(restored)
 
       fork =

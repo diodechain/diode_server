@@ -26,10 +26,11 @@ defmodule CMerkleAccountMapDiffTest do
   end
 
   defp legacy_diff(map_a, map_b) do
-    CMerkleTree.list_difference(
-      CAccountMap.to_account_list(map_a),
-      CAccountMap.to_account_list(map_b)
-    )
+    CAccountMap.list_difference(map_a, map_b)
+    |> Enum.map(fn {addr, {a, b}} ->
+      {addr, {a, b}}
+    end)
+    |> Map.new()
   end
 
   defp assert_diff_equivalent(map_a, map_b) do
@@ -200,21 +201,39 @@ defmodule CMerkleAccountMapDiffTest do
                 CAccountMap.put(acc, id, i + 1, i * 2_000, storage, <<i>>)
 
               _ ->
-                {nonce, balance, storage, code} = CAccountMap.get(acc, id)
+                case CAccountMap.get(acc, id) do
+                  :undefined ->
+                    acc
 
-                storage =
-                  CMerkleTree.insert(
-                    CMerkleTree.clone(storage),
-                    slot(i + 20_000),
-                    <<i * 2::unsigned-size(256)>>
-                  )
+                  {nonce, balance, storage, code} ->
+                    storage =
+                      CMerkleTree.insert(
+                        CMerkleTree.clone(storage),
+                        slot(i + 20_000),
+                        <<i * 2::unsigned-size(256)>>
+                      )
 
-                CAccountMap.put(acc, id, nonce, balance, storage, code)
+                    CAccountMap.put(acc, id, nonce, balance, storage, code)
+                end
             end
           end)
 
         assert_diff_equivalent(a, b)
       end
+    end
+  end
+
+  describe "difference_full vs list_difference" do
+    test "difference_full covers the same account ids as list_difference" do
+      a = build_map(20)
+      b = build_map(25)
+
+      legacy = CAccountMap.list_difference(a, b)
+      state_a = %Chain.State{accounts: a}
+      state_b = %Chain.State{accounts: b}
+      full = Map.new(State.difference(state_a, state_b))
+
+      assert Map.keys(full) |> Enum.sort() == Map.keys(legacy) |> Enum.sort()
     end
   end
 

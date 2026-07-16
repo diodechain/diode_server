@@ -65,14 +65,14 @@ defmodule ChainStateUncompactTest do
     test "empty compact map" do
       restored = State.uncompact(%State{accounts: %{}})
       assert CAccountMap.size(restored.accounts) == 0
-      assert restored.store != nil
+      assert is_binary(Chain.State.hash(restored))
       assert State.hash(restored) == CMerkleTree.root_hash(CMerkleTree.new())
     end
 
     test "empty CAccountMap resource" do
       restored = State.uncompact(%State{accounts: CAccountMap.new()})
       assert CAccountMap.size(restored.accounts) == 0
-      assert restored.store != nil
+      assert is_binary(Chain.State.hash(restored))
       assert State.hash(restored) == CMerkleTree.root_hash(CMerkleTree.new())
     end
 
@@ -83,7 +83,7 @@ defmodule ChainStateUncompactTest do
       restored = State.uncompact(original)
       assert State.hash(restored) == hash
       assert CAccountMap.size(restored.accounts) == 8
-      assert restored.store != nil
+      assert is_binary(Chain.State.hash(restored))
       refute restored.accounts === original.accounts
     end
 
@@ -187,7 +187,7 @@ defmodule ChainStateUncompactTest do
         }
 
       compact = %{addr(1) => Account.compact(multi_slot)}
-      {accounts, _store, _hash} = CAccountMap.uncompact_state(compact)
+      {accounts, _hash} = CAccountMap.uncompact_state(compact)
 
       {5, 1_000, storage, <<5>>} = CAccountMap.get(accounts, addr(1))
 
@@ -231,7 +231,7 @@ defmodule ChainStateUncompactTest do
 
     test "put overwrites lazy account without prior get" do
       compact = %{addr(1) => sample_account(1) |> Account.compact()}
-      {accounts, _, _} = CAccountMap.uncompact_state(compact)
+      {accounts, _} = CAccountMap.uncompact_state(compact)
 
       new_storage =
         CMerkleTree.insert_items(CMerkleTree.new(), [
@@ -276,9 +276,9 @@ defmodule ChainStateUncompactTest do
     test "clone GC after lazy uncompact leaves parent storage readable" do
       restored = live_state(6) |> State.compact() |> State.uncompact()
 
-      _fork = CAccountMap.clone(restored.accounts)
-      assert CAccountMap.size(_fork) == 6
-      _fork = nil
+      fork = CAccountMap.clone(restored.accounts)
+      assert CAccountMap.size(fork) == 6
+      _ = fork
       force_gc()
 
       for i <- 1..6 do
@@ -288,7 +288,7 @@ defmodule ChainStateUncompactTest do
 
     test "fork put on lazy map isolates parent account data" do
       compact = compact_accounts_map(3)
-      {accounts, _, _} = CAccountMap.uncompact_state(compact)
+      {accounts, _} = CAccountMap.uncompact_state(compact)
 
       new_storage = CMerkleTree.insert_items(CMerkleTree.new(), [{slot(50), val(50)}])
 
@@ -343,7 +343,7 @@ defmodule ChainStateUncompactTest do
 
       restored = State.uncompact(state)
       assert CAccountMap.size(restored.accounts) == @account_count
-      assert restored.store != nil
+      assert is_binary(Chain.State.hash(restored))
     end
 
     @tag :slow
@@ -370,7 +370,7 @@ defmodule ChainStateUncompactTest do
 
       assert CAccountMap.size(restored.accounts) == @account_count
       assert is_binary(State.hash(restored))
-      assert restored.store != nil
+      assert is_binary(Chain.State.hash(restored))
 
       reduce_ms = Float.round(reduce_us / 1000, 1)
       tree_ms = Float.round(tree_us / 1000, 1)

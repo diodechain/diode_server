@@ -70,7 +70,7 @@ defmodule CMerkleLeakTest do
       Enum.reduce(1..plateau, {baseline, 0}, fn window, {last, rising} ->
         run_workload(id, rounds, accounts)
         force_gc()
-        {locked, orphans, shared, _res} = CMerkleTree.nif_stats()
+        {locked, orphans, shared, _res, _lazy, _eager} = CMerkleTree.nif_stats()
         rss = measure_rss()
         delta = rss - baseline
 

@@ -856,7 +856,7 @@ defmodule Network.Rpc do
   end
 
   defp apply_transaction(tx, block) do
-    state = Block.state(block) |> Chain.State.clone()
+    state = Block.state(block) |> Chain.State.clone_lazy()
 
     case Chain.Transaction.apply(tx, block, state) do
       {:ok, _state, rcpt = %{msg: :ok}} ->

@@ -11,7 +11,13 @@ defmodule CAccountMap do
 
   def clone(map), do: CMerkleTree.account_map_clone(map)
 
-  def lock(map, store \\ nil), do: CMerkleTree.account_map_lock(map, store)
+  def clone_lazy(map), do: CMerkleTree.account_map_clone_lazy(map)
+
+  def lock(map), do: CMerkleTree.account_map_lock(map, nil)
+
+  def root_hash(map), do: CMerkleTree.account_map_root_hash(map)
+
+  def state_trie(map), do: CMerkleTree.account_map_state_trie(map)
 
   def get(map, <<_::160>> = addr) do
     case CMerkleTree.account_map_get(map, addr) do
@@ -57,10 +63,34 @@ defmodule CAccountMap do
     end)
   end
 
+  def difference_full(map_a, map_b) do
+    CMerkleTree.account_map_difference_full(map_a, map_b)
+  end
+
+  def apply_difference(map, delta) do
+    case CMerkleTree.account_map_apply_difference(map, delta) do
+      {:error, reason} -> {:error, reason}
+      map -> map
+    end
+  end
+
+  def decode_storage_diff(storage_diff) do
+    Map.new(storage_diff, fn {key, {val_a, val_b}} ->
+      {key, {decode_storage_value(val_a), decode_storage_value(val_b)}}
+    end)
+  end
+
+  defp decode_storage_value(nil), do: nil
+  defp decode_storage_value(val) when is_binary(val), do: val
+
   defp decode_account_side(nil), do: nil
   defp decode_account_side(entry), do: entry |> decode_entry() |> account_from_parts()
 
-  def uncompact_state(accounts), do: CMerkleTree.account_map_uncompact_state(accounts)
+  def uncompact_state(accounts) do
+    case CMerkleTree.account_map_uncompact_state(accounts) do
+      {am, hash} -> {am, hash}
+    end
+  end
 
   defp decode_entry({nonce, balance, storage, code}) do
     {nonce, decode_balance(balance), storage, code}

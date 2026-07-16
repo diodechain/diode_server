@@ -283,7 +283,7 @@ defmodule CMerkleHeapAssumptions do
         end)
 
       _ = CAccountMap.lock(map)
-      {_locked, orphans, _shared, _res} = CMerkleTree.nif_stats()
+      {_locked, orphans, _shared, _res, _lazy, _eager} = CMerkleTree.nif_stats()
       if orphans > 0, do: raise("scenario I orphans=#{orphans}")
       :ok
     end)
@@ -313,7 +313,7 @@ defmodule CMerkleHeapAssumptions do
         CAccountMap.put(map, <<1::unsigned-size(160)>>, nonce + 1, balance, storage, code)
       end)
 
-    {_l0, orphans0, shared0, _r0} = CMerkleTree.nif_stats()
+    {_l0, orphans0, shared0, _r0, _, _} = CMerkleTree.nif_stats()
     if orphans0 > 0, do: raise("scenario J initial orphans=#{orphans0}")
 
     Enum.each(1..max(div(r, 2), 30), fn _ ->
@@ -321,7 +321,7 @@ defmodule CMerkleHeapAssumptions do
       :erlang.garbage_collect()
     end)
 
-    {_l1, orphans1, shared1, _r1} = CMerkleTree.nif_stats()
+    {_l1, orphans1, shared1, _r1, _, _} = CMerkleTree.nif_stats()
     if orphans1 > 0, do: raise("scenario J orphans=#{orphans1}")
     if shared1 - shared0 > 800, do: raise("scenario J shared_states growth #{shared1 - shared0}")
     :ok

@@ -19,32 +19,10 @@ defmodule CMerkleTree do
     insert_items(new(), list)
   end
 
-  def list_difference(a, b) do
-    a_diffmap =
-      Enum.reduce(a, %{}, fn {key, value}, acc ->
-        Map.put(acc, key, {value, nil})
-      end)
-
-    Enum.reduce(b, a_diffmap, fn {key, bvalue}, acc ->
-      case Map.get(acc, key) do
-        nil ->
-          Map.put(acc, key, {nil, bvalue})
-
-        {avalue, nil} ->
-          if avalue.nonce == bvalue.nonce && avalue.balance == bvalue.balance &&
-               avalue.code == bvalue.code &&
-               Chain.Account.root_hash(avalue) == Chain.Account.root_hash(bvalue) do
-            Map.delete(acc, key)
-          else
-            Map.put(acc, key, {avalue, bvalue})
-          end
-      end
-    end)
+  def list_difference(_a, _b) do
+    raise "CMerkleTree.list_difference/2 removed; use CAccountMap.list_difference/2"
   end
 
-  # def difference(a, b) do
-  #   list_difference(to_list(a), to_list(b))
-  # end
   def difference(a, b) do
     difference_raw(a, b)
     |> Enum.map(fn
@@ -141,6 +119,9 @@ defmodule CMerkleTree do
 
   def account_map_new(), do: error()
   def account_map_clone(_map), do: error()
+  def account_map_clone_lazy(_map), do: error()
+  def account_map_root_hash(_map), do: error()
+  def account_map_state_trie(_map), do: error()
   def account_map_lock(_map, _store), do: error()
   def account_map_get(_map, _addr), do: error()
   def account_map_put(_map, _addr, _nonce, _balance, _storage, _code), do: error()
@@ -148,6 +129,8 @@ defmodule CMerkleTree do
   def account_map_size(_map), do: error()
   def account_map_to_list(_map), do: error()
   def account_map_list_difference_raw(_map_a, _map_b), do: error()
+  def account_map_difference_full(_map_a, _map_b), do: error()
+  def account_map_apply_difference(_map, _delta), do: error()
   def account_map_uncompact_state(_map), do: error()
 
   defp struct_sizes_raw, do: error()

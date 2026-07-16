@@ -30,14 +30,19 @@
 | `malloc_info_raw` | 0 | — | tests, `cmerkle_memory_bench.exs` |
 | `account_map_new` | 0 | — | `CAccountMap.new/0`, `Chain.State` |
 | `account_map_clone` | 1 | account map resource | `CAccountMap.clone/1`, `Chain.State.clone/1` |
-| `account_map_lock` | 2 | account map resource, optional state trie or `nil` | `CAccountMap.lock/2`, `Chain.State.lock/1` |
+| `account_map_clone_lazy` | 1 | account map resource | `CAccountMap.clone_lazy/1`, speculative `Chain.State.clone_lazy/1` |
+| `account_map_lock` | 2 | account map resource, optional store/nil (ignored for freeze) | `CAccountMap.lock/1`, `Chain.State.lock/1` |
 | `account_map_get` | 2 | resource, 20-byte address | `CAccountMap.get/2` |
 | `account_map_put` | 6 | resource, address, nonce, balance, storage resource, code | `CAccountMap.put/5` |
 | `account_map_delete` | 2 | resource, address | `CAccountMap.delete/2` |
+| `account_map_root_hash` | 1 | resource | `CAccountMap.root_hash/1`, `Chain.State.hash/1` |
+| `account_map_state_trie` | 1 | resource | `CAccountMap.state_trie/1`, `Chain.State.tree/1` |
 | `account_map_size` | 1 | resource | `CAccountMap.size/1` |
 | `account_map_to_list` | 1 | resource | `CAccountMap.to_list/1`, RPC export |
-| `account_map_list_difference_raw` | 2 | two account map resources | `CAccountMap.list_difference/2`, `Chain.State.difference/2` |
-| `account_map_uncompact_state` | 1 | compact account map or account map resource | `CAccountMap.uncompact_state/1`, `Chain.State.uncompact/1` |
+| `account_map_list_difference_raw` | 2 | two account map resources | `CAccountMap.list_difference/2` |
+| `account_map_difference_full` | 2 | two account map resources | `CAccountMap.difference_full/2`, `Chain.State.difference/2` |
+| `account_map_apply_difference` | 2 | account map resource, delta list | `CAccountMap.apply_difference/2`, `Chain.State.apply_difference/2` |
+| `account_map_uncompact_state` | 1 | compact account map or account map resource | Returns `{am, hash}`; `CAccountMap.uncompact_state/1`, `Chain.State.uncompact/1` |
 
 **Trust:** Erlang validates some shapes (e.g. `to_bytes32`), but the NIF must treat all binaries and terms as hostile (size, allocation, scheduler impact).
 
