@@ -36,7 +36,7 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libasan.so.8
 
 ## Recovering a node after bad deltas / malloc corruption
 
-Symptoms: `apply_difference` raises on `^a = CMerkleTree.get(tree, key)` (delta old value does not match parent trie), or native heap errors in the NIF.
+Symptoms: `apply_difference` raises when a delta old value does not match the parent storage trie, or native heap errors in the NIF.
 
 1. **Stop** the node.
 2. **Find the last good block** (highest block number that still loads `Model.ChainSql.state/1` successfully, or the parent hash of the first failing block). Use logs, a backup, or binary search over block numbers.

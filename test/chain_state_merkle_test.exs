@@ -5,8 +5,8 @@
 # Regression tests: Chain.State.difference / apply_difference must round-trip
 # (matches persisted block delta replay in Model.ChainSql.do_state/1).
 #
-# Heavy cases mirror production: Evm.process_updates uses 32-byte key/value maps and
-# CMerkleTree.insert_items/2; State.clone/1 shares trie pools (COW);
+# Heavy cases mirror production: Evm.process_updates uses 32-byte key/value maps;
+# State.clone/1 shares trie pools (COW);
 # sequential <<n::256>> slots maximize shared key prefixes (trie depth).
 defmodule ChainStateMerkleTest do
   # NIF uses process-global allocators / stripe pools; run sequentially to avoid cross-test races.
@@ -45,8 +45,7 @@ defmodule ChainStateMerkleTest do
   end
 
   defp account_from_evm_map(kvs) when is_map(kvs) do
-    tree = CMerkleTree.insert_items(CMerkleTree.new(), Map.to_list(kvs))
-    %{Account.new() | storage_root: tree, map_backed: false, root_hash: nil}
+    %{Account.new() | storage_root: Map.to_list(kvs), map_backed: false, root_hash: nil}
   end
 
   defp account_with_storage(pairs) do
@@ -54,12 +53,7 @@ defmodule ChainStateMerkleTest do
   end
 
   defp account_with_storage(%Account{} = acc, pairs) do
-    tree =
-      Enum.reduce(pairs, CMerkleTree.new(), fn {k, v}, t ->
-        CMerkleTree.insert(t, k, v)
-      end)
-
-    %{acc | storage_root: tree, map_backed: false, root_hash: nil}
+    %{acc | storage_root: pairs, map_backed: false, root_hash: nil}
   end
 
   defp put_account(%State{} = st, i, acc), do: State.set_account(st, addr(i), acc)
@@ -228,8 +222,8 @@ defmodule ChainStateMerkleTest do
     end
   end
 
-  describe "EVM-shaped payloads (32-byte key/value, insert_items)" do
-    test "batch insert_items like Evm.process_updates/2" do
+  describe "EVM-shaped payloads (32-byte key/value via storage_put_map)" do
+    test "batch storage updates like Evm.process_updates/2" do
       kvs =
         for i <- 0..399, into: %{} do
           {slot_u256(i), val_u256(Bitwise.bxor(i, 0xDEAD_BEEF))}
@@ -306,16 +300,18 @@ defmodule ChainStateMerkleTest do
       assert_roundtrip(prev, next)
     end
 
-    test "root_hash on deep U256-slot tree (get_proofs shape is NIF-specific; root_hash stresses trie)" do
-      t =
-        CMerkleTree.insert_items(
-          CMerkleTree.new(),
-          Enum.map(0..220, fn i -> {slot_u256(i), val_u256(i)} end)
+    test "storage_root_hash and storage_get_proofs on deep U256-slot account" do
+      st =
+        State.new()
+        |> put_account(
+          1,
+          account_with_storage(Enum.map(0..220, fn i -> {slot_u256(i), val_u256(i)} end))
         )
 
-      assert is_binary(CMerkleTree.root_hash(t))
-      p = CMerkleTree.get_proofs(t, slot_u256(0))
-      assert is_tuple(p) or is_map(p)
+      root = State.storage_root_hash(st, addr(1))
+      assert is_binary(root) and byte_size(root) == 32
+      p = State.storage_get_proofs(st, addr(1), slot_u256(0))
+      assert is_tuple(p) or is_map(p) or is_list(p)
     end
 
     test "large mutation round-trip after independent clones (no lock)" do

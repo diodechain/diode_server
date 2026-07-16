@@ -8,148 +8,11 @@ defmodule CMerkleLockConcurrencyTest do
   @moduletag timeout: 300_000
 
   @tasks 24
-  @ops 30
   @timeout_ms 120_000
-
-  describe "lock + difference concurrency (production deadlock regression)" do
-    test "concurrent lock/1 on clones with identical root (enter_lock dedup)" do
-      data =
-        Enum.map(1..80, fn i ->
-          {String.pad_leading("L#{i}", 32), CMerkleTree.hash("lock#{i}")}
-        end)
-
-      base = CMerkleTree.new() |> CMerkleTree.insert_items(data)
-
-      run_parallel(@tasks, fn _ ->
-        _ =
-          base
-          |> CMerkleTree.clone()
-          |> CMerkleTree.lock()
-
-        :ok
-      end)
-    end
-
-    test "concurrent difference while locking cloned trees with shared roots" do
-      ta =
-        CMerkleTree.new()
-        |> CMerkleTree.insert_items(
-          Enum.map(1..120, fn i ->
-            {String.pad_leading("da#{i}", 32), CMerkleTree.hash("da#{i}")}
-          end)
-        )
-
-      tb =
-        CMerkleTree.new()
-        |> CMerkleTree.insert_items(
-          Enum.map(1..120, fn i ->
-            {String.pad_leading("db#{i}", 32), CMerkleTree.hash("db#{i}")}
-          end)
-        )
-
-      base =
-        CMerkleTree.new()
-        |> CMerkleTree.insert_items(
-          Enum.map(1..100, fn i ->
-            {String.pad_leading("sh#{i}", 32), CMerkleTree.hash("sh#{i}")}
-          end)
-        )
-
-      run_parallel(@tasks, fn w ->
-        if rem(w, 3) == 0 do
-          _ = CMerkleTree.difference(ta, tb)
-        else
-          _ =
-            base
-            |> CMerkleTree.clone()
-            |> CMerkleTree.lock()
-
-          Enum.each(1..@ops, fn j ->
-            k = String.pad_leading("m#{w}_#{j}", 32)
-            _ = CMerkleTree.insert(ta, k, CMerkleTree.hash("v#{w}#{j}"))
-            _ = CMerkleTree.difference(ta, tb)
-          end)
-        end
-
-        :ok
-      end)
-    end
-
-    test "interleaved lock, difference, and mutate (P5 + P6 combined)" do
-      ta =
-        CMerkleTree.new()
-        |> CMerkleTree.insert_items(
-          Enum.map(1..100, fn i ->
-            {String.pad_leading("ia#{i}", 32), CMerkleTree.hash("ia#{i}")}
-          end)
-        )
-
-      tb =
-        CMerkleTree.new()
-        |> CMerkleTree.insert_items(
-          Enum.map(1..100, fn i ->
-            {String.pad_leading("ib#{i}", 32), CMerkleTree.hash("ib#{i}")}
-          end)
-        )
-
-      mutators = div(@tasks, 3) |> max(1)
-      lockers = div(@tasks, 3) |> max(1)
-      differ = @tasks - mutators - lockers
-
-      run_parallel(mutators, fn w ->
-        Enum.each(1..@ops, fn j ->
-          k = String.pad_leading("mut#{w}_#{j}", 32)
-          _ = CMerkleTree.insert(ta, k, CMerkleTree.hash("mut#{w}#{j}"))
-        end)
-
-        :ok
-      end)
-
-      run_parallel(lockers, fn _ ->
-        _ =
-          ta
-          |> CMerkleTree.clone()
-          |> CMerkleTree.lock()
-
-        :ok
-      end)
-
-      run_parallel(differ, fn _ ->
-        _ = CMerkleTree.difference(ta, tb)
-        _ = CMerkleTree.difference(tb, ta)
-        :ok
-      end)
-    end
-
-    test "lock dedup still shares canonical root across clones" do
-      data =
-        Enum.map(1..40, fn i ->
-          {String.pad_leading("d#{i}", 32), CMerkleTree.hash("d#{i}")}
-        end)
-
-      base = CMerkleTree.new() |> CMerkleTree.insert_items(data)
-      expected_root = CMerkleTree.root_hash(base)
-
-      locked =
-        1..8
-        |> Enum.map(fn _ ->
-          base |> CMerkleTree.clone() |> CMerkleTree.lock()
-        end)
-
-      for tree <- locked do
-        assert CMerkleTree.root_hash(tree) == expected_root
-      end
-    end
-  end
 
   describe "account_map_lock NIF concurrency" do
     test "concurrent CAccountMap.lock on maps with deduped shared storage tries" do
       map = lock_test_shared_storage_map(60, 5)
-
-      _store =
-        CMerkleTree.insert_items(CMerkleTree.new(), [
-          {String.pad_leading("store", 32), CMerkleTree.hash("store")}
-        ])
 
       run_parallel(@tasks, fn _ ->
         _ = map |> CAccountMap.clone() |> CAccountMap.lock()
@@ -202,7 +65,7 @@ defmodule CMerkleLockConcurrencyTest do
     test "difference_full(A,B) concurrent with difference_full(B,A)" do
       a = lock_test_shared_storage_map(40, 4)
       b = CAccountMap.clone(a)
-      b = CAccountMap.put(b, <<3::unsigned-size(160)>>, 99, 99_000, CMerkleTree.new(), <<99>>)
+      b = CAccountMap.put(b, <<3::unsigned-size(160)>>, 99, 99_000, [], <<99>>)
 
       ab = div(@tasks, 2) |> max(1)
       ba = @tasks - ab
@@ -221,11 +84,8 @@ defmodule CMerkleLockConcurrencyTest do
 
   defp lock_test_shared_storage_map(account_count, group_size) do
     Enum.reduce(1..account_count, CAccountMap.new(), fn i, map ->
-      storage =
-        CMerkleTree.insert_items(CMerkleTree.new(), [
-          {String.pad_leading("g#{div(i - 1, group_size)}", 32),
-           CMerkleTree.hash("g#{div(i - 1, group_size)}")}
-        ])
+      g = div(i - 1, group_size)
+      storage = [{String.pad_leading("g#{g}", 32), Diode.hash("g#{g}")}]
 
       CAccountMap.put(map, <<i::unsigned-size(160)>>, i, i * 1_000, storage, <<i>>)
     end)

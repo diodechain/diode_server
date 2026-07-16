@@ -91,7 +91,7 @@ defmodule CMerkleStorageMapTest do
   test "get_proofs and storage_get_proofs return terms without crashing" do
     map =
       CAccountMap.new()
-      |> CAccountMap.put(addr(1), 1, 100, CMerkleTree.new(), <<>>)
+      |> CAccountMap.put(addr(1), 1, 100, [], <<>>)
       |> CAccountMap.storage_put_map(%{addr(1) => %{slot(7) => val(7)}})
 
     account_proof = CAccountMap.get_proofs(map, addr(1))

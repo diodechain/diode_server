@@ -230,13 +230,6 @@ void Item::each(Tree &tree, std::function<void(pair_t &)> func) {
     }
 }
 
-size_t Item::leaf_count(const Tree &tree) const {
-    if (this->is_leaf) {
-        return 1;
-    }
-    return tree.pool->get(left_id)->leaf_count(tree) + tree.pool->get(right_id)->leaf_count(tree);
-}
-
 Tree::Tree()
     : m_pair_allocator(std::make_shared<PreAllocator<pair_t>>(*this)),
       pool(ItemPool::make()),
@@ -326,12 +319,6 @@ void Tree::insert_item(pair_t &pair) {
         pool->decr_ref(old_root);
         root_id = new_root;
         pool->incr_ref(root_id);
-    }
-}
-
-void Tree::insert_items(pair_list_t &items) {
-    for (pair_t *pair : items) {
-        insert_item(*pair);
     }
 }
 
@@ -431,12 +418,6 @@ size_t Tree::size() {
         count++;
     });
     return count;
-}
-
-size_t Tree::leaf_count() {
-    bin_t binary_buffer;
-    update_merkle_hash_count(root_id, binary_buffer);
-    return pool->get(root_id)->leaf_count(*this);
 }
 
 static size_t count_nodes(ItemPool *pool, ItemId item_id) {

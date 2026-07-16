@@ -12,16 +12,12 @@ extern "C" {
 #include "merkletree.hpp"
 #include "rlp.hpp"
 #include <algorithm>
-#include <atomic>
 #include <cstring>
 #include <cstdio>
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#ifdef __GLIBC__
-#include <malloc.h>
-#endif
 
 static constexpr size_t kNifTimesliceInterval = 512;
 
@@ -41,12 +37,6 @@ static ERL_NIF_TERM make_atom(ErlNifEnv *env, const char *atom_name);
 static ERL_NIF_TERM make_binary(ErlNifEnv *env, uint8_t *data, size_t size);
 static volatile int shared_states = 0;
 static volatile int resources = 0;
-static int locked_states_cnt = 0;
-static int orphan_shared_states = 0;
-
-class LockedStates;
-static LockedStates* locked_states;
-
 
 #ifdef DEBUG
 #define STAT(cmd) { enif_mutex_lock(stats_mutex); cmd; enif_mutex_unlock(stats_mutex); }
@@ -54,7 +44,7 @@ static void print(const char *msg) {
     static int ops = 0;
     
     if (ops++ % 10000 == 0) {
-        fprintf(stderr, "%s [shared_states=%d] [locked_states=%d] [resources=%d]\n", msg, shared_states, locked_states_cnt, resources); fflush(stderr);
+        fprintf(stderr, "%s [shared_states=%d] [resources=%d]\n", msg, shared_states, resources); fflush(stderr);
     }
 }
 #else
@@ -66,12 +56,10 @@ class SharedState {
 public:
     ErlNifMutex *mtx;
     int has_clone;
-    std::atomic<int> read_pins;
     Tree tree;
     SharedState() : tree() {
         mtx = enif_mutex_create((char*)"merkletree_mutex");
         has_clone = 0;
-        read_pins.store(0, std::memory_order_relaxed);
         enif_mutex_lock(stats_mutex);
         shared_states++;
         enif_mutex_unlock(stats_mutex);
@@ -81,7 +69,6 @@ public:
     SharedState(SharedState &other) : tree(other.tree) {
         mtx = enif_mutex_create((char*)"merkletree_mutex");
         has_clone = 0;
-        read_pins.store(0, std::memory_order_relaxed);
         enif_mutex_lock(stats_mutex);
         shared_states++;
         enif_mutex_unlock(stats_mutex);
@@ -98,7 +85,6 @@ public:
 };
 
 struct  merkletree {
-    bool locked;
     SharedState *shared_state;
 };
 
@@ -129,18 +115,13 @@ public:
     }
 };
 
-/* Lock one or two SharedState mutexes in a fixed address order (matches difference_raw). */
+/* Lock one or two SharedState mutexes in a fixed address order. */
 class SharedStateLock {
     SharedState *first;
     SharedState *second;
     bool dual;
 
 public:
-    explicit SharedStateLock(SharedState *state)
-        : first(state), second(nullptr), dual(false) {
-        enif_mutex_lock(first->mtx);
-    }
-
     SharedStateLock(SharedState *s1, SharedState *s2) {
         if (s1 == s2) {
             first = s1;
@@ -179,34 +160,6 @@ public:
         unlock();
     }
 };
-
-static void switch_local_to_canonical(merkletree *mt, SharedState *local, SharedState *canonical);
-
-static bool shared_state_reclaimable(SharedState *state) {
-    return state != nullptr &&
-        state->has_clone == 0 &&
-        state->read_pins.load(std::memory_order_acquire) == 0;
-}
-
-static void classify_shared_state_reclaim(SharedState *state, SharedState **dead, SharedState **orphan) {
-    if (shared_state_reclaimable(state)) {
-        *dead = state;
-    } else {
-        *orphan = state;
-    }
-}
-
-static void pin_shared_state_read(SharedState *state) {
-    if (state != nullptr) {
-        state->read_pins.fetch_add(1, std::memory_order_acq_rel);
-    }
-}
-
-static void unpin_shared_state_read(SharedState *state) {
-    if (state != nullptr) {
-        state->read_pins.fetch_sub(1, std::memory_order_acq_rel);
-    }
-}
 
 static void keep_storage_in_map(merkletree *mt);
 static void release_storage_from_map(merkletree *mt);
@@ -427,17 +380,14 @@ static void release_entry_storage(AccountEntry &entry)
     entry.compact_storage.reset();
 }
 
-// Allocates a new merkletree resource sharing mt's SharedState (has_clone += 1) with
-// locked = false so a fork can COW-write. Returns a resource with refcount 1 (the
-// caller's ownership): pair with enif_make_resource + enif_release_resource for an
-// Elixir term, or enif_keep_resource + enif_release_resource for C-side ownership.
+// Allocates a new merkletree resource sharing mt's SharedState (has_clone += 1).
+// Returns a resource with refcount 1 for C-side ownership (keep/release as needed).
 static merkletree *clone_merkletree_locked(merkletree *mt)
 {
     Lock lock(mt);
     merkletree *clone = (merkletree*)enif_alloc_resource(merkletree_type, sizeof(merkletree));
     STAT(resources++);
     clone->shared_state = mt->shared_state;
-    clone->locked = false;
     clone->shared_state->has_clone += 1;
     return clone;
 }
@@ -677,303 +627,30 @@ static void destroy_shared_accountmap(accountmap *am, AccountMapLock &lock)
     am->shared = NULL;
 }
 
-class LockedStates {
-public:
-    std::unordered_map<uint256_t, SharedState*> states;
-    std::vector<SharedState*> pending_orphans;
-    ErlNifMutex *mtx;
-
-    LockedStates() {
-        mtx = enif_mutex_create((char*)"locked_states_mutex");
-    }
-
-    ~LockedStates() {
-        enif_mutex_destroy(mtx);
-    }
-
-    void enqueue_orphan(SharedState *state) {
-        if (state == nullptr) {
-            return;
-        }
-        enif_mutex_lock(mtx);
-        if (std::find(pending_orphans.begin(), pending_orphans.end(), state) ==
-                pending_orphans.end()) {
-            pending_orphans.push_back(state);
-            orphan_shared_states = (int)pending_orphans.size();
-        }
-        enif_mutex_unlock(mtx);
-    }
-
-    void remove_pending_orphan(SharedState *state) {
-        if (state == nullptr) {
-            return;
-        }
-        enif_mutex_lock(mtx);
-        auto it = std::find(pending_orphans.begin(), pending_orphans.end(), state);
-        if (it != pending_orphans.end()) {
-            pending_orphans.erase(it);
-            orphan_shared_states = (int)pending_orphans.size();
-        }
-        enif_mutex_unlock(mtx);
-    }
-
-    void try_reclaim_orphans() {
-        std::vector<SharedState*> snapshot;
-        enif_mutex_lock(mtx);
-        snapshot = pending_orphans;
-        enif_mutex_unlock(mtx);
-
-        for (SharedState *candidate : snapshot) {
-            enif_mutex_lock(mtx);
-            auto it = std::find(pending_orphans.begin(), pending_orphans.end(), candidate);
-            if (it == pending_orphans.end()) {
-                enif_mutex_unlock(mtx);
-                continue;
-            }
-            pending_orphans.erase(it);
-            orphan_shared_states = (int)pending_orphans.size();
-            enif_mutex_unlock(mtx);
-
-            if (enif_mutex_trylock(candidate->mtx) != 0) {
-                enqueue_orphan(candidate);
-                continue;
-            }
-            if (!shared_state_reclaimable(candidate)) {
-                enif_mutex_unlock(candidate->mtx);
-                enqueue_orphan(candidate);
-                continue;
-            }
-            enif_mutex_unlock(candidate->mtx);
-            delete candidate;
-        }
-    }
-
-    void switch_to_canonical_locked(merkletree *mt, SharedState *local, SharedState *canonical) {
-        enif_mutex_lock(local->mtx);
-        local->has_clone += 1;
-        enif_mutex_unlock(local->mtx);
-        enif_mutex_lock(canonical->mtx);
-        canonical->has_clone += 1;
-        enif_mutex_unlock(canonical->mtx);
-        unpin_shared_state_read(canonical);
-        switch_local_to_canonical(mt, local, canonical);
-        enif_mutex_lock(mtx);
-        if (mt->shared_state != canonical) {
-            enif_mutex_lock(canonical->mtx);
-            if (canonical->has_clone > 0) {
-                canonical->has_clone -= 1;
-            }
-            enif_mutex_unlock(canonical->mtx);
-        }
-        enif_mutex_unlock(mtx);
-        try_reclaim_orphans();
-    }
-
-    void enter_lock(merkletree *mt) {
-        locked_states_cnt = (int)states.size();
-        print("ENTER_LOCK");
-
-        SharedState *local = nullptr;
-        uint256_t root_hash;
-
-        {
-            Lock lock(mt);
-            mt->locked = true;
-            local = mt->shared_state;
-            root_hash = local->tree.root_hash();
-        }
-
-        enif_mutex_lock(mtx);
-        SharedState *canonical = nullptr;
-        auto it = states.find(root_hash);
-        if (it != states.end()) {
-            if (it->second == local) {
-                enif_mutex_unlock(mtx);
-                enif_mutex_lock(local->mtx);
-                local->has_clone += 1;
-                enif_mutex_unlock(local->mtx);
-                return;
-            }
-            canonical = it->second;
-            pin_shared_state_read(canonical);
-        } else {
-            states[root_hash] = local;
-            enif_mutex_unlock(mtx);
-            enif_mutex_lock(local->mtx);
-            local->has_clone += 1;
-            enif_mutex_unlock(local->mtx);
-            return;
-        }
-        enif_mutex_unlock(mtx);
-
-        if (canonical) {
-            switch_to_canonical_locked(mt, local, canonical);
-        }
-    }
-
-    /* Lock a trie whose root_hash is already registered; repoint to canonical SharedState. */
-    void apply_canonical_lock(merkletree *mt, const uint256_t &root_hash) {
-        enif_mutex_lock(mtx);
-        auto it = states.find(root_hash);
-        if (it == states.end()) {
-            enif_mutex_unlock(mtx);
-            enter_lock(mt);
-            return;
-        }
-
-        SharedState *canonical = it->second;
-        pin_shared_state_read(canonical);
-        enif_mutex_unlock(mtx);
-
-        SharedState *local = nullptr;
-        {
-            Lock lock(mt);
-            mt->locked = true;
-            local = mt->shared_state;
-            if (local == canonical) {
-                // Already hold local/canonical mtx via Lock — do not lock again
-                // (ErlNifMutex is non-recursive; double-lock deadlocks on shared storage).
-                canonical->has_clone += 1;
-                lock.unlock();
-                unpin_shared_state_read(canonical);
-                return;
-            }
-        }
-
-        switch_to_canonical_locked(mt, local, canonical);
-    }
-
-    void leave_lock(merkletree *mt) {
-        locked_states_cnt = (int)states.size();
-        print("LEAVE_LOCK");
-
-        SharedState *state = mt->shared_state;
-        if (state == nullptr) {
-            return;
-        }
-
-        bool was_locked = mt->locked;
-        mt->locked = false;
-
-        uint256_t root_hash;
-        SharedState *dead = nullptr;
-        SharedState *orphan = nullptr;
-        bool erase_map_entry = false;
-
-        if (was_locked) {
-            enif_mutex_lock(mtx);
-            enif_mutex_lock(state->mtx);
-            root_hash = state->tree.root_hash();
-
-            if (state->has_clone > 0) {
-                state->has_clone -= 1;
-            }
-            mt->shared_state = nullptr;
-            erase_map_entry = (state->has_clone == 0);
-
-            if (state->has_clone == 0) {
-                classify_shared_state_reclaim(state, &dead, &orphan);
-            }
-
-            if (erase_map_entry) {
-                auto it = states.find(root_hash);
-                if (it != states.end() && it->second == state) {
-                    states.erase(it);
-                }
-            }
-
-            enif_mutex_unlock(state->mtx);
-            enif_mutex_unlock(mtx);
-        } else {
-            enif_mutex_lock(state->mtx);
-            if (state->has_clone == 0) {
-                classify_shared_state_reclaim(state, &dead, &orphan);
-                mt->shared_state = nullptr;
-            } else {
-                state->has_clone -= 1;
-                mt->shared_state = nullptr;
-            }
-            enif_mutex_unlock(state->mtx);
-        }
-
-        if (dead != nullptr) {
-            remove_pending_orphan(dead);
-            delete dead;
-        }
-        if (orphan != nullptr) {
-            enqueue_orphan(orphan);
-        }
-
-        try_reclaim_orphans();
-    }
-
-    int locked_count() const {
-        return (int)states.size();
-    }
-
-    int orphan_count() const {
-        return orphan_shared_states;
-    }
-};
-
-static void switch_local_to_canonical(merkletree *mt, SharedState *local, SharedState *canonical)
+/* Release map-owned merkletree resource SharedState (destructor path). */
+static void release_merkletree_shared(merkletree *mt)
 {
-    if (local == canonical) {
+    SharedState *state = mt->shared_state;
+    if (state == nullptr) {
         return;
     }
 
-    SharedState *lo = local < canonical ? local : canonical;
-    SharedState *hi = local < canonical ? canonical : local;
-    enif_mutex_lock(lo->mtx);
-    enif_mutex_lock(hi->mtx);
-
-    if (mt->shared_state != local) {
-        enif_mutex_unlock(hi->mtx);
-        enif_mutex_unlock(lo->mtx);
-        return;
-    }
-
-    SharedState *abandoned = nullptr;
-    if (local->has_clone == 0) {
+    SharedState *to_delete = nullptr;
+    enif_mutex_lock(state->mtx);
+    if (state->has_clone == 0) {
+        to_delete = state;
         mt->shared_state = nullptr;
-        enif_mutex_unlock(local->mtx);
-        if (shared_state_reclaimable(local)) {
-            abandoned = local;
-        } else {
-            locked_states->enqueue_orphan(local);
-        }
     } else {
-        local->has_clone -= 1;
+        state->has_clone -= 1;
         mt->shared_state = nullptr;
-        enif_mutex_unlock(local->mtx);
-        if (local->has_clone == 0) {
-            if (shared_state_reclaimable(local)) {
-                abandoned = local;
-            } else {
-                locked_states->enqueue_orphan(local);
-            }
-        }
     }
-    mt->shared_state = canonical;
+    enif_mutex_unlock(state->mtx);
 
-    if (local == lo) {
-        enif_mutex_unlock(hi->mtx);
-    } else {
-        enif_mutex_unlock(lo->mtx);
-    }
-
-    if (abandoned != nullptr) {
-        locked_states->enqueue_orphan(abandoned);
+    if (to_delete != nullptr) {
+        delete to_delete;
     }
 }
 
-/* Bare-tree / debug NIF entry points stay compiled always; only nif_funcs[] is gated.
- * Mark unused when CMERKLE_TEST_NIFS is off so -Wunused-function stays clean in prod. */
-#ifndef CMERKLE_TEST_NIFS
-#define CMERKLE_TEST_NIF __attribute__((unused))
-#else
-#define CMERKLE_TEST_NIF
-#endif
 
 static ERL_NIF_TERM
 make_atom(ErlNifEnv *env, const char *atom_name)
@@ -995,39 +672,10 @@ make_binary(ErlNifEnv *env, uint8_t *data, size_t size)
     return term;
 }
 
-
-static ERL_NIF_TERM CMERKLE_TEST_NIF
-merkletree_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM[] /*argv[]*/)
-{
-    if (argc != 0) return enif_make_badarg(env);
-    merkletree *mt = alloc_merkletree_resource();
-    ERL_NIF_TERM res = enif_make_resource(env, mt);
-    enif_release_resource(mt);
-    return res;
-}
-
-static ERL_NIF_TERM CMERKLE_TEST_NIF
-merkletree_clone(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
-{
-    merkletree *mt;
-    if (argc != 1) return enif_make_badarg(env);
-    if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
-
-    merkletree *clone = clone_merkletree_locked(mt);
-    ERL_NIF_TERM res = enif_make_resource(env, clone);
-    enif_release_resource(clone);
-    return res;
-}
-
-
 /* In-place COW: when SharedState is shared (has_clone > 0), detach this resource onto a
  * privately-owned SharedState copy. Caller must hold mt->shared_state->mtx. */
-static bool make_writeable_locked(merkletree *mt)
+static void make_writeable_locked(merkletree *mt)
 {
-    if (mt->locked) {
-        return false;
-    }
-
     SharedState *state = mt->shared_state;
     if (state->has_clone > 0) {
         state->has_clone -= 1;
@@ -1036,7 +684,6 @@ static bool make_writeable_locked(merkletree *mt)
         enif_mutex_lock(mt->shared_state->mtx);
         print("CREATING (UNCLONING)");
     }
-    return true;
 }
 
 static bool decode_storage_slot(const ErlNifBinary &key_binary,
@@ -1060,45 +707,6 @@ static bool insert_binary_pair(Tree &tree, const ErlNifBinary &key_binary,
     key_scratch = slot.key;
     tree.insert_item(key_scratch, slot.value);
     return true;
-}
-
-static bool insert_binary_terms(ErlNifEnv *env, Tree &tree, ERL_NIF_TERM key_term,
-        ERL_NIF_TERM value_term, bin_t &key_scratch)
-{
-    ErlNifBinary key_binary, value_binary;
-    if (!enif_inspect_binary(env, key_term, &key_binary)) {
-        return false;
-    }
-    if (!enif_inspect_binary(env, value_term, &value_binary)) {
-        return false;
-    }
-    return insert_binary_pair(tree, key_binary, value_binary, key_scratch);
-}
-
-static ERL_NIF_TERM CMERKLE_TEST_NIF
-merkletree_insert_item(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
-{
-    merkletree *mt;
-    ErlNifBinary key_binary, value_binary;
-
-    if (argc != 3) return enif_make_badarg(env);
-    if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
-
-    if (!enif_inspect_binary(env, argv[1], &key_binary)) return enif_make_badarg(env);
-    if (!enif_inspect_binary(env, argv[2], &value_binary)) return enif_make_badarg(env);
-
-    enif_mutex_lock(mt->shared_state->mtx);
-    if (!make_writeable_locked(mt)) {
-        enif_mutex_unlock(mt->shared_state->mtx);
-        return enif_make_badarg(env);
-    }
-    bin_t key_scratch;
-    if (!insert_binary_pair(mt->shared_state->tree, key_binary, value_binary, key_scratch)) {
-        enif_mutex_unlock(mt->shared_state->mtx);
-        return enif_make_badarg(env);
-    }
-    enif_mutex_unlock(mt->shared_state->mtx);
-    return argv[0];
 }
 
 namespace {
@@ -1149,66 +757,6 @@ static size_t get_range_entries(Tree &tree, const bin_t &base_key, size_t count,
 
 } // namespace
 
-static ERL_NIF_TERM CMERKLE_TEST_NIF
-merkletree_get_range(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
-{
-    merkletree *mt;
-    ErlNifBinary key_binary;
-    unsigned count;
-
-    if (argc != 3) return enif_make_badarg(env);
-    if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
-    if (!enif_inspect_binary(env, argv[1], &key_binary)) return enif_make_badarg(env);
-    if (key_binary.size != 32) return enif_make_badarg(env);
-    if (!enif_get_uint(env, argv[2], &count)) return enif_make_badarg(env);
-    if (count < 1 || count > 256) return enif_make_badarg(env);
-
-    Lock lock(mt);
-
-    bin_t key;
-    key.insert(key.end(), key_binary.data, key_binary.data + key_binary.size);
-
-    std::vector<RangeEntry> entries(count);
-    size_t n = get_range_entries(mt->shared_state->tree, key, count, entries.data());
-
-    ERL_NIF_TERM list = enif_make_list(env, 0);
-    for (size_t i = n; i > 0; i--) {
-        RangeEntry &entry = entries[i - 1];
-        ERL_NIF_TERM key_term = make_binary(env, entry.key.data(), entry.key.size());
-        ERL_NIF_TERM value_term = make_binary(env, entry.value.data(), 32);
-        ERL_NIF_TERM pair = enif_make_tuple2(env, key_term, value_term);
-        list = enif_make_list_cell(env, pair, list);
-    }
-
-    return list;
-}
-
-static ERL_NIF_TERM CMERKLE_TEST_NIF
-merkletree_get_item(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
-{
-    merkletree *mt;
-    ErlNifBinary key_binary;
-
-    if (argc != 2) return enif_make_badarg(env);
-    if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
-    Lock lock(mt);
-    if (!enif_inspect_binary(env, argv[1], &key_binary)) return enif_make_badarg(env);
-    if (key_binary.size != 32) return enif_make_badarg(env);
-
-    bin_t key;
-    key.insert(key.end(), key_binary.data, key_binary.data + key_binary.size);
-    pair_t *pair = mt->shared_state->tree.get_item(std::move(key));
-
-    if (pair == nullptr) {
-        return make_atom(env, "nil");
-    }
-
-    ERL_NIF_TERM key_term = argv[1];
-    ERL_NIF_TERM value_term = make_binary(env, pair->value.data(), 32);
-    ERL_NIF_TERM hash_term = make_binary(env, pair->key_hash.data(), 32);
-    return enif_make_tuple3(env, key_term, value_term, hash_term);
-}
-
 static ERL_NIF_TERM
 make_proof(ErlNifEnv *env, proof_t& proof)
 {
@@ -1230,249 +778,6 @@ make_proof(ErlNifEnv *env, proof_t& proof)
     }
 }
 
-static ERL_NIF_TERM CMERKLE_TEST_NIF
-merkletree_get_proofs(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
-{
-    merkletree *mt;
-    ErlNifBinary key_binary;
-
-    if (argc != 2) return enif_make_badarg(env);
-    if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
-    Lock lock(mt);
-    if (!enif_inspect_binary(env, argv[1], &key_binary)) return enif_make_badarg(env);
-
-    bin_t key;
-    key.insert(key.end(), key_binary.data, key_binary.data + key_binary.size);
-    proof_t proof = mt->shared_state->tree.get_proofs(key);
-    return make_proof(env, proof);
-}
-
-static ERL_NIF_TERM CMERKLE_TEST_NIF
-merkletree_to_list(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
-{
-    merkletree *mt;
-
-    if (argc != 1) return enif_make_badarg(env);
-    if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
-    Lock lock(mt);
-    ERL_NIF_TERM list = enif_make_list(env, 0);
-    size_t i = 0;
-    mt->shared_state->tree.each([&](pair_t &pair) {
-        i++;
-        ERL_NIF_TERM key_term = make_binary(env, pair.key.data(), pair.key.size());
-        ERL_NIF_TERM value_term = make_binary(env, pair.value.data(), 32);
-        ERL_NIF_TERM tuple = enif_make_tuple2(env, key_term, value_term);
-        list = enif_make_list_cell(env, tuple, list);
-        nif_loop_progress(env, i);
-    });
-    return list;
-}
-
-static ERL_NIF_TERM CMERKLE_TEST_NIF
-merkletree_lock(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
-{
-    merkletree *mt;
-    if (argc != 1) return enif_make_badarg(env);
-    if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
-    locked_states->enter_lock(mt);
-    return argv[0];
-}
-
-static ERL_NIF_TERM CMERKLE_TEST_NIF
-merkletree_difference(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
-{
-    merkletree *mt1;
-    merkletree *mt2;
-
-    if (argc != 2) return enif_make_badarg(env);
-    if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt1)) return enif_make_badarg(env);
-    if (!enif_get_resource(env, argv[1], merkletree_type, (void **) &mt2)) return enif_make_badarg(env);
-
-    if (mt1 == mt2) {
-        return enif_make_list(env, 0);
-    }
-
-    SharedState *s1;
-    SharedState *s2;
-    enif_mutex_lock(locked_states->mtx);
-    s1 = mt1->shared_state;
-    s2 = mt2->shared_state;
-    if (s1 == s2) {
-        enif_mutex_unlock(locked_states->mtx);
-        return enif_make_list(env, 0);
-    }
-    pin_shared_state_read(s1);
-    pin_shared_state_read(s2);
-    enif_mutex_unlock(locked_states->mtx);
-
-    if (s1 == nullptr || s2 == nullptr) {
-        unpin_shared_state_read(s2);
-        unpin_shared_state_read(s1);
-        return enif_make_list(env, 0);
-    }
-
-    SharedStateLock state_lock(s1, s2);
-
-    Tree output;
-    s1->tree.difference(s2->tree, output);
-    s2->tree.difference(s1->tree, output);
-
-    ERL_NIF_TERM list = enif_make_list(env, 0);
-    size_t i = 0;
-    output.each([&](pair_t &pair) {
-        i++;
-        ERL_NIF_TERM key_term = make_binary(env, pair.key.data(), pair.key.size());
-
-        auto pair1 = s1->tree.get_item(pair);
-        auto pair2 = s2->tree.get_item(pair);
-
-        ERL_NIF_TERM value1_term = pair1 == nullptr ? make_atom(env, "nil") : make_binary(env, pair1->value.data(), 32);
-        ERL_NIF_TERM value2_term = pair2 == nullptr ? make_atom(env, "nil") : make_binary(env, pair2->value.data(), 32);
-        ERL_NIF_TERM tuple = enif_make_tuple2(env, value1_term, value2_term);
-        tuple = enif_make_tuple2(env, key_term, tuple);
-        list = enif_make_list_cell(env, tuple, list);
-        nif_loop_progress(env, i);
-    });
-
-    unpin_shared_state_read(s2);
-    unpin_shared_state_read(s1);
-    state_lock.unlock();
-    locked_states->try_reclaim_orphans();
-    return list;
-}
-
-static ERL_NIF_TERM CMERKLE_TEST_NIF
-merkletree_import_map(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
-{
-    merkletree *mt;
-
-    if (argc != 2) return enif_make_badarg(env);
-    if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
-    if (!enif_is_map(env, argv[1])) return enif_make_badarg(env);
-
-    enif_mutex_lock(mt->shared_state->mtx);
-    if (!make_writeable_locked(mt)) {
-        enif_mutex_unlock(mt->shared_state->mtx);
-        return enif_make_badarg(env);
-    }
-
-    ERL_NIF_TERM key, value;
-    ErlNifMapIterator iter;
-    enif_map_iterator_create(env, argv[1], &iter, ERL_NIF_MAP_ITERATOR_FIRST);
-
-    size_t i = 0;
-    bin_t key_scratch;
-    while (enif_map_iterator_get_pair(env, &iter, &key, &value)) {
-        i++;
-        if (!insert_binary_terms(env, mt->shared_state->tree, key, value, key_scratch)) {
-            enif_mutex_unlock(mt->shared_state->mtx);
-            goto import_badarg;
-        }
-        enif_map_iterator_next(env, &iter);
-        nif_loop_progress(env, i);
-    }
-    enif_mutex_unlock(mt->shared_state->mtx);
-    enif_map_iterator_destroy(env, &iter);
-    return argv[0];
-
-import_badarg:
-    enif_map_iterator_destroy(env, &iter);
-    return enif_make_badarg(env);
-}
-
-static ERL_NIF_TERM CMERKLE_TEST_NIF
-merkletree_root_hash(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
-{
-    merkletree *mt;
-    if (argc != 1) return enif_make_badarg(env);
-    if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
-    Lock lock(mt);
-    auto root_hash = mt->shared_state->tree.root_hash();
-    return make_binary(env, root_hash.data(), 32);
-}
-
-static ERL_NIF_TERM CMERKLE_TEST_NIF
-merkletree_hash(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
-{
-    ErlNifBinary key_binary;
-
-    if (argc != 1) return enif_make_badarg(env);
-    if (!enif_inspect_binary(env, argv[0], &key_binary)) return enif_make_badarg(env);
-
-    uint256_t hash = {};
-    sha((const uint8_t*)key_binary.data, key_binary.size, hash.data());
-    return make_binary(env, hash.data(), 32);
-}
-
-static ERL_NIF_TERM CMERKLE_TEST_NIF
-merkletree_root_hashes(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
-{
-    merkletree *mt;
-    if (argc != 1) return enif_make_badarg(env);
-    if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
-    Lock lock(mt);
-    auto root_hashes = mt->shared_state->tree.root_hashes();
-    return make_binary(env, (uint8_t*)root_hashes, 32*16);
-}
-
-static ERL_NIF_TERM CMERKLE_TEST_NIF
-merkletree_size(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
-{
-    merkletree *mt;
-    if (argc != 1) return enif_make_badarg(env);
-    if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
-    Lock lock(mt);
-    auto size = mt->shared_state->tree.size();
-    return enif_make_uint(env, size);
-}
-
-static ERL_NIF_TERM CMERKLE_TEST_NIF
-merkletree_bucket_count(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
-{
-    merkletree *mt;
-    if (argc != 1) return enif_make_badarg(env);
-    if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) return enif_make_badarg(env);
-    Lock lock(mt);
-    auto size = mt->shared_state->tree.leaf_count();
-    return enif_make_uint(env, size);
-}
-
-static ERL_NIF_TERM CMERKLE_TEST_NIF
-merkletree_struct_sizes(ErlNifEnv *env, int argc, const ERL_NIF_TERM /*argv*/[])
-{
-    if (argc != 0) {
-        return enif_make_badarg(env);
-    }
-    return enif_make_tuple5(env,
-            enif_make_uint64(env, sizeof(Item)),
-            enif_make_uint64(env, sizeof(pair_t)),
-            enif_make_uint64(env, sizeof(pair_list_t)),
-            enif_make_uint64(env, sizeof(Tree)),
-            enif_make_uint64(env, MERKLE_STRIPE_SIZE));
-}
-
-static ERL_NIF_TERM CMERKLE_TEST_NIF
-merkletree_memory_stats(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
-{
-    merkletree *mt;
-    if (argc != 1) {
-        return enif_make_badarg(env);
-    }
-    if (!enif_get_resource(env, argv[0], merkletree_type, (void **) &mt)) {
-        return enif_make_badarg(env);
-    }
-    Lock lock(mt);
-    Tree &t = mt->shared_state->tree;
-    size_t nodes = t.node_count();
-    size_t pairs = t.size();
-    uint64_t approx =
-            (uint64_t)nodes * (uint64_t)sizeof(Item) + (uint64_t)pairs * (uint64_t)sizeof(pair_t);
-    return enif_make_tuple3(env,
-            enif_make_uint64(env, nodes),
-            enif_make_uint64(env, pairs),
-            enif_make_uint64(env, approx));
-}
-
 static ERL_NIF_TERM
 merkletree_nif_stats(ErlNifEnv *env, int argc, const ERL_NIF_TERM /*argv*/[])
 {
@@ -1480,8 +785,6 @@ merkletree_nif_stats(ErlNifEnv *env, int argc, const ERL_NIF_TERM /*argv*/[])
         return enif_make_badarg(env);
     }
 
-    int locked = 0;
-    int orphans = 0;
     int shared = 0;
     int res = 0;
 
@@ -1490,41 +793,12 @@ merkletree_nif_stats(ErlNifEnv *env, int argc, const ERL_NIF_TERM /*argv*/[])
     res = resources;
     enif_mutex_unlock(stats_mutex);
 
-    if (locked_states != nullptr) {
-        enif_mutex_lock(locked_states->mtx);
-        locked = locked_states->locked_count();
-        orphans = locked_states->orphan_count();
-        enif_mutex_unlock(locked_states->mtx);
-    }
-
-    ERL_NIF_TERM locked_term = enif_make_int(env, locked);
-    ERL_NIF_TERM orphans_term = enif_make_int(env, orphans);
+    /* locked/orphan counters retired with bare-tree lock NIFs; keep tuple shape. */
+    ERL_NIF_TERM locked_term = enif_make_int(env, 0);
+    ERL_NIF_TERM orphans_term = enif_make_int(env, 0);
     ERL_NIF_TERM shared_term = enif_make_int(env, shared);
     ERL_NIF_TERM resources_term = enif_make_int(env, res);
     return enif_make_tuple4(env, locked_term, orphans_term, shared_term, resources_term);
-}
-
-static ERL_NIF_TERM CMERKLE_TEST_NIF
-merkletree_malloc_info(ErlNifEnv *env, int argc, const ERL_NIF_TERM /*argv*/[])
-{
-    if (argc != 0) {
-        return enif_make_badarg(env);
-    }
-#ifdef __GLIBC__
-    char *buf = NULL;
-    size_t sz = 0;
-    FILE *fp = open_memstream(&buf, &sz);
-    if (!fp) {
-        return make_atom(env, "error");
-    }
-    malloc_info(0, fp);
-    fclose(fp);
-    ERL_NIF_TERM term = make_binary(env, (uint8_t *)buf, sz);
-    free(buf);
-    return term;
-#else
-    return make_atom(env, "unsupported");
-#endif
 }
 
 static ERL_NIF_TERM
@@ -1583,12 +857,10 @@ account_map_lock(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     {
         AccountMapLock lock(am);
-        // Map-level freeze only: get no longer exports live storage resources, so
-        // bare CMerkleTree.insert cannot mutate map-owned tries via Elixir.
+        // Map-level freeze only: get no longer exports live storage resources.
         am->shared->frozen = true;
     }
 
-    locked_states->try_reclaim_orphans();
     return argv[0];
 }
 
@@ -1659,10 +931,7 @@ static void insert_state_trie_hash(SharedAccountMap *shared, const uint160_t &ad
     bin_t key(addr.value, addr.value + 20);
     merkletree *mt = shared->state_trie;
     enif_mutex_lock(mt->shared_state->mtx);
-    if (!make_writeable_locked(mt)) {
-        enif_mutex_unlock(mt->shared_state->mtx);
-        return;
-    }
+    make_writeable_locked(mt);
     uint256_t hash_value = hash;
     mt->shared_state->tree.insert_item(key, hash_value);
     enif_mutex_unlock(mt->shared_state->mtx);
@@ -1790,9 +1059,7 @@ account_map_put(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     merkletree *storage = nullptr;
     ERL_NIF_TERM storage_term = argv[4];
 
-    if (enif_get_resource(env, storage_term, merkletree_type, (void **)&storage)) {
-        // replace storage with provided merkle tree resource
-    } else if (term_is_atom_named(env, storage_term, "keep")) {
+    if (term_is_atom_named(env, storage_term, "keep")) {
         keep_meta = true;
     } else if (term_is_nil(env, storage_term) ||
                (enif_is_list(env, storage_term) && enif_is_empty_list(env, storage_term))) {
@@ -1920,7 +1187,6 @@ static merkletree *alloc_merkletree_resource()
     merkletree *mt = (merkletree*)enif_alloc_resource(merkletree_type, sizeof(merkletree));
     STAT(resources++);
     mt->shared_state = new SharedState();
-    mt->locked = false;
     return mt;
 }
 
@@ -2193,7 +1459,6 @@ account_map_difference_full(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
         nif_loop_progress(env, j);
     }
 
-    locked_states->try_reclaim_orphans();
     return list;
 }
 
@@ -2267,10 +1532,7 @@ static merkletree *write_storage_slot(AccountEntry &entry, const bin_t &key, con
 {
     merkletree *mt = materialize_storage(entry);
     enif_mutex_lock(mt->shared_state->mtx);
-    if (!make_writeable_locked(mt)) {
-        enif_mutex_unlock(mt->shared_state->mtx);
-        return nullptr;
-    }
+    make_writeable_locked(mt);
     bin_t key_copy = key;
     uint256_t value_copy = value;
     mt->shared_state->tree.insert_item(key_copy, value_copy);
@@ -2381,10 +1643,7 @@ static bool apply_storage_delta(ErlNifEnv *env, AccountEntry &entry, ERL_NIF_TER
             return false;
         }
 
-        if (write_storage_slot(entry, key, new_value) == nullptr) {
-            enif_map_iterator_destroy(env, &iter);
-            return false;
-        }
+        write_storage_slot(entry, key, new_value);
 
         enif_map_iterator_next(env, &iter);
     }
@@ -2448,7 +1707,6 @@ account_map_apply_difference(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]
         nif_loop_progress(env, i);
     }
 
-    locked_states->try_reclaim_orphans();
     return argv[0];
 }
 
@@ -2505,9 +1763,7 @@ account_map_storage_put_map(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
             bin_t key(key_bin.data, key_bin.data + key_bin.size);
             uint256_t value((const char *)value_bin.data);
-            if (write_storage_slot(entry, key, value) == nullptr) {
-                return enif_make_badarg(env);
-            }
+            write_storage_slot(entry, key, value);
             nif_loop_progress(env, j);
         }
 
@@ -2743,12 +1999,6 @@ static bool parse_compact_storage(ErlNifEnv *env, ERL_NIF_TERM storage_term,
     entry.storage = nullptr;
     entry.compact_storage.reset();
 
-    merkletree *existing;
-    if (enif_get_resource(env, storage_term, merkletree_type, (void **)&existing)) {
-        entry.storage = existing;
-        return true;
-    }
-
     if (enif_is_atom(env, storage_term)) {
         char atom[16];
         if (enif_get_atom(env, storage_term, atom, sizeof(atom), ERL_NIF_LATIN1) &&
@@ -2875,17 +2125,13 @@ static bool parse_compact_account(ErlNifEnv *env, ERL_NIF_TERM account_term,
     return parse_compact_storage(env, storage_term, out.entry);
 }
 
-static ERL_NIF_TERM uncompact_state_fail(ErlNifEnv *env, ErlNifMapIterator *iter,
-        accountmap *am, merkletree *state_store)
+static ERL_NIF_TERM uncompact_state_fail(ErlNifEnv *env, ErlNifMapIterator *iter, accountmap *am)
 {
     if (iter) {
         enif_map_iterator_destroy(env, iter);
     }
     if (am) {
         enif_release_resource(am);
-    }
-    if (state_store) {
-        enif_release_resource(state_store);
     }
     return enif_make_badarg(env);
 }
@@ -2916,7 +2162,7 @@ static bool append_uncompacted_account(ErlNifEnv *env, accountmap *am, AccountHa
             materialize_storage(entry);
         }
     } else if (entry.compact_storage == nullptr) {
-        // Shared/copied pointer from another map or Elixir term: take a map ref.
+        // Shared/copied pointer from another map entry: take a map ref.
         keep_storage_in_map(entry.storage);
     }
     uint256_t account_hash;
@@ -3112,7 +2358,7 @@ account_map_uncompact_state(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
             AccountEntry entry = kv.second;
             if (!append_uncompacted_account(env, am, scratch.hash_ctx, pending_state, kv.first, entry,
                     nullptr, nullptr, i)) {
-                return uncompact_state_fail(env, nullptr, am, nullptr);
+                return uncompact_state_fail(env, nullptr, am);
             }
         }
     } else {
@@ -3124,12 +2370,12 @@ account_map_uncompact_state(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
             i++;
             uint160_t addr;
             if (!get_address(env, key, addr)) {
-                return uncompact_state_fail(env, &iter, am, nullptr);
+                return uncompact_state_fail(env, &iter, am);
             }
 
             ParsedCompactAccount parsed;
             if (!parse_compact_account(env, value, parsed, scratch.code_buf)) {
-                return uncompact_state_fail(env, &iter, am, nullptr);
+                return uncompact_state_fail(env, &iter, am);
             }
 
             const uint256_t *storage_root_override =
@@ -3138,7 +2384,7 @@ account_map_uncompact_state(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
                 parsed.has_compact_code_hash ? &parsed.compact_code_hash : nullptr;
             if (!append_uncompacted_account(env, am, scratch.hash_ctx, pending_state, addr,
                     parsed.entry, storage_root_override, code_hash_override, i)) {
-                return uncompact_state_fail(env, &iter, am, nullptr);
+                return uncompact_state_fail(env, &iter, am);
             }
 
             enif_map_iterator_next(env, &iter);
@@ -3175,7 +2421,7 @@ destruct_merkletree_type(ErlNifEnv* /*env*/, void *arg)
 {
     merkletree *mt = (merkletree *) arg;
     STAT(resources--);
-    locked_states->leave_lock(mt);
+    release_merkletree_shared(mt);
 }
 
 
@@ -3194,7 +2440,6 @@ on_load(ErlNifEnv* env, void** /*priv*/, ERL_NIF_TERM /*info*/)
     if(!rt) return -1;
     accountmap_type = rt;
 
-    locked_states = new LockedStates();
     stats_mutex = enif_mutex_create((char*)"stats_mutex");
     sha((const uint8_t*)"", 0, empty_code_hash.value);
     empty_storage_tree = alloc_merkletree_resource();
@@ -3213,27 +2458,6 @@ static int on_upgrade(ErlNifEnv* /*env*/, void** /*priv*/, void** /*old_priv_dat
 }
 
 static ErlNifFunc nif_funcs[] = {
-#ifdef CMERKLE_TEST_NIFS
-    /* Bare-tree + debug NIFs (dev/test/scripts). Omitted from prod MIX_ENV=prod. */
-    {"new", 0, merkletree_new, 0},
-    {"insert_item_raw", 3, merkletree_insert_item, 0},
-    {"get_item", 2, merkletree_get_item, 0},
-    {"get_range_raw", 3, merkletree_get_range, 0},
-    {"get_proofs_raw", 2, merkletree_get_proofs, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-    {"difference_raw", 2, merkletree_difference, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-    {"lock", 1, merkletree_lock, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-    {"to_list", 1, merkletree_to_list, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-    {"import_map", 2, merkletree_import_map, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-    {"root_hash", 1, merkletree_root_hash, 0},
-    {"hash", 1, merkletree_hash, 0},
-    {"root_hashes_raw", 1, merkletree_root_hashes, 0},
-    {"bucket_count", 1, merkletree_bucket_count, 0},
-    {"size", 1, merkletree_size, 0},
-    {"clone", 1, merkletree_clone, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-    {"struct_sizes_raw", 0, merkletree_struct_sizes, 0},
-    {"memory_stats_raw", 1, merkletree_memory_stats, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-    {"malloc_info_raw", 0, merkletree_malloc_info, ERL_NIF_DIRTY_JOB_IO_BOUND},
-#endif
     {"count_zeros", 1, merkletree_count_zeros, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"nif_stats_raw", 0, merkletree_nif_stats, 0},
     {"account_map_new", 0, account_map_new, 0},
@@ -3257,5 +2481,4 @@ static ErlNifFunc nif_funcs[] = {
     {"account_map_proof", 3, account_map_proof, ERL_NIF_DIRTY_JOB_CPU_BOUND},
 };
 
-// ERL_NIF_INIT(merkletree_nif, nif_funcs, on_load, on_reload, on_upgrade, NULL);
 ERL_NIF_INIT(Elixir.CMerkleTree, nif_funcs, on_load, on_reload, on_upgrade, NULL)

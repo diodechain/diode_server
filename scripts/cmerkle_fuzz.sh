@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Long-running CMerkleTree NIF fuzzer with crash logging.
+# Long-running CAccountMap NIF fuzzer with crash logging.
 # Usage (from repository root):
 #   ./scripts/cmerkle_fuzz.sh
 #   MERKLE_FUZZ_ITERATIONS=5000 MERKLE_FUZZ_SEED=42 ./scripts/cmerkle_fuzz.sh
@@ -31,7 +31,7 @@ fi
 
 write_header() {
   {
-    echo "========== CMerkleTree fuzz crash log =========="
+    echo "========== CAccountMap fuzz crash log =========="
     echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "host=$(hostname 2>/dev/null || echo unknown)"
     echo "pwd=$(pwd)"

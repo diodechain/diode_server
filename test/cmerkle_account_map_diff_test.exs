@@ -14,8 +14,7 @@ defmodule CMerkleAccountMapDiffTest do
 
   defp build_map(n, mutate \\ nil) do
     Enum.reduce(1..n, CAccountMap.new(), fn i, acc ->
-      storage =
-        CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i * 3::unsigned-size(256)>>)
+      storage = [{slot(i), <<i * 3::unsigned-size(256)>>}]
 
       nonce = if mutate == {:nonce, i}, do: i + 1000, else: i
       balance = if mutate == {:balance, i}, do: i * 9_999, else: i * 1_000
@@ -81,7 +80,7 @@ defmodule CMerkleAccountMapDiffTest do
       for mutate <- [{:nonce, 3}, {:balance, 7}, {:code, 11}] do
         fork = CAccountMap.clone(base)
         {kind, i} = mutate
-        storage = CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i::unsigned-size(256)>>)
+        storage = [{slot(i), <<i::unsigned-size(256)>>}]
 
         fork =
           case kind do
@@ -112,10 +111,7 @@ defmodule CMerkleAccountMapDiffTest do
     end
 
     test "shared storage trie across accounts" do
-      storage =
-        CMerkleTree.insert_items(CMerkleTree.new(), [
-          {slot(1), <<1::unsigned-size(256)>>}
-        ])
+      storage = [{slot(1), <<1::unsigned-size(256)>>}]
 
       a =
         Enum.reduce(1..12, CAccountMap.new(), fn i, acc ->
@@ -135,7 +131,7 @@ defmodule CMerkleAccountMapDiffTest do
         State.new()
         |> then(fn st ->
           Enum.reduce(1..80, st, fn i, acc ->
-            storage = CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i::unsigned-size(256)>>)
+            storage = [{slot(i), <<i::unsigned-size(256)>>}]
 
             acc0 = %{
               Account.new(nonce: i, balance: i)
@@ -183,13 +179,7 @@ defmodule CMerkleAccountMapDiffTest do
                 CAccountMap.delete(acc, id)
 
               2 ->
-                storage =
-                  CMerkleTree.insert(
-                    CMerkleTree.new(),
-                    slot(i + 10_000),
-                    <<i::unsigned-size(256)>>
-                  )
-
+                storage = [{slot(i + 10_000), <<i::unsigned-size(256)>>}]
                 CAccountMap.put(acc, id, i + 1, i * 2_000, storage, <<i>>)
 
               _ ->
@@ -222,7 +212,7 @@ defmodule CMerkleAccountMapDiffTest do
         State.new()
         |> then(fn st ->
           Enum.reduce(1..30, st, fn i, acc ->
-            storage = CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i::unsigned-size(256)>>)
+            storage = [{slot(i), <<i::unsigned-size(256)>>}]
 
             State.set_account(acc, addr(i), %{
               Account.new(nonce: i)

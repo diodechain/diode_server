@@ -3,115 +3,19 @@
 # Licensed under the Diode License, Version 1.1
 defmodule CMerkleTree do
   @on_load :load_nifs
-  @null <<0::unsigned-size(256)>>
-
-  @type t :: reference()
 
   def load_nifs do
     :erlang.load_nif(~c"./priv/merkletree_nif", 0)
   end
 
-  def from_map(map) do
-    import_map(new(), map)
-  end
-
-  def from_list(list) do
-    insert_items(new(), list)
-  end
-
-  def difference(a, b) do
-    difference_raw(a, b)
-    |> Enum.map(fn
-      {key, {@null, value2}} -> {key, {nil, value2}}
-      {key, {value1, @null}} -> {key, {value1, nil}}
-      {key, {value1, value2}} -> {key, {value1, value2}}
-    end)
-    |> Map.new()
-  end
-
-  def insert(tree, key, value) do
-    insert_item_raw(tree, to_bytes(key), to_bytes32(value))
-  end
-
-  def insert_items(tree, items) do
-    Enum.reduce(items, tree, fn {key, value}, acc ->
-      insert(acc, key, value)
-    end)
-  end
-
-  def get_proofs(tree, key) do
-    get_proofs_raw(tree, to_bytes(key))
-  end
-
-  def insert_item(tree, {key, value}) do
-    insert(tree, key, value)
-  end
-
-  def delete(tree, key) do
-    insert(tree, key, @null)
-  end
-
-  def get(tree, key) do
-    case get_item(tree, to_bytes32(key)) do
-      nil -> nil
-      {_key, @null, _hash} -> nil
-      {_key, value, _hash} -> value
-    end
-  end
-
-  def get_range(tree, key, count) when is_integer(count) and count >= 1 and count <= 256 do
-    get_range_raw(tree, to_bytes32(key), count)
-    |> Enum.map(fn {k, v} -> {k, if(v == @null, do: nil, else: v)} end)
-  end
-
-  def root_hashes(tree) do
-    <<a::binary-size(32), b::binary-size(32), c::binary-size(32), d::binary-size(32),
-      e::binary-size(32), f::binary-size(32), g::binary-size(32), h::binary-size(32),
-      i::binary-size(32), j::binary-size(32), k::binary-size(32), l::binary-size(32),
-      m::binary-size(32), n::binary-size(32), o::binary-size(32), p::binary-size(32)>> =
-      root_hashes_raw(tree)
-
-    [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p]
-  end
-
-  def new, do: error()
-  def insert_item_raw(_tree, _key, _value), do: error()
-  def root_hash(_tree), do: error()
-  def root_hashes_raw(_tree), do: error()
-  def clone(_tree), do: error()
-  def size(_tree), do: error()
-  def hash(_binary), do: error()
-  def bucket_count(_tree), do: error()
-  def get_item(_tree, _key), do: error()
-  def get_range_raw(_tree, _key, _count), do: error()
-  def to_list(_tree), do: error()
-  def import_map(_tree, _map), do: error()
-  def difference_raw(_tree, _map), do: error()
-  def lock(_tree), do: error()
-  def get_proofs_raw(_tree, _key), do: error()
   def count_zeros(binary) when is_binary(binary), do: count_zeros_raw(binary)
   defp count_zeros_raw(_binary), do: error()
-
-  @doc """
-  Returns `{item_bytes, pair_bytes, pair_list_bytes, tree_bytes, stripe_size}` for C++ layout.
-  """
-  def struct_sizes, do: struct_sizes_raw()
-
-  @doc """
-  Returns `{node_count, pair_count, approx_bytes}` for the tree. `approx_bytes` is
-  `nodes * sizeof(Item) + pairs * sizeof(pair_t)` (heap vectors in keys not included).
-  """
-  def memory_stats(tree), do: memory_stats_raw(tree)
-
-  @doc """
-  GNU libc `malloc_info(3)` XML as a binary, or `:unsupported` on other platforms.
-  """
-  def malloc_info, do: malloc_info_raw()
 
   @doc """
   Returns `{locked_states_count, pending_orphan_count, shared_states_live, merkletree_resources}`.
   """
   def nif_stats, do: nif_stats_raw()
+  defp nif_stats_raw, do: error()
 
   def account_map_new(), do: error()
   def account_map_clone(_map), do: error()
@@ -133,14 +37,5 @@ defmodule CMerkleTree do
   def account_map_storage(_map, _addr, _spec), do: error()
   def account_map_storage_roots(_map, _addr), do: error()
 
-  defp struct_sizes_raw, do: error()
-  defp memory_stats_raw(_tree), do: error()
-  defp malloc_info_raw, do: error()
-  defp nif_stats_raw, do: error()
   defp error, do: :erlang.nif_error(:nif_not_loaded)
-
-  defp to_bytes32(value), do: Hash.to_bytes32(value)
-
-  defp to_bytes(string) when is_binary(string), do: string
-  defp to_bytes(int) when is_integer(int), do: to_bytes32(int)
 end

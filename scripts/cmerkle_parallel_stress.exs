@@ -1,23 +1,10 @@
-# CMerkleTree — parallel / concurrency stress (targets live-only failures).
+# CAccountMap / Chain.State — parallel concurrency stress.
 #
-# Erlang schedules NIF calls on many schedulers; the NIF uses:
-#   - One ErlNifMutex per SharedState (every insert/get/root_hash/difference arm takes Lock(mt))
-#   - std::mutex on GlobalStripePool<pair_t> (preallocator.hpp)
-#   - A global mutex on LockedStates (enter_lock / leave_lock / resource destructor)
+# Hammers account-map NIFs from many Tasks: map mutexes, storage COW,
+# difference_full dual-lock order, compact/uncompact, and State.lock/clone.
 #
-# These workloads intentionally hammer the same resource from many Tasks to flush:
-#   mutex omissions, refcount/has_clone races, deadlock in difference lock ordering,
-#   and pool stripe contention.
-#
-# Confirmed bug class (parallel clone + insert): COW splits a SharedState so two Trees
-# share one ItemPool and one PreAllocator while each Erlang resource still uses its own
-# ErlNifMutex — concurrent refcnt / pair slab mutation raced. Fixed in C++ with a
-# std::recursive_mutex on ItemPool (see item_pool.cpp) and on PreAllocator
-# (preallocator.hpp). Run this script after changes to native trie code.
-#
-# Thread Sanitizer (not ASan): to hunt data races in C++, rebuild the NIF with
-#   -fsanitize=thread
-# and run this script the same way as ASan (swap priv/merkletree_nif.so). TSan + BEAM can be noisy.
+# Thread Sanitizer (not ASan): rebuild the NIF with -fsanitize=thread and run
+# this script the same way as ASan (swap priv/merkletree_nif.so). TSan + BEAM can be noisy.
 #
 # Run:
 #   mix run --no-start scripts/cmerkle_parallel_stress.exs -- --waves 3 --tasks 48
@@ -27,8 +14,8 @@
 #   --waves N     repeat full suite this many times (default: 2)
 #   --ops N       operations per worker in same-tree scenarios (default: 40)
 #   --seed N      RNG seed
-#   --accounts N  account count for P12/P14 (default: 200)
-#   --scenario PX run only scenario PX (e.g. P10); repeat for multiple
+#   --accounts N  account count for map scenarios (default: 200)
+#   --scenario PX run only scenario PX (e.g. P12); repeat for multiple
 #
 # Exit 0 if all waves complete. Native crashes are not caught in Elixir.
 
@@ -39,39 +26,18 @@ defmodule CMerkleParallelStress do
 
   # --- Theory map (for triage notes) ---
   #
-  # P1  Same CMerkleTree ref, concurrent insert/get/root_hash/root_hashes/size —
-  #      relies on per-SharedState mutex; would expose missing Lock() on any NIF path.
-  #
-  # P2  Concurrent difference(ta, tb) identical pair — lock order is by SharedState
-  #      address (nif.cpp); should not deadlock; stresses dual-lock hold time.
-  #
-  # P3  Concurrent difference(ta, tb) vs difference(tb, ta) argument order —
-  #      same ordering rule; overlapping waves stress scheduler interleaving.
-  #
-  # P4  Clone storm: many workers clone same base then mutate (has_clone / make_writeable).
-  #
-  # P5  Interleaved: half workers mutate T, half run difference(T, U) — contention on first tree.
-  #
-  # P6  locked_states: concurrent lock/1 on same locked root_hash dedup path (enter_lock).
-  #
-  # P7  Many disposable trees in parallel — GlobalStripePool take/put under contention.
-  #
-  # P8  get_proofs + to_list concurrently on same tree — read-heavy + each() traversal.
-  #
-  # P9  Concurrent lock/1 (enter_lock dedup) + difference/2 on overlapping trees —
-  #      reproduces production deadlock: locked_states_mutex held while waiting on a
-  #      second tree mutex vs difference_raw dual-lock ordering.
-  #
-  # P10 leave_lock storm + lock + difference + three-tree overlap (D-A4, D-B2, D-B5)
-  # P11 mass disposable trees + GC while difference/lock (D-A2, D-A5)
-  # P12 account_map uncompact_state + storage difference workers (D-C2, D-D3)
-  # P13 account_map clone/put/delete + storage difference (D-C1, D-C4)
+  # P12 account_map uncompact_state + difference_full workers (D-C2, D-D3)
+  # P13 account_map clone/put/delete + storage APIs (D-C1, D-C4)
   # P14 Chain.State difference + lock + uncompact + lock→clone→write composite (D-D1–D-D4)
-  # P15 dirty-scheduler saturation: lock, difference, uncompact, clone, get_proofs
+  # P15 dirty-scheduler saturation: lock, difference_full, uncompact, storage
   # P16 concurrent State.lock on compact states (block-sync memory path)
+  # P17 prepare_state pipeline (native diff + lock + to_list)
+  # P18 writer sim / P18L clone eth_call
+  # P19 large map small delta
+  # P20 dirty saturation + difference_full
   #
 
-  @all_scenarios ~w(P1 P2 P3 P4 P5 P6 P7 P8 P9 P10 P11 P12 P13 P14 P15 P16 P17 P18 P19 P20)
+  @all_scenarios ~w(P12 P13 P14 P15 P16 P17 P18 P18L P19 P20)
 
   def normalize_argv(argv) do
     case argv do
@@ -117,7 +83,7 @@ defmodule CMerkleParallelStress do
     :rand.seed(:exsss, {seed, seed, seed})
 
     IO.puts(:stderr, """
-    === CMerkleTree parallel stress ===
+    === CAccountMap parallel stress ===
     otp=#{System.otp_release()} elixir=#{System.version()} schedulers=#{System.schedulers_online()}
     seed=#{seed} tasks=#{tasks} waves=#{waves} ops_per_task=#{ops} accounts=#{accounts}
     scenarios=#{Enum.join(scenarios, ",")}
@@ -143,39 +109,6 @@ defmodule CMerkleParallelStress do
 
   defp run_scenario(name, ctx) do
     case name do
-      "P1" ->
-        run_named("P1_same_tree_rw", fn -> p1_same_tree_rw(ctx) end)
-
-      "P2" ->
-        run_named("P2_concurrent_difference_ab", fn -> p2_concurrent_difference(ctx, :ab) end)
-
-      "P3" ->
-        run_named("P3_concurrent_difference_ba", fn -> p2_concurrent_difference(ctx, :ba) end)
-
-      "P4" ->
-        run_named("P4_clone_write_storm", fn -> p4_clone_storm(ctx) end)
-
-      "P5" ->
-        run_named("P5_interleave_mutate_and_diff", fn -> p5_interleave(ctx) end)
-
-      "P6" ->
-        run_named("P6_concurrent_lock", fn -> p6_concurrent_lock(ctx) end)
-
-      "P7" ->
-        run_named("P7_many_shortlived_trees", fn -> p7_shortlived_parallel(ctx) end)
-
-      "P8" ->
-        run_named("P8_proofs_and_to_list", fn -> p8_proofs_to_list(ctx) end)
-
-      "P9" ->
-        run_named("P9_lock_and_difference", fn -> p9_lock_and_difference(ctx) end)
-
-      "P10" ->
-        run_named("P10_leave_lock_storm", fn -> p10_leave_lock_storm(ctx) end)
-
-      "P11" ->
-        run_named("P11_gc_disposable_trees", fn -> p11_gc_disposable_trees(ctx) end)
-
       "P12" ->
         run_named("P12_uncompact_and_diff", fn -> p12_uncompact_and_diff(ctx) end)
 
@@ -225,289 +158,20 @@ defmodule CMerkleParallelStress do
     end
   end
 
-  defp p1_same_tree_rw(%{tasks: tasks, ops: ops}) do
-    seed_items =
-      Enum.map(1..50, fn i ->
-        {String.pad_leading("p1#{i}", 32), CMerkleTree.hash("seed#{i}")}
-      end)
-
-    tree = CMerkleTree.new() |> CMerkleTree.insert_items(seed_items)
-
-    1..tasks
-    |> Task.async_stream(
-      fn w ->
-        Enum.each(1..ops, fn j ->
-          k = rem(w * 997 + j * 31, 400)
-          key = String.pad_leading("pk#{k}", 32)
-          tree = CMerkleTree.insert(tree, key, CMerkleTree.hash("v#{w}#{j}"))
-          _ = CMerkleTree.get(tree, key)
-          _ = CMerkleTree.root_hash(tree)
-          _ = CMerkleTree.size(tree)
-          _ = CMerkleTree.root_hashes(tree)
-        end)
-
-        :ok
-      end,
-      max_concurrency: tasks,
-      timeout: :infinity,
-      ordered: false
-    )
-    |> Stream.run()
-  end
-
-  defp p2_concurrent_difference(%{tasks: tasks}, order) do
-    a =
-      Enum.map(1..120, fn i ->
-        {String.pad_leading("da#{i}", 32), CMerkleTree.hash("da#{i}")}
-      end)
-
-    b =
-      Enum.map(1..120, fn i ->
-        {String.pad_leading("db#{i}", 32), CMerkleTree.hash("db#{i}")}
-      end)
-
-    ta = CMerkleTree.new() |> CMerkleTree.insert_items(a)
-    tb = CMerkleTree.new() |> CMerkleTree.insert_items(b)
-
-    1..tasks
-    |> Task.async_stream(
-      fn _ ->
-        _ =
-          case order do
-            :ab -> CMerkleTree.difference(ta, tb)
-            :ba -> CMerkleTree.difference(tb, ta)
-          end
-
-        :ok
-      end,
-      max_concurrency: tasks,
-      timeout: :infinity,
-      ordered: false
-    )
-    |> Stream.run()
-  end
-
-  defp p4_clone_storm(%{tasks: tasks, ops: ops}) do
-    base =
-      CMerkleTree.new()
-      |> CMerkleTree.insert_items(
-        Enum.map(1..80, fn i -> {String.pad_leading("b#{i}", 32), CMerkleTree.hash("b#{i}")} end)
-      )
-
-    1..tasks
-    |> Task.async_stream(
-      fn w ->
-        Enum.reduce(1..ops, CMerkleTree.clone(base), fn j, acc ->
-          CMerkleTree.insert(
-            acc,
-            String.pad_leading("c#{w}_#{j}", 32),
-            CMerkleTree.hash("x#{w}#{j}")
-          )
-        end)
-
-        :ok
-      end,
-      max_concurrency: tasks,
-      timeout: :infinity,
-      ordered: false
-    )
-    |> Stream.run()
-  end
-
-  defp p5_interleave(%{tasks: tasks, ops: ops}) do
-    ta =
-      CMerkleTree.new()
-      |> CMerkleTree.insert_items(
-        Enum.map(1..100, fn i ->
-          {String.pad_leading("ia#{i}", 32), CMerkleTree.hash("ia#{i}")}
-        end)
-      )
-
-    tb =
-      CMerkleTree.new()
-      |> CMerkleTree.insert_items(
-        Enum.map(1..100, fn i ->
-          {String.pad_leading("ib#{i}", 32), CMerkleTree.hash("ib#{i}")}
-        end)
-      )
-
-    mutators = div(tasks, 2) |> max(1)
-    differ = tasks - mutators
-
-    step = fn tag ->
-      Task.async_stream(
-        1..mutators,
-        fn w ->
-          Enum.each(1..ops, fn j ->
-            k = String.pad_leading("m#{tag}#{w}_#{j}", 32)
-            _ = CMerkleTree.insert(ta, k, CMerkleTree.hash("mut#{w}#{j}"))
-          end)
-
-          :ok
-        end,
-        max_concurrency: mutators,
-        timeout: :infinity,
-        ordered: false
-      )
-      |> Stream.run()
-    end
-
-    diff_f = fn ->
-      Task.async_stream(
-        1..differ,
-        fn _ ->
-          _ = CMerkleTree.difference(ta, tb)
-          :ok
-        end,
-        max_concurrency: differ,
-        timeout: :infinity,
-        ordered: false
-      )
-      |> Stream.run()
-    end
-
-    # Interleave: waves of concurrent diff with concurrent mutators
-    step.(:a)
-    diff_f.()
-    step.(:b)
-    diff_f.()
-  end
-
-  defp p6_concurrent_lock(%{tasks: tasks}) do
-    data =
-      Enum.map(1..60, fn i -> {String.pad_leading("L#{i}", 32), CMerkleTree.hash("L#{i}")} end)
-
-    base = CMerkleTree.new() |> CMerkleTree.insert_items(data)
-
-    1..tasks
-    |> Task.async_stream(
-      fn _ ->
-        _ =
-          base
-          |> CMerkleTree.clone()
-          |> CMerkleTree.lock()
-
-        :ok
-      end,
-      max_concurrency: tasks,
-      timeout: :infinity,
-      ordered: false
-    )
-    |> Stream.run()
-  end
-
-  defp p9_lock_and_difference(%{tasks: tasks, ops: ops}) do
-    shared =
-      CMerkleTree.new()
-      |> CMerkleTree.insert_items(
-        Enum.map(1..100, fn i -> {String.pad_leading("s#{i}", 32), CMerkleTree.hash("s#{i}")} end)
-      )
-
-    other =
-      CMerkleTree.new()
-      |> CMerkleTree.insert_items(
-        Enum.map(1..100, fn i -> {String.pad_leading("o#{i}", 32), CMerkleTree.hash("o#{i}")} end)
-      )
-
-    lockers = div(tasks, 3) |> max(1)
-    differ = tasks - lockers
-
-    Task.async_stream(
-      1..lockers,
-      fn _ ->
-        _ =
-          shared
-          |> CMerkleTree.clone()
-          |> CMerkleTree.lock()
-
-        :ok
-      end,
-      max_concurrency: lockers,
-      timeout: :infinity,
-      ordered: false
-    )
-    |> Stream.run()
-
-    Task.async_stream(
-      1..differ,
-      fn w ->
-        Enum.each(1..ops, fn j ->
-          k = String.pad_leading("p9#{w}_#{j}", 32)
-          _ = CMerkleTree.insert(shared, k, CMerkleTree.hash("p9#{w}#{j}"))
-          _ = CMerkleTree.difference(shared, other)
-          _ = CMerkleTree.difference(other, shared)
-        end)
-
-        :ok
-      end,
-      max_concurrency: differ,
-      timeout: :infinity,
-      ordered: false
-    )
-    |> Stream.run()
-  end
-
-  defp p7_shortlived_parallel(%{tasks: tasks}) do
-    1..tasks
-    |> Task.async_stream(
-      fn w ->
-        items =
-          Enum.map(1..25, fn j ->
-            {String.pad_leading("s#{w}_#{j}", 32), CMerkleTree.hash("s#{w}_#{j}")}
-          end)
-
-        t = CMerkleTree.new() |> CMerkleTree.insert_items(items)
-        _ = CMerkleTree.root_hash(t)
-        _ = CMerkleTree.bucket_count(t)
-        :ok
-      end,
-      max_concurrency: tasks,
-      timeout: :infinity,
-      ordered: false
-    )
-    |> Stream.run()
-  end
-
-  defp p8_proofs_to_list(%{tasks: tasks, ops: ops}) do
-    keys = Enum.map(1..80, fn i -> String.pad_leading("h#{i}", 32) end)
-
-    tree =
-      Enum.reduce(keys, CMerkleTree.new(), fn k, acc ->
-        CMerkleTree.insert(acc, k, CMerkleTree.hash(k))
-      end)
-
-    1..tasks
-    |> Task.async_stream(
-      fn w ->
-        Enum.each(1..ops, fn j ->
-          k = Enum.at(keys, rem(w + j, length(keys)))
-          _ = CMerkleTree.get_proofs(tree, k)
-          _ = CMerkleTree.to_list(tree)
-          _ = CMerkleTree.root_hash(tree)
-        end)
-
-        :ok
-      end,
-      max_concurrency: tasks,
-      timeout: :infinity,
-      ordered: false
-    )
-    |> Stream.run()
-  end
-
   defp addr(i), do: <<i::unsigned-size(160)>>
 
   defp slot(i), do: <<i::unsigned-size(256)>>
 
+  defp storage_list(i, mult \\ 5) do
+    [{slot(i), <<i * mult::unsigned-size(256)>>}]
+  end
+
   defp build_compact_accounts(n) do
     Enum.reduce(1..n, State.new(), fn i, st ->
-      tree =
-        CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i * 5::unsigned-size(256)>>)
-
       acc = %Account{
         nonce: i,
         balance: i * 1_000,
-        storage_root: tree,
+        storage_root: storage_list(i),
         code: <<i>>,
         map_backed: false
       }
@@ -520,137 +184,19 @@ defmodule CMerkleParallelStress do
 
   defp build_live_state(n) do
     Enum.reduce(1..n, State.new(), fn i, st ->
-      tree =
-        CMerkleTree.insert_items(CMerkleTree.new(), [
+      acc = %Account{
+        nonce: i,
+        balance: i * 1_000,
+        storage_root: [
           {slot(i), <<i * 3::unsigned-size(256)>>},
           {slot(i + 10_000), <<i + 1::unsigned-size(256)>>}
-        ])
+        ],
+        code: <<i>>,
+        map_backed: false
+      }
 
-      acc = %Account{nonce: i, balance: i * 1_000, storage_root: tree, code: <<i>>}
       State.set_account(st, addr(i), acc)
     end)
-  end
-
-  defp p10_leave_lock_storm(%{tasks: tasks, ops: ops}) do
-    shared =
-      CMerkleTree.new()
-      |> CMerkleTree.insert_items(
-        Enum.map(1..100, fn i ->
-          {String.pad_leading("p10s#{i}", 32), CMerkleTree.hash("p10s#{i}")}
-        end)
-      )
-
-    tb =
-      CMerkleTree.new()
-      |> CMerkleTree.insert_items(
-        Enum.map(1..100, fn i ->
-          {String.pad_leading("p10b#{i}", 32), CMerkleTree.hash("p10b#{i}")}
-        end)
-      )
-
-    tc =
-      CMerkleTree.new()
-      |> CMerkleTree.insert_items(
-        Enum.map(1..80, fn i ->
-          {String.pad_leading("p10c#{i}", 32), CMerkleTree.hash("p10c#{i}")}
-        end)
-      )
-
-    third = div(tasks, 4) |> max(1)
-    rest = tasks - third
-
-    1..third
-    |> Task.async_stream(
-      fn w ->
-        items =
-          Enum.map(1..20, fn j ->
-            {String.pad_leading("d#{w}_#{j}", 32), CMerkleTree.hash("d#{w}_#{j}")}
-          end)
-
-        _ = CMerkleTree.new() |> CMerkleTree.insert_items(items)
-        :ok
-      end,
-      max_concurrency: third,
-      timeout: :infinity,
-      ordered: false
-    )
-    |> Stream.run()
-
-    1..rest
-    |> Task.async_stream(
-      fn w ->
-        Enum.each(1..ops, fn j ->
-          if rem(w + j, 4) == 0 do
-            _ =
-              shared
-              |> CMerkleTree.clone()
-              |> CMerkleTree.lock()
-          else
-            _ = CMerkleTree.difference(shared, tb)
-            _ = CMerkleTree.difference(shared, tc)
-            _ = CMerkleTree.difference(tb, tc)
-          end
-        end)
-
-        :ok
-      end,
-      max_concurrency: rest,
-      timeout: :infinity,
-      ordered: false
-    )
-    |> Stream.run()
-
-    :erlang.garbage_collect()
-  end
-
-  defp p11_gc_disposable_trees(%{tasks: tasks, ops: ops}) do
-    anchor =
-      CMerkleTree.new()
-      |> CMerkleTree.insert_items(
-        Enum.map(1..60, fn i ->
-          {String.pad_leading("gca#{i}", 32), CMerkleTree.hash("gca#{i}")}
-        end)
-      )
-
-    other =
-      CMerkleTree.new()
-      |> CMerkleTree.insert_items(
-        Enum.map(1..60, fn i ->
-          {String.pad_leading("gco#{i}", 32), CMerkleTree.hash("gco#{i}")}
-        end)
-      )
-
-    1..tasks
-    |> Task.async_stream(
-      fn w ->
-        Enum.each(1..ops, fn j ->
-          disposable =
-            CMerkleTree.new()
-            |> CMerkleTree.insert_items(
-              Enum.map(1..15, fn k ->
-                {String.pad_leading("t#{w}_#{j}_#{k}", 32), CMerkleTree.hash("t#{w}#{j}#{k}")}
-              end)
-            )
-
-          _ = CMerkleTree.root_hash(disposable)
-          _ = CMerkleTree.difference(anchor, other)
-
-          if rem(j, 5) == 0 do
-            _ =
-              anchor
-              |> CMerkleTree.clone()
-              |> CMerkleTree.lock()
-          end
-        end)
-
-        if rem(w, 4) == 0, do: :erlang.garbage_collect()
-        :ok
-      end,
-      max_concurrency: tasks,
-      timeout: :infinity,
-      ordered: false
-    )
-    |> Stream.run()
   end
 
   defp p12_uncompact_and_diff(%{tasks: tasks, accounts: n}) do
@@ -677,18 +223,25 @@ defmodule CMerkleParallelStress do
         1..workers,
         fn i ->
           a =
-            CMerkleTree.insert_items(CMerkleTree.new(), [
-              {slot(i), <<i::unsigned-size(256)>>},
-              {slot(i + 5000), <<i + 1::unsigned-size(256)>>}
-            ])
+            Enum.reduce(1..(8 + rem(i, 5)), CAccountMap.new(), fn j, acc ->
+              CAccountMap.put(
+                acc,
+                addr(j),
+                j,
+                j * 100,
+                [{slot(j), <<j + i::unsigned-size(256)>>}],
+                <<j>>
+              )
+            end)
 
           b =
-            CMerkleTree.insert_items(CMerkleTree.new(), [
-              {slot(i), <<i + 9::unsigned-size(256)>>},
-              {slot(i + 9000), <<i + 2::unsigned-size(256)>>}
-            ])
+            a
+            |> CAccountMap.clone()
+            |> CAccountMap.storage_put_map(%{
+              addr(1) => %{slot(i + 9000) => <<i + 2::unsigned-size(256)>>}
+            })
 
-          CMerkleTree.difference(a, b)
+          CAccountMap.difference_full(a, b)
         end,
         max_concurrency: workers,
         timeout: :infinity,
@@ -714,10 +267,7 @@ defmodule CMerkleParallelStress do
           case rem(w + j, 5) do
             0 ->
               fork = CAccountMap.clone(base)
-
-              new_storage =
-                CMerkleTree.insert(CMerkleTree.new(), slot(w + j), <<j::unsigned-size(256)>>)
-
+              new_storage = [{slot(w + j), <<j::unsigned-size(256)>>}]
               _ = CAccountMap.put(fork, addr(rem(w, n) + 1), j, j * 100, new_storage, <<j>>)
 
             1 ->
@@ -821,31 +371,20 @@ defmodule CMerkleParallelStress do
         State.set_account(st, addr(1), %Account{
           nonce: 999,
           balance: 999,
-          storage_root: CMerkleTree.new(),
-          code: <<>>
+          storage_root: [],
+          code: <<>>,
+          map_backed: false
         })
-      end)
-
-    keys =
-      Enum.map(1..60, fn i -> String.pad_leading("ds#{i}", 32) end)
-
-    proof_tree =
-      Enum.reduce(keys, CMerkleTree.new(), fn k, acc ->
-        CMerkleTree.insert(acc, k, CMerkleTree.hash(k))
       end)
 
     1..tasks
     |> Task.async_stream(
       fn w ->
-        case rem(w, 6) do
+        case rem(w, 5) do
           0 ->
-            _ =
-              proof_tree
-              |> CMerkleTree.clone()
-              |> CMerkleTree.lock()
+            _ = CAccountMap.lock(live.accounts)
 
           1 ->
-            # Compare storage root hashes / lists (get no longer returns live tries).
             _ = CAccountMap.storage_root_hash(live.accounts, addr(1))
             _ = CAccountMap.storage_root_hash(other.accounts, addr(1))
             _ = CAccountMap.storage_to_list(live.accounts, addr(1))
@@ -854,18 +393,10 @@ defmodule CMerkleParallelStress do
             _ = CAccountMap.uncompact_state(compact)
 
           3 ->
-            k = Enum.at(keys, rem(w, length(keys)))
-            _ = CMerkleTree.get_proofs(proof_tree, k)
-            _ = CMerkleTree.to_list(proof_tree)
-
-          4 ->
-            _ =
-              proof_tree
-              |> CMerkleTree.clone()
-              |> CMerkleTree.insert(String.pad_leading("x#{w}", 32), CMerkleTree.hash("x#{w}"))
+            _ = CAccountMap.difference_full(live.accounts, other.accounts)
 
           _ ->
-            _ = CAccountMap.lock(live.accounts)
+            _ = CAccountMap.to_list(live.accounts)
         end
 
         :ok
@@ -1066,8 +597,9 @@ defmodule CMerkleParallelStress do
         State.set_account(st, addr(1), %Account{
           nonce: 999,
           balance: 999,
-          storage_root: CMerkleTree.new(),
-          code: <<>>
+          storage_root: [],
+          code: <<>>,
+          map_backed: false
         })
       end)
 

@@ -10,24 +10,6 @@ ERL_INCLUDE_PATH = $(shell erl -eval 'io:format("~s", [lists:concat([code:root_d
 CFLAGS+=-I. -O2 -g -Wall -Wno-unknown-pragmas
 CXXFLAGS+=-std=c++17 $(CFLAGS)
 
-# Bare-tree + debug NIFs (new/insert/...), gated by -DCMERKLE_TEST_NIFS in nif.cpp.
-# On unless MIX_ENV=prod; override with CMERKLE_TEST_NIFS=0 (off) or =1 (force on).
-# priv/merkletree_nif.so is shared across Mix envs — last compile wins.
-ENABLE_CMERKLE_TEST_NIFS := 1
-ifeq ($(MIX_ENV),prod)
-  ENABLE_CMERKLE_TEST_NIFS := 0
-endif
-ifeq ($(CMERKLE_TEST_NIFS),0)
-  ENABLE_CMERKLE_TEST_NIFS := 0
-endif
-ifeq ($(CMERKLE_TEST_NIFS),1)
-  ENABLE_CMERKLE_TEST_NIFS := 1
-endif
-ifeq ($(ENABLE_CMERKLE_TEST_NIFS),1)
-  CXXFLAGS+=-DCMERKLE_TEST_NIFS
-endif
-NIF_MODE := $(if $(filter 1,$(ENABLE_CMERKLE_TEST_NIFS)),test,prod)
-
 UNAME_S := $(shell uname -s)
 
 ifeq ($(UNAME_S),Darwin)
@@ -76,21 +58,15 @@ fuzz_sha.bin: fuzz_sha.cpp sha.cpp Makefile
 
 FORCE:
 
-# Rebuild .so when test/prod NIF mode changes (sources alone may be unchanged).
-../priv/.cmerkle_nif_mode: FORCE
-	@mkdir -p ../priv
-	@echo $(NIF_MODE) > $@.new
-	@if ! cmp -s $@.new $@ 2>/dev/null; then mv $@.new $@; else rm -f $@.new; fi
-
 nif: ../priv/merkletree_nif.so
 
-../priv/merkletree_nif.so: nif.cpp merkletree.hpp merkletree.cpp item_pool.cpp sha.cpp preallocator.hpp Makefile ../priv/.cmerkle_nif_mode
+../priv/merkletree_nif.so: nif.cpp merkletree.hpp merkletree.cpp item_pool.cpp sha.cpp preallocator.hpp Makefile
 	echo ${ERL_INCLUDE_PATH}
 	mkdir -p ../priv
 	$(CXX) $(CXXFLAGS) -I${ERL_INCLUDE_PATH} -o ../priv/merkletree_nif.so -shared -fPIC nif.cpp ${OPTS}
 
 # Instrumented NIF for debugging heap issues (copy over priv/merkletree_nif.so or set in test script).
-../priv/merkletree_nif.asan.so: nif.cpp merkletree.hpp merkletree.cpp item_pool.cpp sha.cpp preallocator.hpp Makefile ../priv/.cmerkle_nif_mode
+../priv/merkletree_nif.asan.so: nif.cpp merkletree.hpp merkletree.cpp item_pool.cpp sha.cpp preallocator.hpp Makefile
 	echo ${ERL_INCLUDE_PATH}
 	mkdir -p ../priv
 	$(CXX) $(CXXFLAGS) $(SANFLAGS) -I${ERL_INCLUDE_PATH} -o $@ -shared -fPIC nif.cpp $(OPTS_ASAN)

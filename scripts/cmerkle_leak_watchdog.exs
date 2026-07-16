@@ -1,4 +1,4 @@
-# CMerkleTree NIF — memory leak watchdog for cmerkle_leak_test.exs.
+# CAccountMap NIF — memory leak watchdog for cmerkle_leak_test.exs.
 #
 # Run from repo root:
 #   mix run --no-start scripts/cmerkle_leak_watchdog.exs -- \
@@ -32,7 +32,7 @@ defmodule CMerkleLeakWatchdog do
     poll_ms = Keyword.get(opts, :poll_interval, 5) * 1_000
 
     IO.puts(:stderr, """
-    === CMerkleTree leak watchdog ===
+    === CAccountMap leak watchdog ===
     command=#{inspect(cmd)}
     progress_timeout=#{div(progress_timeout_ms, 1000)}s wall_timeout=#{format_wall(wall_timeout_ms)}
     """)

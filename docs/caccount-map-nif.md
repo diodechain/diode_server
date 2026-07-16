@@ -22,8 +22,9 @@ implementation spec for difference/clone performance work:
   Internal `state_trie` is never exported; Edge uses `state_root_hashes/1`.
 - `account_map_get` / `to_list` return `{nonce, balance, storage_root_hash_bin32, code}`
   — the third element is a **32-byte hash**, never a live storage resource.
-- `account_map_put/6` storage arg: resource | `:keep` (meta-only) | `nil`/`[]` |
-  `[{key32, value32}]` (genesis / hardfork).
+- `account_map_put/6` storage arg: `:keep` (meta-only) | `nil`/`[]` |
+  `[{key32, value32}]` (genesis / hardfork / tests). Live bare-tree resources are
+  not part of the public NIF surface.
 - `account_map_storage/3` covers get / range / list / size via one NIF.
 - `account_map_storage_roots/2` and `account_map_state_roots/1` return
   `<<root::32, hashes16::512>>`.
@@ -49,9 +50,7 @@ implementation spec for difference/clone performance work:
 ## Build
 
 - NIF: `mix compile` → `elixir_make` → `c_src/` → `priv/merkletree_nif.so`
-- **Prod** (`MIX_ENV=prod`): ~21 map + misc exports only.
-- **Dev/test** (non-prod): also registers bare-tree + debug NIFs via
-  `-DCMERKLE_TEST_NIFS` (override with `CMERKLE_TEST_NIFS=0|1`). Mode stamp
-  forces rebuild when the flag changes.
+- Exports: `account_map_*` plus `count_zeros/1` and `nif_stats_raw/0`
+  (`CMerkleTree.nif_stats/0`). No bare-tree test NIF mode.
 - EVM binary: `evm/evm` (needs `libboost-dev`)
 - `deps/libsecp256k1`: build once with `make -C deps/libsecp256k1/` (not via `mix`)

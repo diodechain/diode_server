@@ -9,12 +9,12 @@ defmodule CAccountMapTest do
   defp addr(i), do: <<i::unsigned-size(160)>>
 
   defp sample_account(n) do
-    tree =
-      CMerkleTree.insert_items(CMerkleTree.new(), [
-        {<<n::unsigned-size(256)>>, <<n + 1::unsigned-size(256)>>}
-      ])
-
-    %Account{nonce: n, balance: n * 1_000, storage_root: tree, code: <<n>>}
+    %Account{
+      nonce: n,
+      balance: n * 1_000,
+      storage_root: [{<<n::unsigned-size(256)>>, <<n + 1::unsigned-size(256)>>}],
+      code: <<n>>
+    }
   end
 
   defp put_sample(map, i) do
@@ -27,8 +27,7 @@ defmodule CAccountMapTest do
     assert CAccountMap.size(map) == 1
     assert {3, 3000, root, <<3>>} = CAccountMap.get(map, addr(3))
     assert is_binary(root) and byte_size(root) == 32
-    assert root == CMerkleTree.root_hash(sample_account(3).storage_root)
-    assert CAccountMap.storage_root_hash(map, addr(3)) == root
+    assert root == CAccountMap.storage_root_hash(map, addr(3))
   end
 
   test "delete removes account" do
@@ -39,10 +38,7 @@ defmodule CAccountMapTest do
   end
 
   test "lock via NIF freezes map for fork" do
-    shared =
-      CMerkleTree.insert_items(CMerkleTree.new(), [
-        {<<1::unsigned-size(256)>>, <<2::unsigned-size(256)>>}
-      ])
+    shared = [{<<1::unsigned-size(256)>>, <<2::unsigned-size(256)>>}]
 
     base =
       CAccountMap.new()
@@ -55,7 +51,7 @@ defmodule CAccountMapTest do
 
     fork =
       fork
-      |> CAccountMap.put(addr(1), 11, 11_000, CMerkleTree.new(), <<11>>)
+      |> CAccountMap.put(addr(1), 11, 11_000, [], <<11>>)
 
     assert {11, 11_000, _, <<11>>} = CAccountMap.get(fork, addr(1))
     assert {1, 1_000, _, <<1>>} = CAccountMap.get(base, addr(1))
@@ -90,8 +86,7 @@ defmodule CAccountMapTest do
 
   test "large balance roundtrip via 256-bit encoding" do
     balance = Bitwise.bsl(1, 200)
-    storage = CMerkleTree.new()
-    map = CAccountMap.put(CAccountMap.new(), addr(2), 0, balance, storage, nil)
+    map = CAccountMap.put(CAccountMap.new(), addr(2), 0, balance, nil, nil)
     assert {0, ^balance, root, ""} = CAccountMap.get(map, addr(2))
     assert is_binary(root) and byte_size(root) == 32
   end

@@ -18,15 +18,10 @@ defmodule ChainStateUncompactTest do
   defp val(i), do: <<i + 1::unsigned-size(256)>>
 
   defp sample_account(i) do
-    tree =
-      CMerkleTree.insert_items(CMerkleTree.new(), [
-        {slot(i), val(i)}
-      ])
-
     %Account{
       nonce: i,
       balance: i * 1_000,
-      storage_root: tree,
+      storage_root: [{slot(i), val(i)}],
       code: <<i>>,
       map_backed: false
     }
@@ -74,14 +69,14 @@ defmodule ChainStateUncompactTest do
       restored = State.uncompact(%State{accounts: %{}})
       assert CAccountMap.size(restored.accounts) == 0
       assert is_binary(Chain.State.hash(restored))
-      assert State.hash(restored) == CMerkleTree.root_hash(CMerkleTree.new())
+      assert State.hash(restored) == CAccountMap.root_hash(CAccountMap.new())
     end
 
     test "empty CAccountMap resource" do
       restored = State.uncompact(%State{accounts: CAccountMap.new()})
       assert CAccountMap.size(restored.accounts) == 0
       assert is_binary(Chain.State.hash(restored))
-      assert State.hash(restored) == CMerkleTree.root_hash(CMerkleTree.new())
+      assert State.hash(restored) == CAccountMap.root_hash(CAccountMap.new())
     end
 
     test "live CAccountMap resource rebuilds state trie" do
@@ -109,12 +104,11 @@ defmodule ChainStateUncompactTest do
         %Account{
           nonce: 3,
           balance: 99,
-          storage_root:
-            CMerkleTree.insert_items(CMerkleTree.new(), [
-              {slot(1), val(1)},
-              {slot(2), val(2)},
-              {slot(3), val(3)}
-            ]),
+          storage_root: [
+            {slot(1), val(1)},
+            {slot(2), val(2)},
+            {slot(3), val(3)}
+          ],
           code: :binary.copy(<<0xAB>>, 512)
         }
 
@@ -180,11 +174,10 @@ defmodule ChainStateUncompactTest do
         %Account{
           nonce: 5,
           balance: 1_000,
-          storage_root:
-            CMerkleTree.insert_items(CMerkleTree.new(), [
-              {slot(1), val(1)},
-              {slot(2), val(2)}
-            ]),
+          storage_root: [
+            {slot(1), val(1)},
+            {slot(2), val(2)}
+          ],
           code: <<5>>
         }
 
@@ -193,7 +186,13 @@ defmodule ChainStateUncompactTest do
 
       {5, 1_000, root, <<5>>} = CAccountMap.get(accounts, addr(1))
       assert is_binary(root) and byte_size(root) == 32
-      assert root == CMerkleTree.root_hash(multi_slot.storage_root)
+
+      expected_root =
+        CAccountMap.new()
+        |> CAccountMap.put(addr(1), 5, 1_000, multi_slot.storage_root, <<5>>)
+        |> CAccountMap.storage_root_hash(addr(1))
+
+      assert root == expected_root
 
       assert CAccountMap.storage_get(accounts, addr(1), slot(1)) == val(1)
       assert CAccountMap.storage_get(accounts, addr(1), slot(2)) == val(2)
@@ -229,17 +228,20 @@ defmodule ChainStateUncompactTest do
       compact = compact_via_state(acc)
 
       assert compact.code_hash == Account.codehash(acc)
-      assert compact.root_hash == CMerkleTree.root_hash(acc.storage_root)
+
+      expected_root =
+        CAccountMap.new()
+        |> CAccountMap.put(addr(1), acc.nonce, acc.balance, acc.storage_root, acc.code)
+        |> CAccountMap.storage_root_hash(addr(1))
+
+      assert compact.root_hash == expected_root
     end
 
     test "put overwrites lazy account without prior get" do
       compact = %{addr(1) => compact_via_state(sample_account(1))}
       {accounts, _} = CAccountMap.uncompact_state(compact)
 
-      new_storage =
-        CMerkleTree.insert_items(CMerkleTree.new(), [
-          {slot(99), val(99)}
-        ])
+      new_storage = [{slot(99), val(99)}]
 
       accounts =
         CAccountMap.put(accounts, addr(1), 9, 9_000, new_storage, <<9>>)
@@ -265,7 +267,13 @@ defmodule ChainStateUncompactTest do
         assert code == <<i>>
         assert is_binary(root) and byte_size(root) == 32
         assert CAccountMap.storage_get(accounts, addr(i), slot(i)) == val(i)
-        assert root == CMerkleTree.root_hash(sample_account(i).storage_root)
+
+        expected_root =
+          CAccountMap.new()
+          |> CAccountMap.put(addr(i), i, i * 1_000, sample_account(i).storage_root, <<i>>)
+          |> CAccountMap.storage_root_hash(addr(i))
+
+        assert root == expected_root
         assert CAccountMap.storage_root_hash(accounts, addr(i)) == root
       end
     end
@@ -296,7 +304,7 @@ defmodule ChainStateUncompactTest do
       compact = compact_accounts_map(3)
       {accounts, _} = CAccountMap.uncompact_state(compact)
 
-      new_storage = CMerkleTree.insert_items(CMerkleTree.new(), [{slot(50), val(50)}])
+      new_storage = [{slot(50), val(50)}]
 
       fork =
         accounts

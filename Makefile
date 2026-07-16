@@ -8,7 +8,6 @@ TESTDATA := test/pems/device1_certificate.pem test/pems/device2_certificate.pem
 .PHONY: all
 all: evm/evm priv/merkletree_nif.so
 
-# Always delegate to c_src so CMERKLE_TEST_NIFS mode stamp can force rebuild.
 .PHONY: priv/merkletree_nif.so
 priv/merkletree_nif.so:
 	$(MAKE) -C c_src nif

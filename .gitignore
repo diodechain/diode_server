@@ -14,8 +14,6 @@
 /priv/merkletree_nif.so
 /priv/merkletree_nif.asan.so
 /priv/merkletree_nif.so.bak*
-/priv/.cmerkle_nif_mode
-
 # Profiling / measurement outputs (see scripts/profile_*.sh)
 /tmp/
 /leak_state.bin

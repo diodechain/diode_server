@@ -33,12 +33,12 @@ defmodule CAccountMapLifetimeTest do
   end
 
   defp sample_account(n) do
-    tree =
-      CMerkleTree.insert_items(CMerkleTree.new(), [
-        {slot(n), val(n)}
-      ])
-
-    %Account{nonce: n, balance: n * 1_000, storage_root: tree, code: <<n>>}
+    %Account{
+      nonce: n,
+      balance: n * 1_000,
+      storage_root: [{slot(n), val(n)}],
+      code: <<n>>
+    }
   end
 
   defp put_sample(map, i) do
@@ -137,11 +137,7 @@ defmodule CAccountMapLifetimeTest do
 
   describe "shared storage pointers across accounts" do
     test "two accounts referencing the same storage trie survive clone GC" do
-      storage =
-        CMerkleTree.insert_items(CMerkleTree.new(), [
-          {slot(1), val(1)},
-          {slot(2), val(2)}
-        ])
+      storage = [{slot(1), val(1)}, {slot(2), val(2)}]
 
       map =
         CAccountMap.new()
@@ -165,7 +161,7 @@ defmodule CAccountMapLifetimeTest do
     end
 
     test "shared storage with fork mutation splits only the mutated branch" do
-      storage = CMerkleTree.insert_items(CMerkleTree.new(), [{slot(1), val(1)}])
+      storage = [{slot(1), val(1)}]
 
       map =
         CAccountMap.new()
@@ -215,7 +211,7 @@ defmodule CAccountMapLifetimeTest do
       base = put_sample(CAccountMap.new(), 3)
       {_, _, old_root, _} = CAccountMap.get(base, addr(3))
 
-      new_storage = CMerkleTree.insert_items(CMerkleTree.new(), [{slot(7), val(7)}])
+      new_storage = [{slot(7), val(7)}]
 
       base =
         CAccountMap.put(
@@ -459,11 +455,7 @@ defmodule CAccountMapLifetimeTest do
 
   describe "shared storage trie dedup in account_map_clone" do
     test "lock then clone with multiple accounts sharing one storage trie stays writable" do
-      shared =
-        CMerkleTree.insert_items(CMerkleTree.new(), [
-          {slot(1), val(1)},
-          {slot(2), val(2)}
-        ])
+      shared = [{slot(1), val(1)}, {slot(2), val(2)}]
 
       accounts =
         CAccountMap.new()

@@ -33,11 +33,11 @@ defmodule CMerkleNifLeakTest do
   end
 
   describe "canonical lock dedup must not leak SharedState" do
-    test "empty trie lock storm" do
+    test "empty account map lock storm" do
       baseline = rss_kb()
 
       for _ <- 1..300 do
-        CMerkleTree.new() |> CMerkleTree.lock()
+        CAccountMap.new() |> CAccountMap.lock()
       end
 
       force_gc()
@@ -49,16 +49,11 @@ defmodule CMerkleNifLeakTest do
     test "account_map_lock with identical storage roots" do
       baseline = rss_kb()
       n = 60
+      storage = [{slot(1), val(1)}, {slot(2), val(2)}]
 
       for _ <- 1..30 do
         map =
           Enum.reduce(1..n, CAccountMap.new(), fn i, acc ->
-            storage =
-              CMerkleTree.insert_items(CMerkleTree.new(), [
-                {slot(1), val(1)},
-                {slot(2), val(2)}
-              ])
-
             CAccountMap.put(acc, addr(i), i, i * 1_000, storage, <<i>>)
           end)
 
@@ -73,15 +68,13 @@ defmodule CMerkleNifLeakTest do
 
     test "locked clone GC retains canonical map until last registration" do
       shared =
-        CMerkleTree.new()
-        |> CMerkleTree.insert_items(
-          Enum.map(1..80, fn i ->
-            {String.pad_leading("lc#{i}", 32), CMerkleTree.hash("lc#{i}")}
-          end)
-        )
+        Enum.reduce(1..80, CAccountMap.new(), fn i, acc ->
+          storage = [{String.pad_leading("lc#{i}", 32), Diode.hash("lc#{i}")}]
+          CAccountMap.put(acc, addr(i), i, i * 1_000, storage, <<i>>)
+        end)
 
       for _ <- 1..300 do
-        _ = shared |> CMerkleTree.clone() |> CMerkleTree.lock()
+        _ = shared |> CAccountMap.clone() |> CAccountMap.lock()
       end
 
       force_gc()
@@ -101,10 +94,7 @@ defmodule CMerkleNifLeakTest do
             acc = %Account{
               nonce: i,
               balance: i * 1_000,
-              storage_root:
-                CMerkleTree.insert_items(CMerkleTree.new(), [
-                  {slot(i), val(i)}
-                ]),
+              storage_root: [{slot(i), val(i)}],
               code: <<i>>
             }
 
@@ -156,7 +146,7 @@ defmodule CMerkleNifLeakTest do
 
   defp build_diff_map(n) do
     Enum.reduce(1..n, CAccountMap.new(), fn i, acc ->
-      storage = CMerkleTree.insert_items(CMerkleTree.new(), [{slot(i), val(i)}])
+      storage = [{slot(i), val(i)}]
       CAccountMap.put(acc, addr(i), i, i * 1_000, storage, <<i>>)
     end)
   end

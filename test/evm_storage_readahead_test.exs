@@ -25,16 +25,15 @@ defmodule EvmStorageReadaheadTest do
 
       base = 0x3000
       count = gs_range_count()
+      addr = <<1::unsigned-size(160)>>
 
-      tree =
-        CMerkleTree.new()
-        |> then(fn t ->
-          Enum.reduce(0..(count - 1), t, fn i, acc ->
-            CMerkleTree.insert(acc, base + i, i + 1)
-          end)
+      slots =
+        Enum.map(0..(count - 1), fn i ->
+          {<<base + i::unsigned-size(256)>>, <<i + 1::unsigned-size(256)>>}
         end)
 
-      range = CMerkleTree.get_range(tree, base, count)
+      map = CAccountMap.put(CAccountMap.new(), addr, 1, 100, slots, <<>>)
+      range = CAccountMap.storage_get_range(map, addr, <<base::unsigned-size(256)>>, count)
       assert length(range) == 255
       assert length(range) <= 255
     end)

@@ -12,7 +12,10 @@ defmodule Chain.Account do
   @type t :: %Chain.Account{
           nonce: non_neg_integer(),
           balance: non_neg_integer(),
-          storage_root: nil | reference() | [{binary(), binary()}],
+          storage_root:
+            nil
+            | [{binary(), binary()}]
+            | {atom(), list(), map()},
           code: binary() | nil,
           map_backed: boolean(),
           root_hash: binary() | nil
@@ -34,7 +37,7 @@ defmodule Chain.Account do
   @doc """
   Build an account from `CAccountMap.get/2` parts.
   A 32-byte `storage` root marks the account map-backed (`map_backed: true`).
-  Otherwise `storage` is a put payload (`nil` / slot list / resource for `set_account`).
+  Otherwise `storage` is a put payload (`nil` / slot list / compact MapMerkleTree tuple).
   """
   def from_parts(nonce, balance, <<root_hash::binary-size(32)>>, code) do
     %Chain.Account{

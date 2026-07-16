@@ -1,8 +1,8 @@
 # NIF-only uncompact for Valgrind profiling (same 14k fixture as chain_state_uncompact_test).
-# No full app.start — only loads the NIF via CMerkleTree.new/0.
+# No full app.start — only loads the NIF via CAccountMap.new/0.
 alias Chain.State
 
-_ = CMerkleTree.new()
+_ = CAccountMap.new()
 
 account_count = String.to_integer(System.get_env("UNCOMPACT_PROFILE_COUNT", "14609"))
 fixture = Path.join(System.tmp_dir!(), "diode_uncompact_perf_14609.bin")

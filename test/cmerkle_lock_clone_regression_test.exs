@@ -21,15 +21,10 @@ defmodule CMerkleLockCloneRegressionTest do
   defp val(i), do: <<i + 1::unsigned-size(256)>>
 
   defp sample_account(i) do
-    tree =
-      CMerkleTree.insert_items(CMerkleTree.new(), [
-        {slot(i), val(i)}
-      ])
-
     %Account{
       nonce: i,
       balance: i * 1_000,
-      storage_root: tree,
+      storage_root: [{slot(i), val(i)}],
       code: <<i>>,
       map_backed: false
     }
@@ -82,7 +77,7 @@ defmodule CMerkleLockCloneRegressionTest do
           addr(1),
           99,
           1,
-          CMerkleTree.new(),
+          [],
           <<>>
         )
       end
@@ -144,7 +139,7 @@ defmodule CMerkleLockCloneRegressionTest do
       end
 
       assert_raise ArgumentError, fn ->
-        CAccountMap.put(peak.accounts, addr(9), 0, 0, CMerkleTree.new(), <<>>)
+        CAccountMap.put(peak.accounts, addr(9), 0, 0, [], <<>>)
       end
 
       assert State.state_root_hashes(peak) == before
@@ -183,10 +178,7 @@ defmodule CMerkleLockCloneRegressionTest do
 
   describe "shared storage lock (apply_canonical_lock regression)" do
     test "lock with many accounts sharing one storage completes and stays forkable" do
-      shared =
-        Enum.reduce(1..8, CMerkleTree.new(), fn i, tree ->
-          CMerkleTree.insert(tree, slot(i), val(i))
-        end)
+      shared = Enum.map(1..8, fn i -> {slot(i), val(i)} end)
 
       accounts =
         Enum.reduce(1..40, CAccountMap.new(), fn i, map ->
@@ -216,16 +208,12 @@ defmodule CMerkleLockCloneRegressionTest do
     end
 
     test "concurrent locks on distinct maps that share storage roots do not hang" do
-      # Same root hash via independent trees (one resource must not be kept by many
-      # AccountMaps). Concurrent lock+clone must complete without hanging.
+      # Same root hash via identical slot lists. Concurrent lock+clone must complete
+      # without hanging.
+      storage = [{slot(1), val(1)}, {slot(2), val(2)}]
+
       maps =
         for i <- 1..8 do
-          storage =
-            CMerkleTree.insert_items(CMerkleTree.new(), [
-              {slot(1), val(1)},
-              {slot(2), val(2)}
-            ])
-
           CAccountMap.new()
           |> CAccountMap.put(addr(i), i, i * 10, storage, <<i>>)
           |> CAccountMap.put(addr(100 + i), i, i * 10, storage, <<i>>)

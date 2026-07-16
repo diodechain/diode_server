@@ -260,7 +260,6 @@ struct Item {
     Item& operator=(const Item &other) = delete;
 
     void each(Tree &tree, std::function<void(pair_t &)> func);
-    size_t leaf_count(const Tree &tree) const;
 
     uint256_t *ensure_hashes();
     const uint256_t *hashes_ro() const { return hash_values; }
@@ -289,7 +288,6 @@ public:
 
     void insert_item(pair_t &pair);
     void insert_item(bin_t &key, uint256_t &value);
-    void insert_items(pair_list_t &items);
     void delete_item(bin_t &key) {
         uint256_t null_value = {};
         insert_item(key, null_value);
@@ -300,7 +298,6 @@ public:
     uint256_t root_hash();
     uint256_t* root_hashes();
     size_t size();
-    size_t leaf_count();
     size_t node_count() const;
     void each(std::function<void(pair_t &)> func) {
         if (root_id != kItemNull) {
