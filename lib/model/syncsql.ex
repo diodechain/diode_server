@@ -24,6 +24,9 @@ defmodule Model.SyncSql do
     GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
   end
 
+  # Full-table SELECT of sync.sq3 can be millions of rows; never load it at once.
+  @purge_batch_size 500
+
   def init(_args) do
     with_transaction(fn db ->
       Sql.query!(db, """
@@ -36,10 +39,16 @@ defmodule Model.SyncSql do
       """)
     end)
 
-    {purged, _} = purge_invalid_blocks_from_db_and_queue(%{})
+    # Insert path already rejects unsigned blocks. Background-scan legacy rows so
+    # Model.Sql init is not blocked on multi-million-row sync.sq3 databases.
+    if System.get_env("SYNC_PURGE_ON_START", "1") != "0" do
+      spawn(fn ->
+        deleted = purge_invalid_rows_batched(0, 0, 0)
 
-    if purged > 0 do
-      Logger.info("SyncSql: purged #{purged} block(s) without miner_signature on startup")
+        if deleted > 0 do
+          Logger.info("SyncSql: purged #{deleted} block(s) without miner_signature on startup")
+        end
+      end)
     end
 
     {:ok, %SyncSql{worker: spawn_link(&worker/0)}}
@@ -277,26 +286,7 @@ defmodule Model.SyncSql do
   end
 
   defp purge_invalid_blocks_from_db_and_queue(queue) do
-    rows =
-      query!("SELECT hash, data FROM blocks", [])
-
-    {deleted, _} =
-      Enum.reduce(rows, {0, queue}, fn [hash: hash, data: data], {count, queue} ->
-        block = BertInt.decode!(data)
-
-        if Chain.Block.miner_signature_valid?(block) do
-          {count, queue}
-        else
-          query!("DELETE FROM blocks WHERE hash = ?1", [hash])
-          queue = Map.delete(queue, hash)
-
-          Logger.warning(
-            "SyncSql: purged invalid block (#{Chain.Block.sync_wire_reject_reason(block)})"
-          )
-
-          {count + 1, queue}
-        end
-      end)
+    deleted = purge_invalid_rows_batched(0, 0, 0)
 
     queue =
       Enum.reduce(queue, %{}, fn {hash, block}, acc ->
@@ -312,6 +302,59 @@ defmodule Model.SyncSql do
       end)
 
     {deleted, queue}
+  end
+
+  defp purge_invalid_rows_batched(after_rowid, scanned, deleted) do
+    rows =
+      query!(
+        """
+        SELECT rowid, hash, data FROM blocks
+        WHERE rowid > ?1
+        ORDER BY rowid
+        LIMIT ?2
+        """,
+        [after_rowid, @purge_batch_size]
+      )
+
+    case rows do
+      [] ->
+        if scanned > 0 do
+          Logger.info("SyncSql: purge finished scanned=#{scanned} deleted=#{deleted}")
+        end
+
+        deleted
+
+      rows ->
+        {batch_deleted, last_rowid} =
+          Enum.reduce(rows, {0, after_rowid}, fn row, {count, _} ->
+            hash = row[:hash]
+            data = row[:data]
+            rowid = row[:rowid]
+            block = BertInt.decode!(data)
+
+            if Chain.Block.miner_signature_valid?(block) do
+              {count, rowid}
+            else
+              query!("DELETE FROM blocks WHERE hash = ?1", [hash])
+
+              Logger.warning(
+                "SyncSql: purged invalid block (#{Chain.Block.sync_wire_reject_reason(block)})"
+              )
+
+              {count + 1, rowid}
+            end
+          end)
+
+        prev = scanned
+        scanned = scanned + length(rows)
+        deleted = deleted + batch_deleted
+
+        if div(prev, 50_000) < div(scanned, 50_000) do
+          Logger.info("SyncSql: purge progress scanned=#{scanned} deleted=#{deleted}")
+        end
+
+        purge_invalid_rows_batched(last_rowid, scanned, deleted)
+    end
   end
 
   defp queue_top(block, queue) do
