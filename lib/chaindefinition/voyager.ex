@@ -7,13 +7,14 @@ defmodule ChainDefinition.Voyager do
       code = Base16.decode(account["code"])
       {balance, ""} = Integer.parse(account["balance"])
 
-      # Field-only update via put_meta (map-backed accounts have no live storage_root).
+      # Field-only update via put_meta (storage_root: nil → put_meta).
       acc =
         state
         |> State.ensure_account(id)
         |> Map.put(:balance, balance)
         |> Map.put(:code, code)
         |> Map.put(:storage_root, nil)
+        |> Map.put(:map_backed, false)
         |> Map.delete(:root_hash)
 
       state = State.set_account(state, id, acc)

@@ -128,10 +128,9 @@ defmodule CMerkleLockCloneRegressionTest do
       assert CAccountMap.storage_get(peak.accounts, addr(1), slot(42)) == nil
     end
 
-    test "put and storage_put_map on frozen map raise; state_trie remains readable" do
+    test "put and storage_put_map on frozen map raise; state_root_hashes stay stable" do
       peak = locked_peak_like_state(1)
-      trie = State.tree(peak)
-      before = CMerkleTree.root_hash(trie)
+      before = State.state_root_hashes(peak)
 
       assert_raise ArgumentError, fn ->
         State.storage_put_map(peak, %{addr(1) => %{slot(9) => val(9)}})
@@ -141,10 +140,8 @@ defmodule CMerkleLockCloneRegressionTest do
         CAccountMap.put(peak.accounts, addr(9), 0, 0, CMerkleTree.new(), <<>>)
       end
 
-      # Lock is frozen-only on the account map; State.tree still returns a live
-      # resource for reads. Root hash of the state trie must stay unchanged.
-      assert CMerkleTree.root_hash(trie) == before
-      assert CMerkleTree.root_hash(State.tree(peak)) == before
+      assert State.state_root_hashes(peak) == before
+      assert length(before) == 16
     end
 
     test "apply_difference on locked map raises; clone then apply succeeds" do

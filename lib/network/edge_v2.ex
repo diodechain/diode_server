@@ -61,8 +61,7 @@ defmodule Network.EdgeV2 do
 
       ["getstateroots", index] ->
         BlockProcess.with_block(to_num(index), fn block ->
-          Chain.Block.state_tree(block)
-          |> CMerkleTree.root_hashes()
+          Chain.Block.state_root_hashes(block)
         end)
         |> response()
 

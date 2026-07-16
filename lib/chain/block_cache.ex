@@ -266,7 +266,7 @@ defmodule Chain.BlockCache do
   defdelegate size(block), to: Block
   defdelegate state(block), to: Block
   defdelegate state_hash(block), to: Block
-  defdelegate state_tree(block), to: Block
+  defdelegate state_root_hashes(block), to: Block
   defdelegate strip_state(block), to: Block
   defdelegate timestamp(block), to: Block
   defdelegate transaction(block, hash), to: Block

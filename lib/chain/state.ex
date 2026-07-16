@@ -3,7 +3,6 @@
 # Licensed under the Diode License, Version 1.1
 defmodule Chain.State do
   require Logger
-  alias Chain.Account
 
   @dialyzer [
     {:nowarn_function, new: 0},
@@ -21,30 +20,7 @@ defmodule Chain.State do
   end
 
   def compact(%Chain.State{accounts: accounts} = state) do
-    # Map-backed gets return root hashes only — build compact maps via storage_* APIs.
-    compact_accounts =
-      accounts
-      |> CAccountMap.to_list()
-      |> Map.new(fn {id, {nonce, balance, root_hash, code}} ->
-        items = Map.new(CAccountMap.storage_to_list(accounts, id))
-
-        acc =
-          %Account{
-            nonce: nonce,
-            balance: balance,
-            storage_root: if(map_size(items) == 0, do: nil, else: {MapMerkleTree, [], items}),
-            code: if(code == "", do: nil, else: code)
-          }
-          |> Map.put(:root_hash, root_hash)
-          |> Map.put(
-            :code_hash,
-            Account.codehash(%Account{code: if(code == "", do: nil, else: code)})
-          )
-
-        {id, acc}
-      end)
-
-    %Chain.State{state | accounts: compact_accounts}
+    %{state | accounts: CAccountMap.compact(accounts)}
   end
 
   def uncompact(%Chain.State{accounts: accounts} = state) do
@@ -56,8 +32,8 @@ defmodule Chain.State do
     %{state | hash: CAccountMap.root_hash(accounts)}
   end
 
-  def tree(%Chain.State{accounts: accounts}) do
-    CAccountMap.state_trie(accounts)
+  def state_root_hashes(%Chain.State{accounts: accounts}) do
+    CAccountMap.state_root_hashes(accounts)
   end
 
   def get_proofs(%Chain.State{accounts: accounts}, <<_::160>> = addr) do

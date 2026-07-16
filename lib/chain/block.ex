@@ -88,8 +88,8 @@ defmodule Chain.Block do
     Chain.State.storage_get_proofs(state(block), account_id, key)
   end
 
-  def state_tree(%Block{} = block) do
-    state(block) |> Chain.State.tree()
+  def state_root_hashes(%Block{} = block) do
+    Chain.State.state_root_hashes(state(block))
   end
 
   def account_proof(%Block{} = block, account_id) do

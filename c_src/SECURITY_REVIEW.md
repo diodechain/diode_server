@@ -36,7 +36,7 @@
 | `account_map_put_meta` | 5 | resource, address, nonce, balance, code | Metadata-only put; keeps existing storage |
 | `account_map_delete` | 2 | resource, address | Rejects frozen |
 | `account_map_root_hash` | 1 | resource | `CAccountMap.root_hash/1`, `Chain.State.hash/1` |
-| `account_map_state_trie` | 1 | resource | `CAccountMap.state_trie/1`, `Chain.State.tree/1` (Edge state roots) |
+| `account_map_state_root_hashes` | 1 | resource | `CAccountMap.state_root_hashes/1`, `Chain.State.state_root_hashes/1` (Edge `getstateroots`; no live trie export) |
 | `account_map_get_proofs` | 2 | map, address | Account inclusion proof on internal state_trie |
 | `account_map_storage_put_map` | 2 | map, update list | EVM `su` hot path — one NIF for multi-account slots |
 | `account_map_storage_get` | 3 | map, addr, key | `State.storage_value/3`, RPC |
@@ -50,6 +50,7 @@
 | `account_map_to_list` | 1 | resource | `CAccountMap.to_list/1` |
 | `account_map_difference_full` | 2 | two maps | `Chain.State.difference/2` |
 | `account_map_apply_difference` | 2 | map, delta list | `Chain.State.apply_difference/2` |
+| `account_map_compact` | 1 | account map resource | Dirty CPU; returns `%{addr => %Account{...}}` compact map (read-only; OK frozen) |
 | `account_map_uncompact_state` | 1 | compact or resource | Returns `{am, hash}` |
 
 **Frozen map:** `account_map_lock/1` sets map-level `frozen` only. Map mutations (`put`/`put_meta`/`delete`/`apply_difference`/`storage_put_map`) fail while frozen. `account_map_get` / `to_list` export storage root hashes (never live tries), so Elixir cannot mutate map-owned storage via bare `CMerkleTree.insert`. `clone/1` forks writable unlocked wrappers for sync and speculative RPC/Edge/Shell.
@@ -90,7 +91,7 @@
 
 | ID | Topic | Severity | CWE | Notes |
 |----|--------|----------|-----|--------|
-| F-9 | **Unbounded work per NIF** | Medium | CWE-400 | Long-running exports use dirty schedulers: **CPU-bound** — `get_proofs_raw`, `difference_raw`, `to_list`, `import_map`, `count_zeros`, `memory_stats_raw`, `clone`, `account_map_clone`, `account_map_lock`, `account_map_to_list`, `account_map_difference_full`, `account_map_apply_difference`, `account_map_storage_put_map`, `account_map_storage_to_list`, `account_map_storage_get_proofs`, `account_map_get_proofs`, `account_map_uncompact_state`; **IO-bound** — `malloc_info_raw`. `account_map_put`/`put_meta`/`delete`/`storage_get*` stay on normal schedulers where short. Large dirty-NIF loops call `enif_consume_timeslice` every 512 iterations. Ensure adequate dirty CPU schedulers at runtime (`+SDcpu` on heavy sync nodes). |
+| F-9 | **Unbounded work per NIF** | Medium | CWE-400 | Long-running exports use dirty schedulers: **CPU-bound** — `get_proofs_raw`, `difference_raw`, `to_list`, `import_map`, `count_zeros`, `memory_stats_raw`, `clone`, `account_map_clone`, `account_map_lock`, `account_map_to_list`, `account_map_difference_full`, `account_map_apply_difference`, `account_map_storage_put_map`, `account_map_storage_to_list`, `account_map_storage_get_proofs`, `account_map_get_proofs`, `account_map_compact`, `account_map_uncompact_state`; **IO-bound** — `malloc_info_raw`. `account_map_put`/`put_meta`/`delete`/`storage_get*` stay on normal schedulers where short. Large dirty-NIF loops call `enif_consume_timeslice` every 512 iterations. Ensure adequate dirty CPU schedulers at runtime (`+SDcpu` on heavy sync nodes). |
 
 ### Memory safety (manual review)
 

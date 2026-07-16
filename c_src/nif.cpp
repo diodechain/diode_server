@@ -1687,16 +1687,16 @@ static void remove_state_trie_entry(SharedAccountMap *shared, const uint160_t &a
 }
 
 static ERL_NIF_TERM
-account_map_state_trie(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+account_map_state_root_hashes(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
     accountmap *am;
     if (argc != 1) return enif_make_badarg(env);
     if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
 
     AccountMapLock lock(am);
-    ERL_NIF_TERM term = enif_make_resource(env, am->shared->state_trie);
-    enif_keep_resource(am->shared->state_trie);
-    return term;
+    Lock tree_lock(am->shared->state_trie);
+    auto root_hashes = am->shared->state_trie->shared_state->tree.root_hashes();
+    return make_binary(env, (uint8_t*)root_hashes, 32*16);
 }
 
 static ERL_NIF_TERM
@@ -2890,6 +2890,150 @@ static bool append_uncompacted_account(ErlNifEnv *env, accountmap *am, AccountHa
     return true;
 }
 
+// Build storage items map for compact export without materializing compact_storage
+// into a live trie when possible.
+static bool build_compact_storage_items(ErlNifEnv *env, const AccountEntry &entry,
+        ERL_NIF_TERM &out_map, size_t &out_size, size_t progress_base)
+{
+    out_size = 0;
+    out_map = enif_make_new_map(env);
+
+    if (entry.storage != nullptr) {
+        Lock lock(entry.storage);
+        size_t i = 0;
+        bool ok = true;
+        entry.storage->shared_state->tree.each([&](pair_t &pair) {
+            if (!ok) {
+                return;
+            }
+            i++;
+            ERL_NIF_TERM key_term = make_binary(env, pair.key.data(), pair.key.size());
+            ERL_NIF_TERM value_term = make_binary(env, pair.value.data(), 32);
+            ERL_NIF_TERM new_map;
+            if (!enif_make_map_put(env, out_map, key_term, value_term, &new_map)) {
+                ok = false;
+                return;
+            }
+            out_map = new_map;
+            nif_loop_progress(env, progress_base + i);
+        });
+        out_size = i;
+        return ok;
+    }
+
+    if (entry.compact_storage && !entry.compact_storage->slots.empty()) {
+        size_t i = 0;
+        for (auto &slot : entry.compact_storage->slots) {
+            i++;
+            ERL_NIF_TERM key_term = make_binary(env, (uint8_t *)slot.key.data(), slot.key.size());
+            ERL_NIF_TERM value_term = make_binary(env, slot.value.data(), 32);
+            ERL_NIF_TERM new_map;
+            if (!enif_make_map_put(env, out_map, key_term, value_term, &new_map)) {
+                return false;
+            }
+            out_map = new_map;
+            nif_loop_progress(env, progress_base + i);
+        }
+        out_size = i;
+        return true;
+    }
+
+    return true;
+}
+
+static bool make_compact_account_term(ErlNifEnv *env, AccountEntry &entry,
+        size_t progress_base, ERL_NIF_TERM &out)
+{
+    uint256_t storage_root;
+    if (!storage_root_hash_for_entry(env, entry, storage_root, progress_base)) {
+        return false;
+    }
+
+    ERL_NIF_TERM items_map;
+    size_t item_count = 0;
+    if (!build_compact_storage_items(env, entry, items_map, item_count, progress_base)) {
+        return false;
+    }
+
+    ERL_NIF_TERM storage_root_term;
+    if (item_count == 0) {
+        storage_root_term = make_atom(env, "nil");
+    } else {
+        // Match Elixir `{MapMerkleTree, [], items}` (module atom Elixir.MapMerkleTree).
+        storage_root_term = enif_make_tuple3(env,
+                make_atom(env, "Elixir.MapMerkleTree"),
+                enif_make_list(env, 0),
+                items_map);
+    }
+
+    ERL_NIF_TERM code_term =
+        entry.code.empty() ? make_atom(env, "nil")
+                           : make_binary(env, (uint8_t *)entry.code.data(), entry.code.size());
+
+    uint256_t code_hash;
+    if (entry.code.empty()) {
+        code_hash = empty_code_hash;
+    } else {
+        sha(entry.code.data(), entry.code.size(), code_hash.data());
+    }
+
+    // Shape matches Chain.State.compact/1 / Account.compact/1 and parse_compact_account:
+    // %Chain.Account{nonce, balance, storage_root, code, map_backed: false}
+    // plus :root_hash and :code_hash.
+    ERL_NIF_TERM keys[8];
+    ERL_NIF_TERM values[8];
+    keys[0] = make_atom(env, "__struct__");
+    values[0] = make_atom(env, "Elixir.Chain.Account");
+    keys[1] = make_atom(env, "nonce");
+    values[1] = enif_make_uint64(env, entry.nonce);
+    keys[2] = make_atom(env, "balance");
+    values[2] = balance_to_term(env, entry.balance);
+    keys[3] = make_atom(env, "storage_root");
+    values[3] = storage_root_term;
+    keys[4] = make_atom(env, "code");
+    values[4] = code_term;
+    keys[5] = make_atom(env, "map_backed");
+    values[5] = make_atom(env, "false");
+    keys[6] = make_atom(env, "root_hash");
+    values[6] = make_binary(env, storage_root.data(), 32);
+    keys[7] = make_atom(env, "code_hash");
+    values[7] = make_binary(env, code_hash.data(), 32);
+
+    return enif_make_map_from_arrays(env, keys, values, 8, &out);
+}
+
+static ERL_NIF_TERM
+account_map_compact(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    accountmap *am;
+    if (argc != 1) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) {
+        return enif_make_badarg(env);
+    }
+
+    // Read-only: OK on frozen maps; do not require writable.
+    AccountMapLock lock(am);
+
+    ERL_NIF_TERM result = enif_make_new_map(env);
+
+    size_t i = 0;
+    for (auto &kv : am->shared->accounts) {
+        i++;
+        ERL_NIF_TERM addr = make_binary(env, (uint8_t *)kv.first.value, 20);
+        ERL_NIF_TERM account;
+        if (!make_compact_account_term(env, kv.second, i * kNifTimesliceInterval, account)) {
+            return enif_make_badarg(env);
+        }
+        ERL_NIF_TERM new_map;
+        if (!enif_make_map_put(env, result, addr, account, &new_map)) {
+            return enif_make_badarg(env);
+        }
+        result = new_map;
+        nif_loop_progress(env, i);
+    }
+    return result;
+}
+
 static ERL_NIF_TERM
 account_map_uncompact_state(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
@@ -3058,11 +3202,12 @@ static ErlNifFunc nif_funcs[] = {
     {"account_map_put_meta", 5, account_map_put_meta, 0},
     {"account_map_delete", 2, account_map_delete, 0},
     {"account_map_root_hash", 1, account_map_root_hash, 0},
-    {"account_map_state_trie", 1, account_map_state_trie, 0},
+    {"account_map_state_root_hashes", 1, account_map_state_root_hashes, 0},
     {"account_map_size", 1, account_map_size, 0},
     {"account_map_to_list", 1, account_map_to_list, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"account_map_difference_full", 2, account_map_difference_full, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"account_map_apply_difference", 2, account_map_apply_difference, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"account_map_compact", 1, account_map_compact, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"account_map_uncompact_state", 1, account_map_uncompact_state, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"account_map_storage_put_map", 2, account_map_storage_put_map, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"account_map_storage_get", 3, account_map_storage_get, 0},

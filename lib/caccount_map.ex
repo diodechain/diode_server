@@ -16,7 +16,8 @@ defmodule CAccountMap do
 
   def root_hash(map), do: CMerkleTree.account_map_root_hash(map)
 
-  def state_trie(map), do: CMerkleTree.account_map_state_trie(map)
+  def state_root_hashes(map),
+    do: decode_root_hashes(CMerkleTree.account_map_state_root_hashes(map))
 
   def get_proofs(map, <<_::160>> = addr), do: CMerkleTree.account_map_get_proofs(map, addr)
 
@@ -109,13 +110,7 @@ defmodule CAccountMap do
     do: CMerkleTree.account_map_storage_root_hash(map, addr)
 
   def storage_root_hashes(map, <<_::160>> = addr) do
-    <<a::binary-size(32), b::binary-size(32), c::binary-size(32), d::binary-size(32),
-      e::binary-size(32), f::binary-size(32), g::binary-size(32), h::binary-size(32),
-      i::binary-size(32), j::binary-size(32), k::binary-size(32), l::binary-size(32),
-      m::binary-size(32), n::binary-size(32), o::binary-size(32), p::binary-size(32)>> =
-      CMerkleTree.account_map_storage_root_hashes(map, addr)
-
-    [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p]
+    decode_root_hashes(CMerkleTree.account_map_storage_root_hashes(map, addr))
   end
 
   def storage_get_proofs(map, <<_::160>> = addr, key),
@@ -135,6 +130,8 @@ defmodule CAccountMap do
 
   defp decode_storage_value(nil), do: nil
   defp decode_storage_value(val) when is_binary(val), do: val
+
+  def compact(map), do: CMerkleTree.account_map_compact(map)
 
   def uncompact_state(accounts), do: CMerkleTree.account_map_uncompact_state(accounts)
 
@@ -173,4 +170,13 @@ defmodule CAccountMap do
 
   defp to_bytes(string) when is_binary(string), do: string
   defp to_bytes(int) when is_integer(int), do: to_bytes32(int)
+
+  defp decode_root_hashes(
+         <<a::binary-size(32), b::binary-size(32), c::binary-size(32), d::binary-size(32),
+           e::binary-size(32), f::binary-size(32), g::binary-size(32), h::binary-size(32),
+           i::binary-size(32), j::binary-size(32), k::binary-size(32), l::binary-size(32),
+           m::binary-size(32), n::binary-size(32), o::binary-size(32), p::binary-size(32)>>
+       ) do
+    [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p]
+  end
 end

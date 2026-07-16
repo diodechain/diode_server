@@ -31,6 +31,7 @@ See also [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) (F-5 fix) and [`scripts/cmer
 | `account_map_storage_put_map` | `AccountMapLock` → reject if frozen → per-addr `write_storage_slot` → `update_state_trie_for_entry` | Dirty CPU; EVM `su` hot path |
 | `switch_local_to_canonical` | tree mutexes (address order) | Abandoned `SharedState` queued on `pending_orphans`; reclaimed via `try_reclaim_orphans` after `enter_lock` / `leave_lock` when mutex trylock succeeds and `has_clone == 0` |
 | `account_map_uncompact_state` | `AccountMapLock(input)` → `materialize_storage` (brief tree lock) → `batch_insert` (state_store lock) | Dirty scheduler |
+| `account_map_compact` | `AccountMapLock` (read-only; OK frozen) → per-account storage list via live tree lock or compact_storage slots (no materialize) | Dirty CPU; single boundary crossing for `Chain.State.compact/1` |
 | `account_map_put/delete` / `put_meta` | `AccountMapLock` only; reject if `frozen` | May `release_resource` → async GC `leave_lock` |
 | `account_map_difference_full` | Dual map lock (`DualAccountMapLock`, address order) → snapshot sides → release → per-account storage diffs | Dirty CPU; never hold map lock across storage diff build |
 | `account_map_apply_difference` | `AccountMapLock` → reject if `frozen` → storage/field writes (`write_storage_slot` → `make_writeable_locked`) | Dirty CPU |
