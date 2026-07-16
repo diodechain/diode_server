@@ -3,8 +3,12 @@
 Agent-facing notes for the merkle account-map NIF (`priv/merkletree_nif.so`,
 built from `c_src/` via `mix compile` / top-level `Makefile`).
 
-See also [`c_src/LOCK_ORDER.md`](../c_src/LOCK_ORDER.md) and
-[`c_src/SECURITY_REVIEW.md`](../c_src/SECURITY_REVIEW.md).
+See also [`c_src/LOCK_ORDER.md`](../c_src/LOCK_ORDER.md),
+[`c_src/SECURITY_REVIEW.md`](../c_src/SECURITY_REVIEW.md), and the
+implementation spec for difference/clone performance work:
+[`docs/specs/change-state-diff-perf.md`](specs/change-state-diff-perf.md)
+(cached compact storage roots, CompactStorage COW, state_trie-driven
+`difference_full`).
 
 ## Ownership model
 
