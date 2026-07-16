@@ -77,8 +77,6 @@ defmodule Diode do
     RemoteChain.RPCCache.set_optimistic_caching(false)
 
     base_children = [
-      # Watch RSS before heavy Model.Sql / chain init so runaway growth halts early.
-      worker(MemoryGuard, []),
       worker(Stats, []),
       worker(Cron, []),
       worker(Chain.BlockQuickPool, []),
@@ -174,10 +172,6 @@ defmodule Diode do
         {t, {:ok, pid}} ->
           puts("=======> #{module} loaded after #{Float.round(t / 1_000_000, 3)}s")
           {:ok, pid}
-
-        {t, :ignore} ->
-          puts("=======> #{module} ignored after #{Float.round(t / 1_000_000, 3)}s")
-          :ignore
 
         {_t, other} ->
           puts("=======> #{module} failed with: #{inspect(other)}")
