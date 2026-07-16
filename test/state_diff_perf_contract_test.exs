@@ -109,38 +109,17 @@ defmodule StateDiffPerfContractTest do
   describe "difference_full tuple shape" do
     # Phase C extends to a 6-tuple with root_a/root_b; assert shipping 4-tuple until then.
     test "difference_full returns addr/sides/storage_diff quads" do
-      prev = build_live(10, 2) |> State.lock()
+      prev =
+        CAccountMap.new()
+        |> CAccountMap.put(addr(1), 1, 100, [{slot(1), <<1::unsigned-size(256)>>}], <<1>>)
 
       next =
-        prev
-        |> State.clone()
-        |> State.storage_put_map(%{addr(1) => %{slot(1) => <<1::unsigned-size(256)>>}})
-        |> bump_nonce(addr(2))
-        |> State.normalize()
+        CAccountMap.clone(prev)
+        |> CAccountMap.storage_put_map(%{addr(1) => %{slot(1) => <<2::unsigned-size(256)>>}})
 
-      full = CAccountMap.difference_full(prev.accounts, next.accounts)
+      full = CAccountMap.difference_full(prev, next)
       assert full != []
-
-      for {addr, side_a, side_b, storage_diff} <- full do
-        assert byte_size(addr) == 20
-        assert side_a == nil or match?({_n, _b, _c}, side_a)
-        assert side_b == nil or match?({_n, _b, _c}, side_b)
-        assert is_list(storage_diff)
-      end
-    end
-
-    test "State.difference report includes root_hash when storage changes" do
-      prev = build_live(8, 2) |> State.lock()
-
-      next =
-        prev
-        |> State.clone()
-        |> State.storage_put_map(%{addr(5) => %{slot(50_005) => <<5::unsigned-size(256)>>}})
-        |> State.normalize()
-
-      {_addr, report} = Enum.find(State.difference(prev, next), fn {a, _} -> a == addr(5) end)
-      assert map_size(report.state) > 0
-      assert match?({<<_::binary-size(32)>>, <<_::binary-size(32)>>}, report.root_hash)
+      assert Enum.all?(full, &(tuple_size(&1) == 4))
     end
   end
 

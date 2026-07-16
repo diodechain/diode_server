@@ -325,7 +325,8 @@ Covered by `test/state_diff_perf_contract_test.exs` (must stay green through Pha
 | `difference_full tuple shape` | Shipping 4-tuple today; Phase C upgrades to 6-tuple (update this test with Phase C) |
 | `compact_small_delta prepare_state shape` | Few changed accounts on compact peak round-trip via difference/apply |
 
-Production NIF surface: `test/cmerkle_nif_surface_test.exs`, `test/count_zeros_test.exs`.
+Production NIF surface: `test/count_zeros_test.exs`, `test/caccount_map_test.exs`,
+`test/cmerkle_nif_leak_test.exs` (nif_stats).
 
 ### Integration
 
@@ -358,7 +359,7 @@ as the NIF.
 
 ## Implementation Checklist
 
-- [x] Contract tests: `test/state_diff_perf_contract_test.exs`, `test/cmerkle_nif_surface_test.exs`
+- [x] Contract tests: `test/state_diff_perf_contract_test.exs`
 - [ ] Phase A: `CompactStorage` root cache + invalidation + uncompact seed
 - [ ] Phase A bench gate (`nif_ms` &lt; 50)
 - [ ] Phase B: `SharedState*` equality in `entries_equal`

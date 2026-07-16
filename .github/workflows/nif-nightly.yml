@@ -76,4 +76,4 @@ jobs:
           mix run --no-start scripts/cmerkle_deadlock_watchdog.exs -- \
             --progress-timeout 300 --wall-timeout 1200 \
             mix run --no-start scripts/cmerkle_parallel_stress.exs -- \
-              --waves 2 --tasks 24 --scenario P4 --scenario P5 --scenario P10 --scenario P12
+              --waves 2 --tasks 24 --scenario P12 --scenario P13 --scenario P14 --scenario P16
