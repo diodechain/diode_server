@@ -4,7 +4,7 @@
 #   mix run --no-start scripts/cmerkle_leak_watchdog.exs -- \
 #     mix run --no-start scripts/cmerkle_leak_test.exs -- --rounds 50
 #
-# Options (before `--`):
+# Options (before the child command; stop at first non-option like deadlock watchdog):
 #   --progress-timeout SEC   no LEAK_OK for this long (default: 120)
 #   --wall-timeout SEC       max total runtime (default: 0 = unlimited)
 #   --poll-interval SEC      poll interval (default: 5)
@@ -76,6 +76,12 @@ defmodule CMerkleLeakWatchdog do
         check_timeouts(port, ctx)
 
       {^port, {:exit_status, status}} ->
+        if status == 0 do
+          IO.puts(:stderr, "LEAK_WATCHDOG_OK exit=#{status}")
+        else
+          IO.puts(:stderr, "LEAK_WATCHDOG_FAIL exit=#{status}")
+        end
+
         System.halt(status)
     after
       ctx.poll_ms ->
@@ -104,35 +110,33 @@ defmodule CMerkleLeakWatchdog do
   defp format_wall(0), do: "unlimited"
   defp format_wall(ms), do: "#{div(ms, 1000)}s"
 
-  defp normalize_argv(argv) do
-    case argv do
-      ["--" | rest] -> rest
-      other -> other
-    end
+  defp normalize_argv(["--" | rest]), do: rest
+  defp normalize_argv(other), do: other
+
+  # Manual parse (not OptionParser): child commands may contain --no-start etc.
+  defp parse_watchdog_argv(argv), do: parse_watchdog_argv(argv, [])
+
+  defp parse_watchdog_argv([], opts), do: {Enum.reverse(opts), []}
+
+  defp parse_watchdog_argv(["--progress-timeout", val | rest], opts) do
+    parse_watchdog_argv(rest, [{:progress_timeout, String.to_integer(val)} | opts])
   end
 
-  defp parse_watchdog_argv(argv) do
-    {opts, rest} =
-      OptionParser.parse!(argv,
-        strict: [
-          progress_timeout: :integer,
-          wall_timeout: :integer,
-          poll_interval: :integer
-        ]
-      )
-
-    case Enum.split_while(rest, &(&1 != "--")) do
-      {pre, ["--" | cmd]} -> {opts, cmd}
-      {pre, []} -> {opts, pre}
-      {pre, cmd} -> {opts, pre ++ cmd}
-    end
+  defp parse_watchdog_argv(["--wall-timeout", val | rest], opts) do
+    parse_watchdog_argv(rest, [{:wall_timeout, String.to_integer(val)} | opts])
   end
 
-  defp resolve_command([cmd | args]) do
-    case :os.type() do
-      {:unix, :darwin} -> {String.to_charlist(cmd), Enum.map(args, &String.to_charlist/1)}
-      _ -> {cmd, args}
-    end
+  defp parse_watchdog_argv(["--poll-interval", val | rest], opts) do
+    parse_watchdog_argv(rest, [{:poll_interval, String.to_integer(val)} | opts])
+  end
+
+  defp parse_watchdog_argv(["--" | rest], opts), do: {Enum.reverse(opts), rest}
+
+  defp parse_watchdog_argv(rest, opts), do: {Enum.reverse(opts), rest}
+
+  defp resolve_command([bin | args]) do
+    exe = System.find_executable(bin) || bin
+    {exe, args}
   end
 end
 
