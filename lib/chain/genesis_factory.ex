@@ -21,9 +21,15 @@ defmodule Chain.GenesisFactory do
   end
 
   def genesis_state(accounts) do
-    Enum.reduce(accounts, Chain.State.new(), fn {address, user_account}, state ->
-      Chain.State.set_account(state, address, user_account)
-    end)
+    state =
+      Enum.reduce(accounts, Chain.State.new(), fn {address, user_account}, state ->
+        Chain.State.set_account(state, address, user_account)
+      end)
+
+    case ChainDefinition.genesis_storage() do
+      storage when map_size(storage) == 0 -> state
+      storage -> Chain.State.storage_put_map(state, storage)
+    end
   end
 
   @spec genesis_accounts() :: [{binary(), Account.t()}]

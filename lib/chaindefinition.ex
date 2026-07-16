@@ -70,6 +70,17 @@ defmodule ChainDefinition do
     chain_definition().genesis_accounts()
   end
 
+  @spec genesis_storage() :: %{binary() => %{binary() => binary()}}
+  def genesis_storage() do
+    mod = chain_definition()
+
+    if function_exported?(mod, :genesis_storage, 0) do
+      mod.genesis_storage()
+    else
+      %{}
+    end
+  end
+
   @spec genesis_transactions(Wallet.t()) :: [Chain.Transaction.t()]
   def genesis_transactions(miner) do
     chain_definition().genesis_transactions(miner)

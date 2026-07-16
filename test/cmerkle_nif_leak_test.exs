@@ -41,7 +41,7 @@ defmodule CMerkleNifLeakTest do
       end
 
       force_gc()
-      {_locked, orphans, _shared, _res, _lazy, _eager} = CMerkleTree.nif_stats()
+      {_locked, orphans, _shared, _res} = CMerkleTree.nif_stats()
       assert orphans <= 2
       assert rss_kb() - baseline < 50_000
     end
@@ -66,7 +66,7 @@ defmodule CMerkleNifLeakTest do
       end
 
       force_gc()
-      {_locked, orphans, _shared, _res, _lazy, _eager} = CMerkleTree.nif_stats()
+      {_locked, orphans, _shared, _res} = CMerkleTree.nif_stats()
       assert orphans == 0
       assert rss_kb() - baseline < 80_000
     end
@@ -85,7 +85,7 @@ defmodule CMerkleNifLeakTest do
       end
 
       force_gc()
-      {locked, orphans, shared_count, _res, _lazy, _eager} = CMerkleTree.nif_stats()
+      {locked, orphans, shared_count, _res} = CMerkleTree.nif_stats()
       assert orphans == 0
       assert locked <= 80
       assert shared_count < 2000
@@ -119,7 +119,7 @@ defmodule CMerkleNifLeakTest do
       end
 
       force_gc()
-      {_locked, orphans, _shared, _res, _lazy, _eager} = CMerkleTree.nif_stats()
+      {_locked, orphans, _shared, _res} = CMerkleTree.nif_stats()
       assert orphans == 0
       assert rss_kb() - baseline < 100_000
     end
@@ -141,14 +141,14 @@ defmodule CMerkleNifLeakTest do
           end)
         end)
 
-      {_locked0, _orphans0, shared0, _res0, _, _} = CMerkleTree.nif_stats()
+      {_locked0, _orphans0, shared0, _res0} = CMerkleTree.nif_stats()
 
       for _ <- 1..100 do
         _ = CAccountMap.difference_full(base, fork)
       end
 
       force_gc()
-      {_locked, orphans, shared, _res, _, _} = CMerkleTree.nif_stats()
+      {_locked, orphans, shared, _res} = CMerkleTree.nif_stats()
       assert orphans == 0
       assert shared - shared0 < 500
     end

@@ -6,7 +6,7 @@
 # (matches persisted block delta replay in Model.ChainSql.do_state/1).
 #
 # Heavy cases mirror production: Evm.process_updates uses 32-byte key/value maps and
-# CMerkleTree.insert_items/2; State.clone/1 + Account.clone/1 share trie pools (COW);
+# CMerkleTree.insert_items/2; State.clone/1 shares trie pools (COW);
 # sequential <<n::256>> slots maximize shared key prefixes (trie depth).
 defmodule ChainStateMerkleTest do
   # NIF uses process-global allocators / stripe pools; run sequentially to avoid cross-test races.
@@ -54,9 +54,12 @@ defmodule ChainStateMerkleTest do
   end
 
   defp account_with_storage(%Account{} = acc, pairs) do
-    Enum.reduce(pairs, acc, fn {k, v}, a ->
-      Account.storage_set_value(a, k, v)
-    end)
+    tree =
+      Enum.reduce(pairs, CMerkleTree.new(), fn {k, v}, t ->
+        CMerkleTree.insert(t, k, v)
+      end)
+
+    Account.put_tree(acc, tree)
   end
 
   defp put_account(%State{} = st, i, acc), do: State.set_account(st, addr(i), acc)
@@ -324,9 +327,11 @@ defmodule ChainStateMerkleTest do
         State.new()
         |> put_account(
           1,
-          Enum.reduce(0..500, account_u256_slots(0..130), fn i, a ->
-            Account.storage_set_value(a, slot_u256(i), val_u256(i + 99))
-          end)
+          account_with_storage(
+            Enum.map(0..500, fn i ->
+              {slot_u256(i), val_u256(i + 99)}
+            end)
+          )
         )
 
       assert_roundtrip(prev, next)

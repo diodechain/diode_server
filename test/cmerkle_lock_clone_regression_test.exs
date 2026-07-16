@@ -21,11 +21,18 @@ defmodule CMerkleLockCloneRegressionTest do
   defp val(i), do: <<i + 1::unsigned-size(256)>>
 
   defp sample_account(i) do
-    Account.new()
-    |> Account.storage_set_value(slot(i), val(i))
-    |> Map.put(:nonce, i)
-    |> Map.put(:balance, i * 1_000)
-    |> Map.put(:code, <<i>>)
+    tree =
+      CMerkleTree.insert_items(CMerkleTree.new(), [
+        {slot(i), val(i)}
+      ])
+
+    %Account{
+      nonce: i,
+      balance: i * 1_000,
+      storage_root: tree,
+      code: <<i>>,
+      map_backed: false
+    }
   end
 
   defp locked_peak_like_state(n \\ 3) do

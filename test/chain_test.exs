@@ -263,7 +263,18 @@ defmodule ChainTest do
         #   assert {key, value} == {key, Account.storageInteger(account, key)}
         # end
         # result is map-backed (no live trie); compare via State.storage_to_list.
-        assert storage_list(state, addr) == to_list(Account.tree(account))
+        ref_list =
+          case account do
+            %Account{storage_root: tree} when is_reference(tree) ->
+              CMerkleTree.to_list(tree)
+              |> Enum.map(fn {key, value} -> {compress(key), compress(value)} end)
+              |> Enum.sort()
+
+            _ ->
+              []
+          end
+
+        assert storage_list(state, addr) == ref_list
       end
     end
 

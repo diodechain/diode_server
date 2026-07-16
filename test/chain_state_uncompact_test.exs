@@ -23,12 +23,35 @@ defmodule ChainStateUncompactTest do
         {slot(i), val(i)}
       ])
 
-    %Account{nonce: i, balance: i * 1_000, storage_root: tree, code: <<i>>}
+    %Account{
+      nonce: i,
+      balance: i * 1_000,
+      storage_root: tree,
+      code: <<i>>,
+      map_backed: false
+    }
   end
+
+  defp compact_account(%Account{storage_root: root} = acc) when is_reference(root) do
+    items = Map.new(CMerkleTree.to_list(root))
+
+    storage =
+      if map_size(items) == 0 do
+        nil
+      else
+        {MapMerkleTree, [], items}
+      end
+
+    %Account{acc | storage_root: storage, map_backed: false}
+    |> Map.put(:root_hash, CMerkleTree.root_hash(root))
+    |> Map.put(:code_hash, Account.codehash(acc))
+  end
+
+  defp compact_account(%Account{} = acc), do: acc
 
   defp compact_accounts_map(n_accounts) do
     for i <- 1..n_accounts, into: %{} do
-      {addr(i), sample_account(i) |> Account.compact()}
+      {addr(i), sample_account(i) |> compact_account()}
     end
   end
 
@@ -156,7 +179,7 @@ defmodule ChainStateUncompactTest do
               storage_root: nil,
               code: nil
             }
-            |> Account.compact()
+            |> compact_account()
         }
 
       restored = State.uncompact(%State{accounts: compact})
@@ -186,7 +209,7 @@ defmodule ChainStateUncompactTest do
           code: <<5>>
         }
 
-      compact = %{addr(1) => Account.compact(multi_slot)}
+      compact = %{addr(1) => compact_account(multi_slot)}
       {accounts, _hash} = CAccountMap.uncompact_state(compact)
 
       {5, 1_000, root, <<5>>} = CAccountMap.get(accounts, addr(1))
@@ -222,16 +245,16 @@ defmodule ChainStateUncompactTest do
       |> then(fn st -> elem(CAccountMap.uncompact_state(st.accounts), 0) end)
     end
 
-    test "Account.compact stores code_hash matching Account.codehash/1" do
+    test "compact_account stores code_hash matching Account.codehash/1" do
       acc = sample_account(3) |> Map.put(:code, :binary.copy(<<0xEE>>, 256))
-      compact = Account.compact(acc)
+      compact = compact_account(acc)
 
       assert compact.code_hash == Account.codehash(acc)
       assert compact.root_hash == Account.root_hash(acc)
     end
 
     test "put overwrites lazy account without prior get" do
-      compact = %{addr(1) => sample_account(1) |> Account.compact()}
+      compact = %{addr(1) => sample_account(1) |> compact_account()}
       {accounts, _} = CAccountMap.uncompact_state(compact)
 
       new_storage =
@@ -352,36 +375,24 @@ defmodule ChainStateUncompactTest do
       state = compact_state(@account_count)
       assert map_size(state.accounts) == @account_count
 
-      {reduce_us, _accounts} =
-        :timer.tc(fn ->
-          Enum.reduce(state.accounts, CAccountMap.new(), fn {id, acc}, accounts ->
-            CAccountMap.put_account(accounts, id, Account.uncompact(acc))
-          end)
-        end)
-
-      {tree_us, _tree} =
-        :timer.tc(fn ->
-          state.accounts
-          |> Enum.map(fn {id, acc} -> {id, Account.hash(Account.uncompact(acc))} end)
-          |> Map.new()
-          |> CMerkleTree.from_map()
-        end)
+      {nif_us, {accounts, hash}} =
+        :timer.tc(fn -> CAccountMap.uncompact_state(state.accounts) end)
 
       {full_us, restored} = :timer.tc(fn -> State.uncompact(state) end)
 
+      assert CAccountMap.size(accounts) == @account_count
+      assert is_binary(hash)
       assert CAccountMap.size(restored.accounts) == @account_count
       assert is_binary(State.hash(restored))
       assert is_binary(Chain.State.hash(restored))
 
-      reduce_ms = Float.round(reduce_us / 1000, 1)
-      tree_ms = Float.round(tree_us / 1000, 1)
+      nif_ms = Float.round(nif_us / 1000, 1)
       full_ms = Float.round(full_us / 1000, 1)
 
       IO.puts("""
       State.uncompact performance (@account_count=#{@account_count}):
-        reduce+put loop: #{reduce_ms} ms
-        tree(from_map) estimate: #{tree_ms} ms
-        full uncompact: #{full_ms} ms
+        CAccountMap.uncompact_state: #{nif_ms} ms
+        full State.uncompact: #{full_ms} ms
       """)
 
       assert full_us < 150_000,

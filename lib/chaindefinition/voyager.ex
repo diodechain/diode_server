@@ -1,5 +1,5 @@
 defmodule ChainDefinition.Voyager do
-  alias Chain.{State, Account}
+  alias Chain.State
 
   def apply(%State{} = state) do
     Enum.reduce(patch(), state, fn account, state ->
@@ -7,19 +7,17 @@ defmodule ChainDefinition.Voyager do
       code = Base16.decode(account["code"])
       {balance, ""} = Integer.parse(account["balance"])
 
-      # Field-only update via put_meta (storage_root: nil → put_meta).
-      acc =
+      acc0 =
         state
         |> State.ensure_account(id)
         |> Map.put(:balance, balance)
         |> Map.put(:code, code)
-        |> Map.put(:storage_root, nil)
         |> Map.put(:map_backed, false)
         |> Map.delete(:root_hash)
 
-      state = State.set_account(state, id, acc)
-
       if Map.has_key?(account, "state_patch") do
+        state = State.set_account(state, id, %{acc0 | storage_root: nil})
+
         updates =
           Map.new(account["state_patch"], fn [key, value] ->
             {Base16.decode(key), Base16.decode(value)}
@@ -31,18 +29,12 @@ defmodule ChainDefinition.Voyager do
           State.storage_put_map(state, %{id => updates})
         end
       else
-        # Full storage replace via a caller-owned standalone trie.
-        tree =
-          Enum.reduce(account["state"] || [], CMerkleTree.new(), fn [key, value], tree ->
-            CMerkleTree.insert(tree, Base16.decode(key), Base16.decode(value))
+        slots =
+          Enum.map(account["state"] || [], fn [key, value] ->
+            {Base16.decode(key), Base16.decode(value)}
           end)
 
-        State.set_account(state, id, %Account{
-          nonce: acc.nonce,
-          balance: balance,
-          storage_root: tree,
-          code: code
-        })
+        State.set_account(state, id, %{acc0 | storage_root: slots})
       end
     end)
   end

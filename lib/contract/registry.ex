@@ -7,52 +7,34 @@ defmodule Contract.Registry do
     as needed by the inner workings of the chain
   """
 
-  def miner_value_slot(key, blockRef) do
-    BlockProcess.with_account(blockRef, Diode.registry_address(), fn account ->
+  def miner_value_slot(key, blockRef), do: value_slot(5, key, blockRef)
+
+  def contract_value_slot(key, blockRef), do: value_slot(6, key, blockRef)
+
+  defp value_slot(base, key, blockRef) do
+    registry = Diode.registry_address()
+
+    BlockProcess.with_state(blockRef, fn state ->
+      slot = hash_slot_binary(base, key)
+
       staked_a =
-        account
-        |> Chain.Account.storage_value(hash_slot_binary(5, key))
+        state
+        |> Chain.State.storage_value(registry, slot)
         |> :binary.decode_unsigned()
 
       staked_b =
-        account
-        |> Chain.Account.storage_value(hash_slot_binary(5, key) |> badd(2))
+        state
+        |> Chain.State.storage_value(registry, slot |> badd(2))
         |> :binary.decode_unsigned()
 
       unstaked_a =
-        account
-        |> Chain.Account.storage_value(hash_slot_binary(5, key) |> badd(3))
+        state
+        |> Chain.State.storage_value(registry, slot |> badd(3))
         |> :binary.decode_unsigned()
 
       unstaked_b =
-        account
-        |> Chain.Account.storage_value(hash_slot_binary(5, key) |> badd(5))
-        |> :binary.decode_unsigned()
-
-      {staked_a + staked_b, unstaked_a + unstaked_b}
-    end)
-  end
-
-  def contract_value_slot(key, blockRef) do
-    BlockProcess.with_account(blockRef, Diode.registry_address(), fn account ->
-      staked_a =
-        account
-        |> Chain.Account.storage_value(hash_slot_binary(6, key))
-        |> :binary.decode_unsigned()
-
-      staked_b =
-        account
-        |> Chain.Account.storage_value(hash_slot_binary(6, key) |> badd(2))
-        |> :binary.decode_unsigned()
-
-      unstaked_a =
-        account
-        |> Chain.Account.storage_value(hash_slot_binary(6, key) |> badd(3))
-        |> :binary.decode_unsigned()
-
-      unstaked_b =
-        account
-        |> Chain.Account.storage_value(hash_slot_binary(6, key) |> badd(5))
+        state
+        |> Chain.State.storage_value(registry, slot |> badd(5))
         |> :binary.decode_unsigned()
 
       {staked_a + staked_b, unstaked_a + unstaked_b}

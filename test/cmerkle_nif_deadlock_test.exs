@@ -374,13 +374,32 @@ defmodule CMerkleNifDeadlockTest do
     )
   end
 
+  defp compact_live(%Account{storage_root: tree} = acc) when is_reference(tree) do
+    items = Map.new(CMerkleTree.to_list(tree))
+
+    %Account{
+      acc
+      | storage_root: if(map_size(items) == 0, do: nil, else: {MapMerkleTree, [], items}),
+        map_backed: false
+    }
+    |> Map.put(:root_hash, CMerkleTree.root_hash(tree))
+    |> Map.put(:code_hash, Account.codehash(acc))
+  end
+
   defp build_compact_accounts(n) do
     for i <- 1..n, into: %{} do
       tree =
         CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i * 7::unsigned-size(256)>>)
 
-      acc = %Account{nonce: i, balance: i * 1_000, storage_root: tree, code: <<i>>}
-      {addr(i), Account.compact(acc)}
+      acc = %Account{
+        nonce: i,
+        balance: i * 1_000,
+        storage_root: tree,
+        code: <<i>>,
+        map_backed: false
+      }
+
+      {addr(i), compact_live(acc)}
     end
   end
 

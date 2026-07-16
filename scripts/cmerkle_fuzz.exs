@@ -354,13 +354,32 @@ defmodule CMerkleFuzz do
 
   defp slot(i), do: <<i::unsigned-size(256)>>
 
+  defp compact_live(%Account{storage_root: tree} = acc) when is_reference(tree) do
+    items = Map.new(CMerkleTree.to_list(tree))
+
+    %Account{
+      acc
+      | storage_root: if(map_size(items) == 0, do: nil, else: {MapMerkleTree, [], items}),
+        map_backed: false
+    }
+    |> Map.put(:root_hash, CMerkleTree.root_hash(tree))
+    |> Map.put(:code_hash, Account.codehash(acc))
+  end
+
   defp build_compact_accounts(n) do
     for i <- 1..n, into: %{} do
       tree =
         CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i * 3::unsigned-size(256)>>)
 
-      acc = %Account{nonce: i, balance: i * 1_000, storage_root: tree, code: <<i>>}
-      {addr(i), Account.compact(acc)}
+      acc = %Account{
+        nonce: i,
+        balance: i * 1_000,
+        storage_root: tree,
+        code: <<i>>,
+        map_backed: false
+      }
+
+      {addr(i), compact_live(acc)}
     end
   end
 
@@ -1020,7 +1039,7 @@ defmodule CMerkleFuzz do
     baseline = Process.get(:cmerkle_fuzz_baseline_rss, 0)
     rss = read_proc_rss_kb()
     delta = rss - baseline
-    {_locked, orphans, _shared, _res, _lazy, _eager} = CMerkleTree.nif_stats()
+    {_locked, orphans, _shared, _res} = CMerkleTree.nif_stats()
 
     if orphans > 0 or delta > max_delta_kb do
       IO.puts(:stderr, "FUZZ_RSS_FAIL round=#{round} delta_kb=#{delta} orphans=#{orphans}")

@@ -8,7 +8,7 @@ defmodule Network.Status do
   @run_queue_warn 1_000
 
   def summary do
-    {locked, orphans, shared_states, nif_resources, _lazy, _eager} = CMerkleTree.nif_stats()
+    {locked, orphans, shared_states, nif_resources} = CMerkleTree.nif_stats()
     memory = :erlang.memory()
     run_queue = Diode.run_queue_total()
 

@@ -62,9 +62,10 @@ defmodule EvmTest do
 
     {:ok, state, %TransactionReceipt{msg: :ok}} = Transaction.apply(ctx, block, state)
 
-    # Checking value of i at position 0
-    acc = Chain.State.account(state, Transaction.new_contract_address(ctx))
-    value = Chain.Account.storage_value(acc, 0) |> :binary.decode_unsigned()
+    value =
+      Chain.State.storage_value(state, Transaction.new_contract_address(ctx), 0)
+      |> :binary.decode_unsigned()
+
     assert value == 0
 
     # Method call increment
@@ -91,8 +92,10 @@ defmodule EvmTest do
     assert evmout == ""
 
     # Checking value of i at position 0
-    acc = Chain.State.account(state, Transaction.new_contract_address(ctx))
-    value = Chain.Account.storage_value(acc, 0) |> :binary.decode_unsigned()
+    value =
+      Chain.State.storage_value(state, Transaction.new_contract_address(ctx), 0)
+      |> :binary.decode_unsigned()
+
     assert value == 1
   end
 

@@ -86,21 +86,17 @@ defmodule Chain.State do
     CAccountMap.get_account(accounts, id)
   end
 
+  def normalize_address(<<_::160>> = id), do: id
+  def normalize_address(id) when is_integer(id), do: <<id::unsigned-size(160)>>
+  def normalize_address(id), do: Wallet.address!(id)
+
   @spec ensure_account(Chain.State.t(), <<_::160>> | Wallet.t() | non_neg_integer()) ::
           Chain.Account.t()
-  def ensure_account(state = %Chain.State{}, id = <<_::160>>) do
-    case account(state, id) do
+  def ensure_account(state = %Chain.State{}, id) do
+    case account(state, normalize_address(id)) do
       nil -> Chain.Account.new(nonce: 0)
       acc -> acc
     end
-  end
-
-  def ensure_account(state = %Chain.State{}, id) when is_integer(id) do
-    ensure_account(state, <<id::unsigned-size(160)>>)
-  end
-
-  def ensure_account(state = %Chain.State{}, id) do
-    ensure_account(state, Wallet.address!(id))
   end
 
   @spec set_account(Chain.State.t(), binary(), Chain.Account.t()) :: Chain.State.t()
@@ -203,11 +199,22 @@ defmodule Chain.State do
     map = BertInt.decode!(bin)
 
     Enum.reduce(map, new(), fn {id, acc}, state ->
+      data = Map.get(acc, :data)
+
+      storage =
+        cond do
+          data in [nil, [], %{}] -> nil
+          is_map(data) -> Map.to_list(data)
+          is_list(data) -> data
+          true -> raise ArgumentError, "unsupported account data: #{inspect(data)}"
+        end
+
       set_account(state, id, %Chain.Account{
         nonce: acc.nonce,
         balance: acc.balance,
-        storage_root: CMerkleTree.new() |> CMerkleTree.insert_items(acc.data),
-        code: acc.code
+        storage_root: storage,
+        code: acc.code,
+        map_backed: false
       })
     end)
   end

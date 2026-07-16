@@ -16,10 +16,12 @@ defmodule CAccountMap do
 
   def root_hash(map), do: CMerkleTree.account_map_root_hash(map)
 
-  def state_root_hashes(map),
-    do: decode_root_hashes(CMerkleTree.account_map_state_root_hashes(map))
+  def state_root_hashes(map) do
+    {_root, hashes} = split_roots(CMerkleTree.account_map_state_roots(map))
+    hashes
+  end
 
-  def get_proofs(map, <<_::160>> = addr), do: CMerkleTree.account_map_get_proofs(map, addr)
+  def get_proofs(map, <<_::160>> = addr), do: CMerkleTree.account_map_proof(map, addr)
 
   def get(map, <<_::160>> = addr) do
     case CMerkleTree.account_map_get(map, addr) do
@@ -31,7 +33,7 @@ defmodule CAccountMap do
   def get_account(map, addr) do
     case get(map, addr) do
       :undefined -> nil
-      entry -> account_from_parts(entry)
+      {nonce, balance, root_hash, code} -> Account.from_parts(nonce, balance, root_hash, code)
     end
   end
 
@@ -40,7 +42,7 @@ defmodule CAccountMap do
   end
 
   def put_meta(map, <<_::160>> = addr, nonce, balance, code) do
-    CMerkleTree.account_map_put_meta(map, addr, nonce, encode_balance(balance), code)
+    put(map, addr, nonce, balance, :keep, code)
   end
 
   def put_account(map, <<_::160>> = addr, %Account{} = account) do
@@ -87,7 +89,7 @@ defmodule CAccountMap do
   end
 
   def storage_get(map, <<_::160>> = addr, key) do
-    case CMerkleTree.account_map_storage_get(map, addr, to_bytes32(key)) do
+    case CMerkleTree.account_map_storage(map, addr, {:get, to_bytes32(key)}) do
       nil -> nil
       @null -> nil
       value -> value
@@ -96,25 +98,28 @@ defmodule CAccountMap do
 
   def storage_get_range(map, <<_::160>> = addr, key, count)
       when is_integer(count) and count >= 1 and count <= 256 do
-    CMerkleTree.account_map_storage_get_range(map, addr, to_bytes32(key), count)
+    CMerkleTree.account_map_storage(map, addr, {:range, to_bytes32(key), count})
     |> Enum.map(fn {k, v} -> {k, if(v == @null, do: nil, else: v)} end)
   end
 
   def storage_to_list(map, <<_::160>> = addr),
-    do: CMerkleTree.account_map_storage_to_list(map, addr)
+    do: CMerkleTree.account_map_storage(map, addr, :list)
 
   def storage_size(map, <<_::160>> = addr),
-    do: CMerkleTree.account_map_storage_size(map, addr)
+    do: CMerkleTree.account_map_storage(map, addr, :size)
 
-  def storage_root_hash(map, <<_::160>> = addr),
-    do: CMerkleTree.account_map_storage_root_hash(map, addr)
+  def storage_root_hash(map, <<_::160>> = addr) do
+    {root, _hashes} = split_roots(CMerkleTree.account_map_storage_roots(map, addr))
+    root
+  end
 
   def storage_root_hashes(map, <<_::160>> = addr) do
-    decode_root_hashes(CMerkleTree.account_map_storage_root_hashes(map, addr))
+    {_root, hashes} = split_roots(CMerkleTree.account_map_storage_roots(map, addr))
+    hashes
   end
 
   def storage_get_proofs(map, <<_::160>> = addr, key),
-    do: CMerkleTree.account_map_storage_get_proofs(map, addr, to_bytes(key))
+    do: CMerkleTree.account_map_proof(map, addr, to_bytes(key))
 
   def difference_full(map_a, map_b) do
     CMerkleTree.account_map_difference_full(map_a, map_b)
@@ -138,10 +143,6 @@ defmodule CAccountMap do
   # Third element is always a 32-byte storage root hash (never a live resource).
   defp decode_entry({nonce, balance, <<_::binary-size(32)>> = root_hash, code}) do
     {nonce, decode_balance(balance), root_hash, code}
-  end
-
-  defp account_from_parts({nonce, balance, root_hash, code}) do
-    Account.from_parts(nonce, balance, root_hash, code)
   end
 
   defp encode_balance(balance) when is_integer(balance) and balance >= 0 do
@@ -170,6 +171,10 @@ defmodule CAccountMap do
 
   defp to_bytes(string) when is_binary(string), do: string
   defp to_bytes(int) when is_integer(int), do: to_bytes32(int)
+
+  defp split_roots(<<root::binary-size(32), hashes::binary-size(512)>>) do
+    {root, decode_root_hashes(hashes)}
+  end
 
   defp decode_root_hashes(
          <<a::binary-size(32), b::binary-size(32), c::binary-size(32), d::binary-size(32),

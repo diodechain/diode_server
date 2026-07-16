@@ -90,8 +90,7 @@ defmodule EvmStorageReadaheadTest do
     {:ok, state, %TransactionReceipt{msg: :ok}} = Transaction.apply(ctx, block, state)
 
     contract = Transaction.new_contract_address(ctx)
-    acc = Chain.State.account(state, contract)
-    assert Chain.Account.storage_value(acc, 0) |> :binary.decode_unsigned() == 0
+    assert Chain.State.storage_value(state, contract, 0) |> :binary.decode_unsigned() == 0
 
     tx =
       %{
@@ -108,7 +107,6 @@ defmodule EvmStorageReadaheadTest do
 
     {:ok, state, %TransactionReceipt{msg: :ok}} = Transaction.apply(tx, block, state)
 
-    acc = Chain.State.account(state, contract)
-    assert Chain.Account.storage_value(acc, 0) |> :binary.decode_unsigned() == 1
+    assert Chain.State.storage_value(state, contract, 0) |> :binary.decode_unsigned() == 1
   end
 end

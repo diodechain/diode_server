@@ -27,12 +27,15 @@ See also [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) (F-5 fix) and [`scripts/cmer
 | `leave_lock` / GC destructor | if `mt->locked`: `locked_states_mutex` → tree → decrement registration → erase map when `has_clone == 0`; else tree refcount only | Unlocked resources never touch `LockedStates` map |
 | `merkletree_clone` | `Lock(parent)` | Dirty CPU scheduler; O(1) shallow resource alloc (`locked = false`) |
 | `account_map_clone` | `AccountMapLock` → `fork_shared_accountmap` (`Lock` per parent storage / state_trie) | Dirty scheduler; writable fork even if parent `frozen` |
-| `account_map_lock` | `AccountMapLock` → set `frozen=true` only (O(1); no per-trie seal) | Dirty scheduler; put/delete/storage_put_map/put_meta reject via `frozen` |
+| `account_map_lock` | `AccountMapLock` → set `frozen=true` only (O(1); no per-trie seal) | Dirty scheduler; put/delete/storage_put_map reject via `frozen` |
 | `account_map_storage_put_map` | `AccountMapLock` → reject if frozen → per-addr `write_storage_slot` → `update_state_trie_for_entry` | Dirty CPU; EVM `su` hot path |
+| `account_map_storage` | `AccountMapLock` → read-only storage query (`:get`/`:range`/`:list`/`:size`) | Dirty CPU |
+| `account_map_storage_roots` / `account_map_state_roots` | `AccountMapLock` → tree lock → root + 16 hashes blob | No live trie export |
+| `account_map_proof` | `AccountMapLock` → account or storage proof | Dirty CPU; arities 2 and 3 |
 | `switch_local_to_canonical` | tree mutexes (address order) | Abandoned `SharedState` queued on `pending_orphans`; reclaimed via `try_reclaim_orphans` after `enter_lock` / `leave_lock` when mutex trylock succeeds and `has_clone == 0` |
 | `account_map_uncompact_state` | `AccountMapLock(input)` → `materialize_storage` (brief tree lock) → `batch_insert` (state_store lock) | Dirty scheduler |
 | `account_map_compact` | `AccountMapLock` (read-only; OK frozen) → per-account storage list via live tree lock or compact_storage slots (no materialize) | Dirty CPU; single boundary crossing for `Chain.State.compact/1` |
-| `account_map_put/delete` / `put_meta` | `AccountMapLock` only; reject if `frozen` | May `release_resource` → async GC `leave_lock` |
+| `account_map_put/delete` | `AccountMapLock` only; reject if `frozen`; storage arg may be `:keep` / list / resource | May `release_resource` → async GC `leave_lock` |
 | `account_map_difference_full` | Dual map lock (`DualAccountMapLock`, address order) → snapshot sides → release → per-account storage diffs | Dirty CPU; never hold map lock across storage diff build |
 | `account_map_apply_difference` | `AccountMapLock` → reject if `frozen` → storage/field writes (`write_storage_slot` → `make_writeable_locked`) | Dirty CPU |
 | Insert / COW | Tree lock → ItemPool / PreAllocator / stripe pool | Same-thread nesting |

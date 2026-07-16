@@ -120,8 +120,7 @@ defmodule Shell do
 
   def get_slot(address, slot) do
     Chain.with_peak_state(fn state ->
-      Chain.State.ensure_account(state, address)
-      |> Chain.Account.storage_value(slot)
+      Chain.State.storage_value(state, Chain.State.normalize_address(address), slot)
     end)
   end
 

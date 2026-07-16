@@ -4,10 +4,16 @@
 defmodule Chain.Account do
   defstruct nonce: 0, balance: 0, storage_root: nil, code: nil, map_backed: false
 
+  # Empty storage trie root for this merkle implementation
+  # (same as root_hash of a freshly allocated empty storage trie).
+  @empty_storage_root Base.decode16!(
+                        "438A90405DAA876539082CD0BAF6CDDAA3BF880F1C8AF0C0381F0042DB93088A"
+                      )
+
   @type t :: %Chain.Account{
           nonce: non_neg_integer(),
           balance: non_neg_integer(),
-          storage_root: CMerkleTree.t() | nil,
+          storage_root: reference() | nil | {atom(), list(), map()} | list(),
           code: binary() | nil,
           map_backed: boolean()
         }
@@ -26,23 +32,9 @@ defmodule Chain.Account do
   def balance(%Chain.Account{balance: balance}), do: balance
 
   @doc """
-  Live storage trie for standalone (genesis/import) accounts only.
-  Map-backed accounts (`map_backed: true`) have no live trie —
-  use `Chain.State.storage_*` APIs instead.
-  """
-  @spec tree(Chain.Account.t()) :: CMerkleTree.t()
-  def tree(%Chain.Account{map_backed: true}) do
-    raise ArgumentError,
-          "map-backed account has no live storage_root; use Chain.State.storage_* APIs"
-  end
-
-  def tree(%Chain.Account{storage_root: nil}), do: CMerkleTree.new()
-  def tree(%Chain.Account{storage_root: root}), do: root
-
-  @doc """
   Build an account from `CAccountMap.get/2` parts.
-  When `storage` is a 32-byte root hash, the account is map-backed (`map_backed: true`).
-  When `storage` is a merkle resource (or nil), it is a standalone trie for genesis/put.
+  A 32-byte `storage` root marks the account map-backed (`map_backed: true`).
+  Otherwise `storage` is a put payload (resource, slot list, or nil for `:keep`).
   """
   def from_parts(nonce, balance, <<root_hash::binary-size(32)>>, code) do
     %Chain.Account{
@@ -65,11 +57,6 @@ defmodule Chain.Account do
     }
   end
 
-  @deprecated "Use CMerkleTree.clone/1 on Account.tree/1 instead"
-  def clone(%Chain.Account{} = acc) do
-    %Chain.Account{acc | storage_root: CMerkleTree.clone(tree(acc))}
-  end
-
   def put_tree(%Chain.Account{} = acc, root) do
     %{acc | storage_root: root, map_backed: false}
     |> Map.delete(:root_hash)
@@ -78,82 +65,22 @@ defmodule Chain.Account do
   def root_hash(%Chain.Account{storage_root: nil} = acc) do
     case Map.get(acc, :root_hash) do
       <<_::binary-size(32)>> = hash -> hash
-      _ -> CMerkleTree.root_hash(CMerkleTree.new())
+      _ -> @empty_storage_root
     end
+  end
+
+  def root_hash(%Chain.Account{storage_root: root}) when is_reference(root) do
+    CMerkleTree.root_hash(root)
   end
 
   def root_hash(%Chain.Account{} = acc) do
-    CMerkleTree.root_hash(tree(acc))
-  end
+    case Map.get(acc, :root_hash) do
+      <<_::binary-size(32)>> = hash ->
+        hash
 
-  def uncompact(%Chain.Account{storage_root: nil} = acc) do
-    %Chain.Account{acc | storage_root: CMerkleTree.new(), map_backed: false}
-  end
-
-  def uncompact(%Chain.Account{storage_root: {MapMerkleTree, _opts, items}} = acc)
-      when is_map(items) do
-    storage_root = CMerkleTree.from_map(items)
-    %Chain.Account{acc | storage_root: storage_root, map_backed: false}
-  end
-
-  def uncompact(%Chain.Account{storage_root: items} = acc) when is_list(items) do
-    %Chain.Account{acc | storage_root: CMerkleTree.from_list(items), map_backed: false}
-  end
-
-  def compact(%Chain.Account{map_backed: true}) do
-    raise ArgumentError, "map-backed accounts are compacted via Chain.State.compact/1"
-  end
-
-  def compact(%Chain.Account{} = acc) do
-    tree = tree(acc)
-
-    if CMerkleTree.size(tree) == 0 do
-      %Chain.Account{acc | storage_root: nil, map_backed: false}
-    else
-      %Chain.Account{
-        acc
-        | storage_root: {MapMerkleTree, [], Map.new(CMerkleTree.to_list(tree))},
-          map_backed: false
-      }
-    end
-    |> Map.put(:root_hash, CMerkleTree.root_hash(tree))
-    |> Map.put(:code_hash, codehash(acc))
-  end
-
-  def storage_set_value(%Chain.Account{map_backed: true}, <<_::256>>, <<_::256>>) do
-    raise ArgumentError,
-          "map-backed account storage writes go through Chain.State.storage_put_map/2"
-  end
-
-  def storage_set_value(%Chain.Account{} = acc, key = <<_k::256>>, value = <<_v::256>>) do
-    store = CMerkleTree.insert(tree(acc), key, value)
-
-    %{acc | storage_root: store, map_backed: false}
-    |> Map.delete(:root_hash)
-  end
-
-  def storage_set_value(acc, key, value) when is_integer(key) do
-    storage_set_value(acc, <<key::unsigned-size(256)>>, value)
-  end
-
-  def storage_set_value(acc, key, value) when is_integer(value) do
-    storage_set_value(acc, key, <<value::unsigned-size(256)>>)
-  end
-
-  @spec storage_value(Chain.Account.t(), binary() | integer()) :: binary() | nil
-  def storage_value(acc, key) when is_integer(key) do
-    storage_value(acc, <<key::unsigned-size(256)>>)
-  end
-
-  def storage_value(%Chain.Account{map_backed: true}, key) when is_binary(key) do
-    raise ArgumentError,
-          "map-backed account storage reads go through Chain.State.storage_value/3"
-  end
-
-  def storage_value(%Chain.Account{} = acc, key) when is_binary(key) do
-    case CMerkleTree.get(tree(acc), key) do
-      nil -> <<0::unsigned-size(256)>>
-      bin -> bin
+      _ ->
+        raise ArgumentError,
+              "compact account missing :root_hash; use Chain.State.storage_root_hash/2"
     end
   end
 

@@ -28,8 +28,9 @@ Ethereum-compatible JSON-RPC endpoint plus the Diode PEER/EDGE protocols.
   `make -C deps/libsecp256k1/` (see `.github/workflows/ci.yml`). Build artifacts
   are gitignored and persist across sessions, so this is only needed after a
   clean checkout of that dep.
-- **CAccountMap / state NIF semantics** (clone, lock, storage APIs, get shape):
-  see [`docs/caccount-map-nif.md`](docs/caccount-map-nif.md).
+- **CAccountMap / state NIF semantics** (clone, lock, storage APIs, get shape,
+  `CMERKLE_TEST_NIFS` prod vs test exports): see
+  [`docs/caccount-map-nif.md`](docs/caccount-map-nif.md).
 
 ### Lint
 - `mix lint` = `compile` + `mix format --check-formatted` + `mix credo --only warning` + `mix dialyzer`.
