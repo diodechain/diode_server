@@ -96,20 +96,20 @@ defmodule Chain.State do
     {time, result} =
       :timer.tc(fn ->
         Enum.map(CAccountMap.difference_full(accounts_a, accounts_b), fn
-          {id, _side_a, _side_b, state_diff} ->
-            acc_a = account(state_a, id) || ensure_account(state_a, id)
-            acc_b = account(state_b, id) || ensure_account(state_b, id)
-
+          {id, side_a, side_b, state_diff} ->
             report =
               %{}
-              |> put_field_diff(:nonce, acc_a, acc_b)
-              |> put_field_diff(:balance, acc_a, acc_b)
-              |> put_field_diff(:code, acc_a, acc_b)
+              |> put_side_field_diff(:nonce, side_a, side_b)
+              |> put_side_field_diff(:balance, side_a, side_b)
+              |> put_side_field_diff(:code, side_a, side_b)
 
             storage_map = CAccountMap.decode_storage_diff(state_diff)
 
             report =
               if map_size(storage_map) > 0 do
+                acc_a = account(state_a, id) || ensure_account(state_a, id)
+                acc_b = account(state_b, id) || ensure_account(state_b, id)
+
                 Map.merge(report, %{
                   state: storage_map,
                   root_hash: {Account.root_hash(acc_a), Account.root_hash(acc_b)}
@@ -131,9 +131,9 @@ defmodule Chain.State do
     result
   end
 
-  defp put_field_diff(report, field, acc_a, acc_b) do
-    a = apply(Account, field, [acc_a])
-    b = apply(Account, field, [acc_b])
+  defp put_side_field_diff(report, field, side_a, side_b) do
+    a = side_field(side_a, field)
+    b = side_field(side_b, field)
 
     if a == b do
       report
@@ -141,6 +141,17 @@ defmodule Chain.State do
       Map.put(report, field, {a, b})
     end
   end
+
+  defp side_field(nil, :nonce), do: 0
+  defp side_field(nil, :balance), do: 0
+  defp side_field(nil, :code), do: ""
+  defp side_field({nonce, _balance, _code}, :nonce), do: nonce
+  defp side_field({_nonce, balance, _code}, :balance) when is_integer(balance), do: balance
+
+  defp side_field({_nonce, balance, _code}, :balance) when is_binary(balance),
+    do: :binary.decode_unsigned(balance)
+
+  defp side_field({_nonce, _balance, code}, :code), do: code
 
   def clone(%Chain.State{accounts: accounts} = state) do
     %{state | accounts: CAccountMap.clone(accounts), hash: nil}

@@ -81,7 +81,13 @@ defmodule CMerkleCloneLazyTest do
     state = %Chain.State{accounts: base}
 
     {lazy_us, fork} = :timer.tc(fn -> State.clone_lazy(state) end)
+    {eager_us, _} = :timer.tc(fn -> State.clone(state) end)
+
+    # Today both paths fork storage wrappers; keep both under a generous bound and
+    # ensure lazy stays in the same ballpark as eager (not accidentally O(n²)).
     assert lazy_us < 500_000
+    assert eager_us < 500_000
+    assert lazy_us < eager_us * 3
     assert is_binary(State.hash(fork))
   end
 end

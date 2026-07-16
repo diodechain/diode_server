@@ -122,7 +122,7 @@ defmodule CMerkleTree do
   def account_map_clone_lazy(_map), do: error()
   def account_map_root_hash(_map), do: error()
   def account_map_state_trie(_map), do: error()
-  def account_map_lock(_map, _store), do: error()
+  def account_map_lock(_map), do: error()
   def account_map_get(_map, _addr), do: error()
   def account_map_put(_map, _addr, _nonce, _balance, _storage, _code), do: error()
   def account_map_delete(_map, _addr), do: error()

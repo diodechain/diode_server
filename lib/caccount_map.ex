@@ -13,7 +13,7 @@ defmodule CAccountMap do
 
   def clone_lazy(map), do: CMerkleTree.account_map_clone_lazy(map)
 
-  def lock(map), do: CMerkleTree.account_map_lock(map, nil)
+  def lock(map), do: CMerkleTree.account_map_lock(map)
 
   def root_hash(map), do: CMerkleTree.account_map_root_hash(map)
 
@@ -67,12 +67,7 @@ defmodule CAccountMap do
     CMerkleTree.account_map_difference_full(map_a, map_b)
   end
 
-  def apply_difference(map, delta) do
-    case CMerkleTree.account_map_apply_difference(map, delta) do
-      {:error, reason} -> {:error, reason}
-      map -> map
-    end
-  end
+  def apply_difference(map, delta), do: CMerkleTree.account_map_apply_difference(map, delta)
 
   def decode_storage_diff(storage_diff) do
     Map.new(storage_diff, fn {key, {val_a, val_b}} ->
@@ -86,11 +81,7 @@ defmodule CAccountMap do
   defp decode_account_side(nil), do: nil
   defp decode_account_side(entry), do: entry |> decode_entry() |> account_from_parts()
 
-  def uncompact_state(accounts) do
-    case CMerkleTree.account_map_uncompact_state(accounts) do
-      {am, hash} -> {am, hash}
-    end
-  end
+  def uncompact_state(accounts), do: CMerkleTree.account_map_uncompact_state(accounts)
 
   defp decode_entry({nonce, balance, storage, code}) do
     {nonce, decode_balance(balance), storage, code}

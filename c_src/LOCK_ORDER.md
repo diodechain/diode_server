@@ -72,7 +72,7 @@ Each scenario has an ID, hypothesis, and test coverage target.
 | D-C3 | `account_map_get` / `to_list` (materialize) + `difference` | Brief tree lock vs diff | S13 |
 | D-C4 | `account_map_put` replacing storage + GC `leave_lock` | Async GC vs diff | P13 |
 | D-C5 | `account_map_lock` / `account_map_clone` + concurrent `State.lock/1` | Correctness / writable fork | P14, P15, chain_state_uncompact_test, ExUnit D-C5, fuzz 16–18 |
-| D-C6 | `cow_copy_accountmap` during concurrent `put` | Refcount race (F-4) | TSan on P4, P13 |
+| D-C6 | Concurrent `put` / `apply_difference` on frozen map | Rejected via `make_writeable_accountmap` | TSan on P4, P13 |
 | D-C7 | `account_map_list_difference_raw` + `account_map_to_list` same map | Map mutex convoy / materialize stall | S20, ExUnit D-D7, D-C7 |
 | D-C8 | Dual-map `list_difference` lock order (A,B) vs (B,A) | Ordering regression | S24, ExUnit D-C8 |
 
