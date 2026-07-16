@@ -311,6 +311,8 @@ struct AccountEntry {
 
 static void release_entry_storage(AccountEntry &entry);
 static merkletree *materialize_storage(AccountEntry &entry);
+static bool storage_root_hash_for_entry(ErlNifEnv *env, const AccountEntry &entry,
+        uint256_t &out, size_t progress_base);
 static ERL_NIF_TERM account_entry_to_term(ErlNifEnv *env, AccountEntry &entry);
 
 class SharedAccountMap {
@@ -825,9 +827,10 @@ public:
             mt->locked = true;
             local = mt->shared_state;
             if (local == canonical) {
-                enif_mutex_lock(canonical->mtx);
+                // Already hold local/canonical mtx via Lock — do not lock again
+                // (ErlNifMutex is non-recursive; double-lock deadlocks on shared storage).
                 canonical->has_clone += 1;
-                enif_mutex_unlock(canonical->mtx);
+                lock.unlock();
                 unpin_shared_state_read(canonical);
                 return;
             }
@@ -1570,39 +1573,6 @@ account_map_clone(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 }
 
 static ERL_NIF_TERM
-account_map_clone_lazy(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
-{
-    accountmap *am;
-    if (argc != 1) return enif_make_badarg(env);
-    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
-
-    AccountMapLock lock(am);
-
-    if (am->shared->frozen) {
-        return enif_make_badarg(env);
-    }
-
-    // Speculative forks reject frozen parents and locked storage tries.
-    for (auto &entry : am->shared->accounts) {
-        if (!entry.second.compact_storage && entry.second.storage != nullptr &&
-            entry.second.storage->locked) {
-            return enif_make_badarg(env);
-        }
-    }
-
-    SharedAccountMap *new_shared = fork_shared_accountmap(env, am->shared);
-
-    accountmap *clone = (accountmap*)enif_alloc_resource(accountmap_type, sizeof(accountmap));
-    clone->shared = new_shared;
-    enif_mutex_lock(stats_mutex);
-    lazy_clone_count++;
-    enif_mutex_unlock(stats_mutex);
-    ERL_NIF_TERM res = enif_make_resource(env, clone);
-    enif_release_resource(clone);
-    return res;
-}
-
-static ERL_NIF_TERM
 account_map_lock(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
     accountmap *am;
@@ -1610,8 +1580,12 @@ account_map_lock(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     if (argc != 1) return enif_make_badarg(env);
     if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
 
-    AccountMapLock lock(am);
-    am->shared->frozen = true;
+    {
+        AccountMapLock lock(am);
+        // Map-level freeze only: get no longer exports live storage resources, so
+        // bare CMerkleTree.insert cannot mutate map-owned tries via Elixir.
+        am->shared->frozen = true;
+    }
 
     locked_states->try_reclaim_orphans();
     return argv[0];
@@ -1619,12 +1593,16 @@ account_map_lock(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
 static ERL_NIF_TERM account_entry_to_term(ErlNifEnv *env, AccountEntry &entry)
 {
-    merkletree *storage = materialize_storage(entry);
+    uint256_t storage_root;
+    // Prefer hash without materializing compact slots into a live trie.
+    if (!storage_root_hash_for_entry(env, entry, storage_root, 0)) {
+        return enif_make_badarg(env);
+    }
     ERL_NIF_TERM nonce = enif_make_uint64(env, entry.nonce);
     ERL_NIF_TERM balance = balance_to_term(env, entry.balance);
-    ERL_NIF_TERM storage_term = enif_make_resource(env, storage);
+    ERL_NIF_TERM storage_hash = make_binary(env, storage_root.data(), 32);
     ERL_NIF_TERM code = code_to_term(env, entry.code);
-    return enif_make_tuple4(env, nonce, balance, storage_term, code);
+    return enif_make_tuple4(env, nonce, balance, storage_hash, code);
 }
 
 struct AccountHashCtx {
@@ -1946,29 +1924,6 @@ static void snapshot_side(const AccountEntry &src, DiffAccountSide &out)
     }
 }
 
-static AccountEntry side_to_entry(DiffAccountSide &side)
-{
-    AccountEntry entry;
-    entry.nonce = side.nonce;
-    entry.balance = side.balance;
-    entry.code = side.code;
-    entry.storage = side.storage;
-    entry.compact_storage = std::move(side.compact_storage);
-    return entry;
-}
-
-static ERL_NIF_TERM diff_side_to_term(ErlNifEnv *env, DiffAccountSide &side)
-{
-    if (!side.present) {
-        return make_atom(env, "nil");
-    }
-    AccountEntry entry = side_to_entry(side);
-    ERL_NIF_TERM term = account_entry_to_term(env, entry);
-    release_entry_storage(entry);
-    side.storage = nullptr;
-    return term;
-}
-
 static bool entries_equal(ErlNifEnv *env, const AccountEntry &a, const AccountEntry &b, size_t progress_base)
 {
     if (a.nonce != b.nonce || a.balance != b.balance || a.code != b.code) {
@@ -1988,80 +1943,6 @@ struct DiffItem {
     DiffAccountSide a;
     DiffAccountSide b;
 };
-
-static ERL_NIF_TERM
-account_map_list_difference_raw(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
-{
-    accountmap *am_a;
-    accountmap *am_b;
-
-    if (argc != 2) return enif_make_badarg(env);
-    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am_a)) return enif_make_badarg(env);
-    if (!enif_get_resource(env, argv[1], accountmap_type, (void **)&am_b)) return enif_make_badarg(env);
-
-    if (am_a->shared == am_b->shared) {
-        return enif_make_list(env, 0);
-    }
-
-    std::vector<DiffItem> diffs;
-    std::unordered_set<uint160_t> key_set;
-
-    {
-        DualAccountMapLock map_lock(am_a->shared, am_b->shared);
-
-        for (auto &entry : am_a->shared->accounts) {
-            key_set.insert(entry.first);
-        }
-        for (auto &entry : am_b->shared->accounts) {
-            key_set.insert(entry.first);
-        }
-
-        std::vector<uint160_t> keys(key_set.begin(), key_set.end());
-        std::sort(keys.begin(), keys.end());
-
-        size_t i = 0;
-        for (auto &addr : keys) {
-            i++;
-            auto it_a = am_a->shared->accounts.find(addr);
-            auto it_b = am_b->shared->accounts.find(addr);
-            bool in_a = it_a != am_a->shared->accounts.end();
-            bool in_b = it_b != am_b->shared->accounts.end();
-
-            if (in_a && in_b && entries_equal(env, it_a->second, it_b->second, i)) {
-                nif_loop_progress(env, i);
-                continue;
-            }
-
-            DiffItem item;
-            item.addr = addr;
-            if (in_a) {
-                snapshot_side(it_a->second, item.a);
-            }
-            if (in_b) {
-                snapshot_side(it_b->second, item.b);
-            }
-            diffs.push_back(std::move(item));
-            nif_loop_progress(env, i);
-        }
-    }
-
-    ERL_NIF_TERM list = enif_make_list(env, 0);
-    size_t j = 0;
-    for (auto &item : diffs) {
-        j++;
-        ERL_NIF_TERM addr_term = make_binary(env, (uint8_t *)item.addr.value, 20);
-        ERL_NIF_TERM side_a = diff_side_to_term(env, item.a);
-        ERL_NIF_TERM side_b = diff_side_to_term(env, item.b);
-        ERL_NIF_TERM pair = enif_make_tuple2(env, side_a, side_b);
-        ERL_NIF_TERM triple = enif_make_tuple2(env, addr_term, pair);
-        list = enif_make_list_cell(env, triple, list);
-        release_snapshot_side(item.a);
-        release_snapshot_side(item.b);
-        nif_loop_progress(env, j);
-    }
-
-    return list;
-}
 
 static ERL_NIF_TERM diff_side_fields_to_term(ErlNifEnv *env, DiffAccountSide &side)
 {
@@ -2481,6 +2362,320 @@ account_map_apply_difference(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]
     return argv[0];
 }
 
+static ERL_NIF_TERM
+account_map_storage_put_map(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    accountmap *am;
+
+    if (argc != 2) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
+    if (!enif_is_list(env, argv[1])) return enif_make_badarg(env);
+
+    AccountMapLock lock(am);
+    if (!make_writeable_accountmap(am)) return enif_make_badarg(env);
+
+    AccountHashCtx hash_ctx;
+    size_t i = 0;
+    ERL_NIF_TERM head, tail = argv[1];
+
+    while (enif_get_list_cell(env, tail, &head, &tail)) {
+        i++;
+        const ERL_NIF_TERM *elems;
+        int arity;
+        if (!enif_get_tuple(env, head, &arity, &elems) || arity != 2) {
+            return enif_make_badarg(env);
+        }
+
+        uint160_t addr;
+        if (!get_address(env, elems[0], addr)) {
+            return enif_make_badarg(env);
+        }
+        if (!enif_is_list(env, elems[1])) {
+            return enif_make_badarg(env);
+        }
+
+        AccountEntry &entry = ensure_account_entry(am->shared, addr);
+        ERL_NIF_TERM kv_head, kv_tail = elems[1];
+        size_t j = 0;
+        while (enif_get_list_cell(env, kv_tail, &kv_head, &kv_tail)) {
+            j++;
+            const ERL_NIF_TERM *kv_elems;
+            int kv_arity;
+            if (!enif_get_tuple(env, kv_head, &kv_arity, &kv_elems) || kv_arity != 2) {
+                return enif_make_badarg(env);
+            }
+
+            ErlNifBinary key_bin, value_bin;
+            if (!enif_inspect_binary(env, kv_elems[0], &key_bin) || key_bin.size != 32) {
+                return enif_make_badarg(env);
+            }
+            if (!enif_inspect_binary(env, kv_elems[1], &value_bin) || value_bin.size != 32) {
+                return enif_make_badarg(env);
+            }
+
+            bin_t key(key_bin.data, key_bin.data + key_bin.size);
+            uint256_t value((const char *)value_bin.data);
+            if (write_storage_slot(entry, key, value) == nullptr) {
+                return enif_make_badarg(env);
+            }
+            nif_loop_progress(env, j);
+        }
+
+        update_state_trie_for_entry(am->shared, addr, entry, hash_ctx);
+        nif_loop_progress(env, i);
+    }
+
+    return argv[0];
+}
+
+static ERL_NIF_TERM
+account_map_storage_get(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    accountmap *am;
+    uint160_t addr;
+    ErlNifBinary key_binary;
+
+    if (argc != 3) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
+    if (!get_address(env, argv[1], addr)) return enif_make_badarg(env);
+    if (!enif_inspect_binary(env, argv[2], &key_binary) || key_binary.size != 32) {
+        return enif_make_badarg(env);
+    }
+
+    AccountMapLock lock(am);
+    auto it = am->shared->accounts.find(addr);
+    if (it == am->shared->accounts.end()) {
+        return make_atom(env, "nil");
+    }
+
+    merkletree *mt = materialize_storage(it->second);
+    bin_t key(key_binary.data, key_binary.data + key_binary.size);
+    uint256_t value = read_storage_slot(mt, key);
+    if (value.is_null()) {
+        return make_atom(env, "nil");
+    }
+    return make_binary(env, value.data(), 32);
+}
+
+static ERL_NIF_TERM
+account_map_storage_get_range(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    accountmap *am;
+    uint160_t addr;
+    ErlNifBinary key_binary;
+    unsigned count;
+
+    if (argc != 4) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
+    if (!get_address(env, argv[1], addr)) return enif_make_badarg(env);
+    if (!enif_inspect_binary(env, argv[2], &key_binary) || key_binary.size != 32) {
+        return enif_make_badarg(env);
+    }
+    if (!enif_get_uint(env, argv[3], &count)) return enif_make_badarg(env);
+    if (count < 1 || count > 256) return enif_make_badarg(env);
+
+    AccountMapLock lock(am);
+    auto it = am->shared->accounts.find(addr);
+    if (it == am->shared->accounts.end()) {
+        return enif_make_list(env, 0);
+    }
+
+    merkletree *mt = materialize_storage(it->second);
+    bin_t key(key_binary.data, key_binary.data + key_binary.size);
+
+    std::vector<RangeEntry> entries(count);
+    size_t n;
+    {
+        Lock tree_lock(mt);
+        n = get_range_entries(mt->shared_state->tree, key, count, entries.data());
+    }
+
+    ERL_NIF_TERM list = enif_make_list(env, 0);
+    for (size_t i = n; i > 0; i--) {
+        RangeEntry &entry = entries[i - 1];
+        ERL_NIF_TERM key_term = make_binary(env, entry.key.data(), entry.key.size());
+        ERL_NIF_TERM value_term = make_binary(env, entry.value.data(), 32);
+        ERL_NIF_TERM pair = enif_make_tuple2(env, key_term, value_term);
+        list = enif_make_list_cell(env, pair, list);
+    }
+    return list;
+}
+
+static ERL_NIF_TERM
+account_map_storage_to_list(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    accountmap *am;
+    uint160_t addr;
+
+    if (argc != 2) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
+    if (!get_address(env, argv[1], addr)) return enif_make_badarg(env);
+
+    AccountMapLock lock(am);
+    auto it = am->shared->accounts.find(addr);
+    if (it == am->shared->accounts.end()) {
+        return enif_make_list(env, 0);
+    }
+
+    merkletree *mt = materialize_storage(it->second);
+    ERL_NIF_TERM list = enif_make_list(env, 0);
+    size_t i = 0;
+    {
+        Lock tree_lock(mt);
+        mt->shared_state->tree.each([&](pair_t &pair) {
+            i++;
+            ERL_NIF_TERM key_term = make_binary(env, pair.key.data(), pair.key.size());
+            ERL_NIF_TERM value_term = make_binary(env, pair.value.data(), 32);
+            ERL_NIF_TERM tuple = enif_make_tuple2(env, key_term, value_term);
+            list = enif_make_list_cell(env, tuple, list);
+            nif_loop_progress(env, i);
+        });
+    }
+    return list;
+}
+
+static ERL_NIF_TERM
+account_map_storage_size(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    accountmap *am;
+    uint160_t addr;
+
+    if (argc != 2) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
+    if (!get_address(env, argv[1], addr)) return enif_make_badarg(env);
+
+    AccountMapLock lock(am);
+    auto it = am->shared->accounts.find(addr);
+    if (it == am->shared->accounts.end()) {
+        return enif_make_uint(env, 0);
+    }
+
+    merkletree *mt = materialize_storage(it->second);
+    Lock tree_lock(mt);
+    return enif_make_uint(env, (unsigned)mt->shared_state->tree.size());
+}
+
+static ERL_NIF_TERM
+account_map_storage_root_hash(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    accountmap *am;
+    uint160_t addr;
+
+    if (argc != 2) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
+    if (!get_address(env, argv[1], addr)) return enif_make_badarg(env);
+
+    AccountMapLock lock(am);
+    auto it = am->shared->accounts.find(addr);
+    if (it == am->shared->accounts.end()) {
+        Lock tree_lock(empty_storage_tree);
+        uint256_t root = empty_storage_tree->shared_state->tree.root_hash();
+        return make_binary(env, root.data(), 32);
+    }
+
+    merkletree *mt = materialize_storage(it->second);
+    Lock tree_lock(mt);
+    uint256_t root = mt->shared_state->tree.root_hash();
+    return make_binary(env, root.data(), 32);
+}
+
+static ERL_NIF_TERM
+account_map_storage_root_hashes(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    accountmap *am;
+    uint160_t addr;
+
+    if (argc != 2) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
+    if (!get_address(env, argv[1], addr)) return enif_make_badarg(env);
+
+    AccountMapLock lock(am);
+    auto it = am->shared->accounts.find(addr);
+    if (it == am->shared->accounts.end()) {
+        Lock tree_lock(empty_storage_tree);
+        auto root_hashes = empty_storage_tree->shared_state->tree.root_hashes();
+        return make_binary(env, (uint8_t*)root_hashes, 32 * 16);
+    }
+
+    merkletree *mt = materialize_storage(it->second);
+    Lock tree_lock(mt);
+    auto root_hashes = mt->shared_state->tree.root_hashes();
+    return make_binary(env, (uint8_t*)root_hashes, 32 * 16);
+}
+
+static ERL_NIF_TERM
+account_map_storage_get_proofs(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    accountmap *am;
+    uint160_t addr;
+    ErlNifBinary key_binary;
+
+    if (argc != 3) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
+    if (!get_address(env, argv[1], addr)) return enif_make_badarg(env);
+    if (!enif_inspect_binary(env, argv[2], &key_binary)) return enif_make_badarg(env);
+
+    AccountMapLock lock(am);
+    merkletree *mt;
+    auto it = am->shared->accounts.find(addr);
+    if (it == am->shared->accounts.end()) {
+        mt = empty_storage_tree;
+    } else {
+        mt = materialize_storage(it->second);
+    }
+
+    bin_t key(key_binary.data, key_binary.data + key_binary.size);
+    Lock tree_lock(mt);
+    proof_t proof = mt->shared_state->tree.get_proofs(key);
+    return make_proof(env, proof);
+}
+
+static ERL_NIF_TERM
+account_map_get_proofs(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    accountmap *am;
+    uint160_t addr;
+
+    if (argc != 2) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
+    if (!get_address(env, argv[1], addr)) return enif_make_badarg(env);
+
+    AccountMapLock lock(am);
+    bin_t key(addr.value, addr.value + 20);
+    Lock tree_lock(am->shared->state_trie);
+    proof_t proof = am->shared->state_trie->shared_state->tree.get_proofs(key);
+    return make_proof(env, proof);
+}
+
+static ERL_NIF_TERM
+account_map_put_meta(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    accountmap *am;
+    uint160_t addr;
+    ErlNifUInt64 nonce;
+    uint256_t balance;
+    bin_t code;
+
+    if (argc != 5) return enif_make_badarg(env);
+    if (!enif_get_resource(env, argv[0], accountmap_type, (void **)&am)) return enif_make_badarg(env);
+    if (!get_address(env, argv[1], addr)) return enif_make_badarg(env);
+    if (!enif_get_uint64(env, argv[2], &nonce)) return enif_make_badarg(env);
+    if (!get_balance_uint256(env, argv[3], balance)) return enif_make_badarg(env);
+    if (!get_code(env, argv[4], code)) return enif_make_badarg(env);
+
+    AccountMapLock lock(am);
+    if (!make_writeable_accountmap(am)) return enif_make_badarg(env);
+
+    AccountEntry &entry = ensure_account_entry(am->shared, addr);
+    entry.nonce = (uint64_t)nonce;
+    entry.balance = balance;
+    entry.code = code;
+
+    AccountHashCtx hash_ctx;
+    update_state_trie_for_entry(am->shared, addr, entry, hash_ctx);
+    return argv[0];
+}
+
 struct UncompactLoopScratch {
     AccountHashCtx hash_ctx;
     bin_t code_buf;
@@ -2857,19 +3052,27 @@ static ErlNifFunc nif_funcs[] = {
     {"nif_stats_raw", 0, merkletree_nif_stats, 0},
     {"account_map_new", 0, account_map_new, 0},
     {"account_map_clone", 1, account_map_clone, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-    {"account_map_clone_lazy", 1, account_map_clone_lazy, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"account_map_lock", 1, account_map_lock, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"account_map_get", 2, account_map_get, 0},
     {"account_map_put", 6, account_map_put, 0},
+    {"account_map_put_meta", 5, account_map_put_meta, 0},
     {"account_map_delete", 2, account_map_delete, 0},
     {"account_map_root_hash", 1, account_map_root_hash, 0},
     {"account_map_state_trie", 1, account_map_state_trie, 0},
     {"account_map_size", 1, account_map_size, 0},
     {"account_map_to_list", 1, account_map_to_list, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-    {"account_map_list_difference_raw", 2, account_map_list_difference_raw, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"account_map_difference_full", 2, account_map_difference_full, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"account_map_apply_difference", 2, account_map_apply_difference, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"account_map_uncompact_state", 1, account_map_uncompact_state, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"account_map_storage_put_map", 2, account_map_storage_put_map, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"account_map_storage_get", 3, account_map_storage_get, 0},
+    {"account_map_storage_get_range", 4, account_map_storage_get_range, 0},
+    {"account_map_storage_to_list", 2, account_map_storage_to_list, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"account_map_storage_size", 2, account_map_storage_size, 0},
+    {"account_map_storage_root_hash", 2, account_map_storage_root_hash, 0},
+    {"account_map_storage_root_hashes", 2, account_map_storage_root_hashes, 0},
+    {"account_map_storage_get_proofs", 3, account_map_storage_get_proofs, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"account_map_get_proofs", 2, account_map_get_proofs, ERL_NIF_DIRTY_JOB_CPU_BOUND},
 };
 
 // ERL_NIF_INIT(merkletree_nif, nif_funcs, on_load, on_reload, on_upgrade, NULL);

@@ -43,7 +43,7 @@ defmodule ChainAccountHashNifTest do
         addr(2) => sample_account(2) |> Account.compact()
       }
 
-    {accounts, store, hash} = CAccountMap.uncompact_state(compact)
+    {accounts, hash} = CAccountMap.uncompact_state(compact)
 
     elixir_hashes =
       compact
@@ -58,7 +58,7 @@ defmodule ChainAccountHashNifTest do
       |> Map.new()
 
     assert nif_hashes == elixir_hashes
-    assert hash == CMerkleTree.root_hash(store)
+    assert hash == CAccountMap.root_hash(accounts)
   end
 
   test "uncompact_state account hashes match Account.hash/1" do
@@ -67,7 +67,7 @@ defmodule ChainAccountHashNifTest do
         {addr(i), sample_account(i) |> Account.compact()}
       end
 
-    {accounts, store, hash} = CAccountMap.uncompact_state(compact)
+    {accounts, hash} = CAccountMap.uncompact_state(compact)
 
     elixir_hashes =
       compact
@@ -89,7 +89,7 @@ defmodule ChainAccountHashNifTest do
       |> CMerkleTree.root_hash()
 
     assert hash == elixir_root
-    assert CMerkleTree.root_hash(store) == elixir_root
+    assert CAccountMap.root_hash(accounts) == elixir_root
   end
 
   test "uncompact_state on CAccountMap resource matches Account.hash/1" do
@@ -101,7 +101,7 @@ defmodule ChainAccountHashNifTest do
         end)
       end)
 
-    {accounts, store, hash} = CAccountMap.uncompact_state(original.accounts)
+    {accounts, hash} = CAccountMap.uncompact_state(original.accounts)
 
     elixir_hashes =
       original.accounts
@@ -117,7 +117,7 @@ defmodule ChainAccountHashNifTest do
       |> Map.new()
 
     assert nif_hashes == elixir_hashes
-    assert hash == CMerkleTree.root_hash(store)
+    assert hash == CAccountMap.root_hash(accounts)
   end
 
   test "uncompact_state uses compact root_hash when present" do
@@ -129,7 +129,7 @@ defmodule ChainAccountHashNifTest do
     assert Enum.all?(compact, fn {_id, acc} -> Map.has_key?(acc, :root_hash) end)
     assert Enum.all?(compact, fn {_id, acc} -> Map.has_key?(acc, :code_hash) end)
 
-    {accounts, store, hash} = CAccountMap.uncompact_state(compact)
+    {accounts, hash} = CAccountMap.uncompact_state(compact)
 
     elixir_hashes =
       compact
@@ -144,7 +144,7 @@ defmodule ChainAccountHashNifTest do
       |> Map.new()
 
     assert nif_hashes == elixir_hashes
-    assert hash == CMerkleTree.root_hash(store)
+    assert hash == CAccountMap.root_hash(accounts)
   end
 
   test "uncompact_state falls back without compact root_hash field" do
@@ -160,7 +160,7 @@ defmodule ChainAccountHashNifTest do
 
     legacy_compact = %{addr(1) => legacy_account}
 
-    {accounts, store, hash} = CAccountMap.uncompact_state(legacy_compact)
+    {accounts, hash} = CAccountMap.uncompact_state(legacy_compact)
 
     expected_hash =
       legacy_account
@@ -173,7 +173,7 @@ defmodule ChainAccountHashNifTest do
       |> CMerkleTree.root_hash()
 
     assert hash == expected_root
-    assert CMerkleTree.root_hash(store) == expected_root
+    assert CAccountMap.root_hash(accounts) == expected_root
     assert CAccountMap.size(accounts) == 1
   end
 
@@ -191,7 +191,7 @@ defmodule ChainAccountHashNifTest do
 
     legacy_compact = %{addr(1) => legacy_account}
 
-    {accounts, store, hash} = CAccountMap.uncompact_state(legacy_compact)
+    {accounts, hash} = CAccountMap.uncompact_state(legacy_compact)
 
     expected_hash =
       legacy_account
@@ -204,7 +204,7 @@ defmodule ChainAccountHashNifTest do
       |> CMerkleTree.root_hash()
 
     assert hash == expected_root
-    assert CMerkleTree.root_hash(store) == expected_root
+    assert CAccountMap.root_hash(accounts) == expected_root
     assert CAccountMap.size(accounts) == 1
   end
 

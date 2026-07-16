@@ -28,13 +28,6 @@ defmodule BlockProcess do
     EtsLru.put(__MODULE__.State, Block.hash(block), Chain.State.lock(Block.state(block)))
   end
 
-  def with_account_tree(block_ref, account_id, fun) do
-    with_block(block_ref, fn
-      nil -> fun.(nil)
-      block -> fun.(Block.account_tree(block, account_id))
-    end)
-  end
-
   def with_account(block_ref, account_id, fun) do
     with_state(block_ref, fn
       nil -> fun.(nil)

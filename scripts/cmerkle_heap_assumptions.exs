@@ -105,7 +105,7 @@ defmodule CMerkleHeapAssumptions do
       {:G, "difference on large divergent trees", &g_difference_heavy/1},
       {:H, "proofs + root_hashes after deep updates", &h_proofs_and_hashes/1},
       {:I, "account_map_lock bulk identical storage roots", &i_identical_root_lock_bulk/1},
-      {:J, "account_map list_difference bounded shared_states growth", &j_list_difference_heap/1}
+      {:J, "account_map difference_full bounded shared_states growth", &j_difference_full_heap/1}
     ]
   end
 
@@ -289,7 +289,7 @@ defmodule CMerkleHeapAssumptions do
     end)
   end
 
-  defp j_list_difference_heap(%{rounds: r}) do
+  defp j_difference_full_heap(%{rounds: r}) do
     n = max(40, min(r, 150))
 
     base =
@@ -317,7 +317,7 @@ defmodule CMerkleHeapAssumptions do
     if orphans0 > 0, do: raise("scenario J initial orphans=#{orphans0}")
 
     Enum.each(1..max(div(r, 2), 30), fn _ ->
-      _ = CAccountMap.list_difference(base, fork)
+      _ = CAccountMap.difference_full(base, fork)
       :erlang.garbage_collect()
     end)
 

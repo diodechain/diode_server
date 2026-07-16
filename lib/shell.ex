@@ -43,7 +43,8 @@ defmodule Shell do
   def call_tx(tx, blockRef) do
     Stats.tc(:call_tx, fn ->
       Network.Rpc.with_block(blockRef, fn block ->
-        state = Chain.Block.state(block) |> Chain.State.clone_lazy()
+        # Cached blocks are State.lock'd; clone/1 is required for a writable fork.
+        state = Chain.Block.state(block) |> Chain.State.clone()
 
         Stats.tc(:apply, fn ->
           Chain.Transaction.apply(tx, block, state, static: true)

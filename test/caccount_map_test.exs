@@ -25,8 +25,10 @@ defmodule CAccountMapTest do
     map = put_sample(CAccountMap.new(), 3)
 
     assert CAccountMap.size(map) == 1
-    assert {3, 3000, storage, <<3>>} = CAccountMap.get(map, addr(3))
-    assert CMerkleTree.root_hash(storage) == Account.root_hash(sample_account(3))
+    assert {3, 3000, root, <<3>>} = CAccountMap.get(map, addr(3))
+    assert is_binary(root) and byte_size(root) == 32
+    assert root == Account.root_hash(sample_account(3))
+    assert CAccountMap.storage_root_hash(map, addr(3)) == root
   end
 
   test "delete removes account" do
@@ -59,16 +61,27 @@ defmodule CAccountMapTest do
     assert {1, 1_000, _, <<1>>} = CAccountMap.get(base, addr(1))
   end
 
-  test "clone copies accounts with equal, writable storage" do
+  test "clone copies accounts with equal storage root hashes" do
     base = put_sample(CAccountMap.new(), 5)
     fork = CAccountMap.clone(base)
 
-    # The fork holds distinct (writable, locked = false) storage resources with the
-    # same content as the parent.
-    {5, 5000, base_storage, <<5>>} = CAccountMap.get(base, addr(5))
-    {5, 5000, fork_storage, <<5>>} = CAccountMap.get(fork, addr(5))
-    assert CMerkleTree.root_hash(base_storage) == CMerkleTree.root_hash(fork_storage)
-    refute base_storage == fork_storage
+    # get/2 returns 32-byte root hashes (not live resources); content must match.
+    {5, 5000, base_root, <<5>>} = CAccountMap.get(base, addr(5))
+    {5, 5000, fork_root, <<5>>} = CAccountMap.get(fork, addr(5))
+    assert byte_size(base_root) == 32
+    assert base_root == fork_root
+
+    assert CAccountMap.storage_root_hash(base, addr(5)) ==
+             CAccountMap.storage_root_hash(fork, addr(5))
+
+    # Fork remains writable via storage_put_map; parent root stays unchanged.
+    fork =
+      CAccountMap.storage_put_map(fork, %{
+        addr(5) => %{<<99::unsigned-size(256)>> => <<100::unsigned-size(256)>>}
+      })
+
+    assert CAccountMap.storage_root_hash(fork, addr(5)) !=
+             CAccountMap.storage_root_hash(base, addr(5))
 
     fork = put_sample(fork, 9)
 
@@ -79,7 +92,8 @@ defmodule CAccountMapTest do
     balance = Bitwise.bsl(1, 200)
     storage = CMerkleTree.new()
     map = CAccountMap.put(CAccountMap.new(), addr(2), 0, balance, storage, nil)
-    assert {0, ^balance, _, ""} = CAccountMap.get(map, addr(2))
+    assert {0, ^balance, root, ""} = CAccountMap.get(map, addr(2))
+    assert is_binary(root) and byte_size(root) == 32
   end
 
   test "State.clone uses native account map" do

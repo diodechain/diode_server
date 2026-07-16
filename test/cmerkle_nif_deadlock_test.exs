@@ -137,13 +137,10 @@ defmodule CMerkleNifDeadlockTest do
         |> then(fn st ->
           Enum.reduce(1..40, st, fn i, acc ->
             id = addr(rem(i, n) + 1)
-            acc0 = State.account(acc, id)
-            tree = Account.tree(acc0)
 
-            tree =
-              CMerkleTree.insert(tree, slot(i + 200_000), <<i * 13::unsigned-size(256)>>)
-
-            State.set_account(acc, id, Account.put_tree(acc0, tree))
+            State.storage_put_map(acc, %{
+              id => %{slot(i + 200_000) => <<i * 13::unsigned-size(256)>>}
+            })
           end)
         end)
 
@@ -214,17 +211,15 @@ defmodule CMerkleNifDeadlockTest do
       end)
 
       run_parallel(differ, fn i ->
-        a = CAccountMap.get(map, addr(rem(i, n) + 1))
-        b = CAccountMap.get(map, addr(rem(i + 1, n) + 1))
-
-        case {a, b} do
-          {{_, _, sa, _}, {_, _, sb, _}} ->
-            _ = CMerkleTree.difference(sa, sb)
-
-          _ ->
-            :ok
-        end
-
+        a = addr(rem(i, n) + 1)
+        b = addr(rem(i + 1, n) + 1)
+        # get/2 returns root hashes; exercise concurrent storage reads instead of
+        # CMerkleTree.difference on live resources from get.
+        _ = CAccountMap.get(map, a)
+        _ = CAccountMap.get(map, b)
+        _ = CAccountMap.storage_root_hash(map, a)
+        _ = CAccountMap.storage_root_hash(map, b)
+        _ = CAccountMap.storage_to_list(map, a)
         :ok
       end)
     end
@@ -322,7 +317,7 @@ defmodule CMerkleNifDeadlockTest do
   end
 
   describe "D-D7 prepare_state composite (us1-shaped)" do
-    test "concurrent list_difference, to_list, and State.lock" do
+    test "concurrent difference_full, to_list, and State.lock" do
       n = 100
       prev = build_live_state(n) |> State.normalize()
 
@@ -332,20 +327,17 @@ defmodule CMerkleNifDeadlockTest do
         |> then(fn st ->
           Enum.reduce(1..20, st, fn i, acc ->
             id = addr(rem(i, n) + 1)
-            acc0 = State.account(acc, id)
-            tree = Account.tree(acc0)
 
-            tree =
-              CMerkleTree.insert(tree, slot(i + 300_000), <<i * 13::unsigned-size(256)>>)
-
-            State.set_account(acc, id, Account.put_tree(acc0, tree))
+            State.storage_put_map(acc, %{
+              id => %{slot(i + 300_000) => <<i * 13::unsigned-size(256)>>}
+            })
           end)
         end)
 
       differ = div(@tasks, 4) |> max(1)
       lockers = div(@tasks, 4) |> max(1)
-      legacy = div(@tasks, 4) |> max(1)
-      native = @tasks - differ - lockers - legacy
+      listers = div(@tasks, 4) |> max(1)
+      native = @tasks - differ - lockers - listers
 
       run_parallel(differ, fn _ ->
         _ = State.difference(prev, block)
@@ -357,13 +349,13 @@ defmodule CMerkleNifDeadlockTest do
         :ok
       end)
 
-      run_parallel(legacy, fn _ ->
+      run_parallel(listers, fn _ ->
         _ = CAccountMap.to_list(block.accounts)
         :ok
       end)
 
       run_parallel(native, fn _ ->
-        _ = CAccountMap.list_difference(prev.accounts, block.accounts)
+        _ = CAccountMap.difference_full(prev.accounts, block.accounts)
         :ok
       end)
     end

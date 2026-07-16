@@ -66,6 +66,7 @@ defmodule Network.EdgeV2 do
         end)
         |> response()
 
+      # state account inclusion proof uses map-owned state_trie via Block.account_proof/2
       ["getaccountroot", index, id] ->
         BlockProcess.with_block(to_num(index), fn block ->
           Chain.Block.state(block)
@@ -75,8 +76,8 @@ defmodule Network.EdgeV2 do
               error("account does not exist")
 
             %Chain.Account{} ->
-              proof = Chain.Block.state_tree(block) |> CMerkleTree.get_proofs(id)
-              root = CMerkleTree.root_hash(Chain.Block.account_tree(block, id))
+              proof = Chain.Block.account_proof(block, id)
+              root = Chain.Block.account_storage_root_hash(block, id)
               response(root, proof)
           end
         end)
@@ -92,15 +93,13 @@ defmodule Network.EdgeV2 do
               error("account does not exist")
 
             account = %Chain.Account{} ->
-              proof =
-                Chain.Block.state_tree(block)
-                |> CMerkleTree.get_proofs(id)
+              proof = Chain.Block.account_proof(block, id)
 
               response(
                 %{
                   nonce: account.nonce,
                   balance: account.balance,
-                  storage_root: CMerkleTree.root_hash(Chain.Block.account_tree(block, id)),
+                  storage_root: Chain.Block.account_storage_root_hash(block, id),
                   code: Chain.Account.codehash(account)
                 },
                 proof
@@ -109,28 +108,34 @@ defmodule Network.EdgeV2 do
         end)
 
       ["getaccountroots", index, id] ->
-        BlockProcess.with_account_tree(to_num(index), id, fn
-          nil -> error("account does not exist")
-          tree -> response(CMerkleTree.root_hashes(tree))
+        BlockProcess.with_block(to_num(index), fn block ->
+          case Chain.Block.state(block) |> Chain.State.account(id) do
+            nil -> error("account does not exist")
+            %Chain.Account{} -> response(Chain.Block.account_storage_root_hashes(block, id))
+          end
         end)
 
       ["getaccountvalue", index, id, key] ->
-        BlockProcess.with_account_tree(to_num(index), id, fn
-          nil -> error("account does not exist")
-          tree -> response(CMerkleTree.get_proofs(tree, key))
+        BlockProcess.with_block(to_num(index), fn block ->
+          case Chain.Block.state(block) |> Chain.State.account(id) do
+            nil -> error("account does not exist")
+            %Chain.Account{} -> response(Chain.Block.account_storage_get_proofs(block, id, key))
+          end
         end)
 
       ["getaccountvalues", index, id | keys] ->
-        BlockProcess.with_account_tree(to_num(index), id, fn
-          nil ->
-            error("account does not exist")
+        BlockProcess.with_block(to_num(index), fn block ->
+          case Chain.Block.state(block) |> Chain.State.account(id) do
+            nil ->
+              error("account does not exist")
 
-          tree ->
-            response(
-              Enum.map(keys, fn key ->
-                CMerkleTree.get_proofs(tree, key)
-              end)
-            )
+            %Chain.Account{} ->
+              response(
+                Enum.map(keys, fn key ->
+                  Chain.Block.account_storage_get_proofs(block, id, key)
+                end)
+              )
+          end
         end)
 
       ["sendtransaction", tx] ->
@@ -139,7 +144,8 @@ defmodule Network.EdgeV2 do
 
         err =
           Chain.with_peak(fn peak ->
-            state = Chain.Block.state(peak) |> Chain.State.clone_lazy()
+            # Peak is State.lock'd in cache; clone/1 forks a writable candidate.
+            state = Chain.Block.state(peak) |> Chain.State.clone()
 
             case Chain.Transaction.apply(tx, peak, state) do
               {:ok, _state, %{msg: :ok}} -> nil

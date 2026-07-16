@@ -28,6 +28,8 @@ Ethereum-compatible JSON-RPC endpoint plus the Diode PEER/EDGE protocols.
   `make -C deps/libsecp256k1/` (see `.github/workflows/ci.yml`). Build artifacts
   are gitignored and persist across sessions, so this is only needed after a
   clean checkout of that dep.
+- **CAccountMap / state NIF semantics** (clone, lock, storage APIs, get shape):
+  see [`docs/caccount-map-nif.md`](docs/caccount-map-nif.md).
 
 ### Lint
 - `mix lint` = `compile` + `mix format --check-formatted` + `mix credo --only warning` + `mix dialyzer`.
@@ -39,15 +41,8 @@ Ethereum-compatible JSON-RPC endpoint plus the Diode PEER/EDGE protocols.
 - `make test` generates test PEM certs, then runs each `test/*_test.exs` file in
   a separate `mix test --max-failures 1` invocation (per-file isolation). Test
   env pins ports `RPC_PORT=18001`, `EDGE2_PORT=18003`, `PEER_PORT=18004`.
-- `Chain.State` is backed by the `CAccountMap` NIF. Account storage tries and the
-  state root trie live in C++; Elixir `Chain.State` no longer carries a separate
-  `:store` field. Use `Chain.State.hash/1` or `CAccountMap.root_hash/1`.
-- **Clone modes:** `Chain.State.clone_lazy/1` for speculative execution
-  (`eth_call`, RPC, EdgeV2) where the fork is discarded; `Chain.State.clone/1`
-  (eager storage fork) after `Chain.State.lock/1` for block sync / delta replay.
-  `Chain.Transaction.apply/3` mutates state in place on an unlocked candidate.
-- `Chain.State` is MUTABLE: use `Chain.State.clone/1` or `clone_lazy/1` before
-  applying transactions on a shared cached state.
+- For `Chain.State` / CAccountMap mutability and storage rules, see
+  [`docs/caccount-map-nif.md`](docs/caccount-map-nif.md).
 
 ### Running the node (dev mode)
 - `./dev` runs `MIX_ENV=dev iex -S mix run` (wipes `data_dev/` first). For a

@@ -157,30 +157,29 @@ defmodule CMerkleLockConcurrencyTest do
       end)
     end
 
-    test "concurrent account_map_lock and storage difference" do
+    test "concurrent account_map_lock and storage root / list reads" do
       map = lock_test_shared_storage_map(48, 4)
 
-      {_, _, storage_a, _} = CAccountMap.get(map, <<1::unsigned-size(160)>>)
-      {_, _, storage_b, _} = CAccountMap.get(map, <<2::unsigned-size(160)>>)
-
       lockers = div(@tasks, 2) |> max(1)
-      differ = @tasks - lockers
+      readers = @tasks - lockers
 
       run_parallel(lockers, fn _ ->
         _ = map |> CAccountMap.clone() |> CAccountMap.lock()
         :ok
       end)
 
-      run_parallel(differ, fn _ ->
-        _ = CMerkleTree.difference(storage_a, storage_b)
-        _ = CMerkleTree.difference(storage_b, storage_a)
+      run_parallel(readers, fn _ ->
+        _ = CAccountMap.storage_root_hash(map, <<1::unsigned-size(160)>>)
+        _ = CAccountMap.storage_root_hash(map, <<2::unsigned-size(160)>>)
+        _ = CAccountMap.storage_to_list(map, <<1::unsigned-size(160)>>)
+        _ = CAccountMap.storage_to_list(map, <<2::unsigned-size(160)>>)
         :ok
       end)
     end
   end
 
-  describe "D-C7 native list_difference vs account_map_get" do
-    test "concurrent list_difference and get materialize" do
+  describe "D-C7 native difference_full vs account_map_get" do
+    test "concurrent difference_full and get materialize" do
       map = lock_test_shared_storage_map(60, 5)
       fork = CAccountMap.clone(map)
 
@@ -193,14 +192,14 @@ defmodule CMerkleLockConcurrencyTest do
       end)
 
       run_parallel(differ, fn _ ->
-        _ = CAccountMap.list_difference(map, fork)
+        _ = CAccountMap.difference_full(map, fork)
         :ok
       end)
     end
   end
 
-  describe "D-C8 dual-map list_difference ordering" do
-    test "list_difference(A,B) concurrent with list_difference(B,A)" do
+  describe "D-C8 dual-map difference_full ordering" do
+    test "difference_full(A,B) concurrent with difference_full(B,A)" do
       a = lock_test_shared_storage_map(40, 4)
       b = CAccountMap.clone(a)
       b = CAccountMap.put(b, <<3::unsigned-size(160)>>, 99, 99_000, CMerkleTree.new(), <<99>>)
@@ -209,12 +208,12 @@ defmodule CMerkleLockConcurrencyTest do
       ba = @tasks - ab
 
       run_parallel(ab, fn _ ->
-        _ = CAccountMap.list_difference(a, b)
+        _ = CAccountMap.difference_full(a, b)
         :ok
       end)
 
       run_parallel(ba, fn _ ->
-        _ = CAccountMap.list_difference(b, a)
+        _ = CAccountMap.difference_full(b, a)
         :ok
       end)
     end

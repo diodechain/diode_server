@@ -76,15 +76,24 @@ defmodule Chain.Block do
     end
   end
 
-  def account_tree(%Block{} = block, account_id) do
-    case Chain.State.account(state(block), account_id) do
-      nil -> nil
-      acc -> acc |> Chain.Account.tree()
-    end
+  def account_storage_root_hash(%Block{} = block, account_id) do
+    Chain.State.storage_root_hash(state(block), account_id)
+  end
+
+  def account_storage_root_hashes(%Block{} = block, account_id) do
+    Chain.State.storage_root_hashes(state(block), account_id)
+  end
+
+  def account_storage_get_proofs(%Block{} = block, account_id, key) do
+    Chain.State.storage_get_proofs(state(block), account_id, key)
   end
 
   def state_tree(%Block{} = block) do
     state(block) |> Chain.State.tree()
+  end
+
+  def account_proof(%Block{} = block, account_id) do
+    Chain.State.get_proofs(state(block), account_id)
   end
 
   @doc "For snapshot exporting ensure the block has a full state object"

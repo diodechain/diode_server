@@ -124,29 +124,27 @@ defmodule CMerkleNifLeakTest do
       assert rss_kb() - baseline < 100_000
     end
 
-    test "account_map list_difference loop does not grow shared_states" do
+    test "account_map difference_full loop does not grow shared_states" do
       n = 80
       base = build_diff_map(n)
 
       fork =
         CAccountMap.clone(base)
         |> then(fn map ->
-          {nonce, balance, storage, code} = CAccountMap.get(map, addr(3))
-
-          storage =
-            CMerkleTree.insert(
-              CMerkleTree.clone(storage),
-              slot(99_999),
-              <<99_999::unsigned-size(256)>>
-            )
-
-          CAccountMap.put(map, addr(3), nonce + 1, balance, storage, code)
+          map
+          |> CAccountMap.storage_put_map(%{
+            addr(3) => %{slot(99_999) => <<99_999::unsigned-size(256)>>}
+          })
+          |> then(fn m ->
+            {nonce, balance, _root, code} = CAccountMap.get(m, addr(3))
+            CAccountMap.put_meta(m, addr(3), nonce + 1, balance, code)
+          end)
         end)
 
       {_locked0, _orphans0, shared0, _res0, _, _} = CMerkleTree.nif_stats()
 
       for _ <- 1..100 do
-        _ = CAccountMap.list_difference(base, fork)
+        _ = CAccountMap.difference_full(base, fork)
       end
 
       force_gc()

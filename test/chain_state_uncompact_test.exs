@@ -58,7 +58,7 @@ defmodule ChainStateUncompactTest do
       for i <- 1..32 do
         acc = State.account(restored, addr(i))
         assert acc.nonce == i
-        assert Account.storage_value(acc, slot(i)) == val(i)
+        assert State.storage_value(restored, addr(i), slot(i)) == val(i)
       end
     end
 
@@ -129,13 +129,13 @@ defmodule ChainStateUncompactTest do
       assert acc1.nonce == 3
       assert acc1.balance == 99
       assert acc1.code == :binary.copy(<<0xAB>>, 512)
-      assert Account.storage_value(acc1, slot(1)) == val(1)
-      assert Account.storage_value(acc1, slot(2)) == val(2)
-      assert Account.storage_value(acc1, slot(3)) == val(3)
+      assert State.storage_value(restored, addr(1), slot(1)) == val(1)
+      assert State.storage_value(restored, addr(1), slot(2)) == val(2)
+      assert State.storage_value(restored, addr(1), slot(3)) == val(3)
 
       acc2 = State.account(restored, addr(2))
       assert acc2.code == nil
-      assert CMerkleTree.size(Account.tree(acc2)) == 0
+      assert State.storage_size(restored, addr(2)) == 0
     end
 
     test "compact account edge cases: nil storage, nil code, large balance, list storage" do
@@ -164,13 +164,13 @@ defmodule ChainStateUncompactTest do
 
       acc1 = State.account(restored, addr(1))
       assert acc1.balance == 100_000_000_000_000_000_000_000_000
-      assert Account.storage_value(acc1, slot(1)) == val(1)
+      assert State.storage_value(restored, addr(1), slot(1)) == val(1)
 
       acc2 = State.account(restored, addr(2))
       assert acc2.nonce == 7
       assert acc2.balance == 42
       assert acc2.code == nil
-      assert CMerkleTree.size(Account.tree(acc2)) == 0
+      assert State.storage_size(restored, addr(2)) == 0
     end
 
     test "lazy storage materializes on CAccountMap.get without State.account" do
@@ -189,10 +189,12 @@ defmodule ChainStateUncompactTest do
       compact = %{addr(1) => Account.compact(multi_slot)}
       {accounts, _hash} = CAccountMap.uncompact_state(compact)
 
-      {5, 1_000, storage, <<5>>} = CAccountMap.get(accounts, addr(1))
+      {5, 1_000, root, <<5>>} = CAccountMap.get(accounts, addr(1))
+      assert is_binary(root) and byte_size(root) == 32
+      assert root == Account.root_hash(multi_slot)
 
-      assert CMerkleTree.get(storage, slot(1)) == val(1)
-      assert CMerkleTree.get(storage, slot(2)) == val(2)
+      assert CAccountMap.storage_get(accounts, addr(1), slot(1)) == val(1)
+      assert CAccountMap.storage_get(accounts, addr(1), slot(2)) == val(2)
     end
 
     test "clone preserves lazy storage until materialized" do
@@ -205,8 +207,7 @@ defmodule ChainStateUncompactTest do
       assert State.hash(cloned) == State.hash(original)
 
       for i <- 1..4 do
-        acc = State.account(cloned, addr(i))
-        assert Account.storage_value(acc, slot(i)) == val(i)
+        assert State.storage_value(cloned, addr(i), slot(i)) == val(i)
       end
     end
   end
@@ -241,9 +242,10 @@ defmodule ChainStateUncompactTest do
       accounts =
         CAccountMap.put(accounts, addr(1), 9, 9_000, new_storage, <<9>>)
 
-      assert {9, 9_000, storage, <<9>>} = CAccountMap.get(accounts, addr(1))
-      assert CMerkleTree.get(storage, slot(99)) == val(99)
-      refute CMerkleTree.get(storage, slot(1)) == val(1)
+      assert {9, 9_000, root, <<9>>} = CAccountMap.get(accounts, addr(1))
+      assert is_binary(root) and byte_size(root) == 32
+      assert CAccountMap.storage_get(accounts, addr(1), slot(99)) == val(99)
+      refute CAccountMap.storage_get(accounts, addr(1), slot(1)) == val(1)
     end
 
     test "to_list materializes lazy storage for every account" do
@@ -257,10 +259,12 @@ defmodule ChainStateUncompactTest do
       assert map_size(listed) == 4
 
       for i <- 1..4 do
-        {_nonce, _balance, storage, code} = Map.fetch!(listed, addr(i))
+        {_nonce, _balance, root, code} = Map.fetch!(listed, addr(i))
         assert code == <<i>>
-        assert CMerkleTree.get(storage, slot(i)) == val(i)
-        assert CMerkleTree.root_hash(storage) == Account.root_hash(sample_account(i))
+        assert is_binary(root) and byte_size(root) == 32
+        assert CAccountMap.storage_get(accounts, addr(i), slot(i)) == val(i)
+        assert root == Account.root_hash(sample_account(i))
+        assert CAccountMap.storage_root_hash(accounts, addr(i)) == root
       end
     end
 
@@ -282,7 +286,7 @@ defmodule ChainStateUncompactTest do
       force_gc()
 
       for i <- 1..6 do
-        assert Account.storage_value(State.account(restored, addr(i)), slot(i)) == val(i)
+        assert State.storage_value(restored, addr(i), slot(i)) == val(i)
       end
     end
 
@@ -309,19 +313,16 @@ defmodule ChainStateUncompactTest do
 
       fork =
         Enum.reduce(1..4, fork, fn i, state ->
-          acc =
-            state
-            |> State.account(addr(i))
-            |> Account.storage_set_value(slot(100 + i), val(100 + i))
-
-          State.set_account(state, addr(i), acc)
+          State.storage_put_map(state, %{
+            addr(i) => %{slot(100 + i) => val(100 + i)}
+          })
         end)
 
       for i <- 1..4 do
-        assert Account.storage_value(State.account(fork, addr(i)), slot(100 + i)) ==
+        assert State.storage_value(fork, addr(i), slot(100 + i)) ==
                  val(100 + i)
 
-        assert Account.storage_value(State.account(restored, addr(i)), slot(100 + i)) ==
+        assert State.storage_value(restored, addr(i), slot(100 + i)) ==
                  <<0::unsigned-size(256)>>
       end
     end

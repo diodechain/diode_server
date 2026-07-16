@@ -5,6 +5,9 @@
 # Lifetime / refcount regression tests for CAccountMap NIF resources.
 # Targets bugs like premature SharedState deletion while merkletree resources
 # are still alive (ethr_mutex_lock EINVAL on destroyed mutex).
+#
+# CAccountMap.get/2 returns a 32-byte storage root hash (never a live trie).
+# Storage usability is checked via storage_get / storage_root_hash / storage_put_map.
 defmodule CAccountMapLifetimeTest do
   use ExUnit.Case, async: false
 
@@ -46,25 +49,33 @@ defmodule CAccountMapLifetimeTest do
     Enum.reduce(1..n_accounts, CAccountMap.new(), &put_sample(&2, &1))
   end
 
-  defp assert_storage_usable(storage) do
-    hash = CMerkleTree.root_hash(storage)
-    assert is_binary(hash) and byte_size(hash) > 0
+  # Storage is no longer returned as a live resource from get/to_list.
+  # Verify the map can still read and that a clone remains writable.
+  defp assert_map_storage_usable(map, address) do
+    hash = CAccountMap.storage_root_hash(map, address)
+    assert is_binary(hash) and byte_size(hash) == 32
 
-    updated =
-      CMerkleTree.insert_items(storage, [
-        {slot(9_999), val(9_999)}
-      ])
+    {_n, _b, root, _c} = CAccountMap.get(map, address)
+    assert root == hash
 
-    assert is_binary(CMerkleTree.root_hash(updated))
+    fork =
+      map
+      |> CAccountMap.clone()
+      |> CAccountMap.storage_put_map(%{address => %{slot(9_999) => val(9_999)}})
+
+    assert CAccountMap.storage_get(fork, address, slot(9_999)) == val(9_999)
+    assert CAccountMap.storage_root_hash(map, address) == hash
   end
 
-  # CAccountMap.clone now produces writable (locked = false) storage tries that are
-  # distinct resources from the parent's, so account entries must be compared by
-  # value (storage root_hash) rather than by resource identity.
+  defp assert_state_storage_usable(state, address) do
+    assert_map_storage_usable(state.accounts, address)
+  end
+
+  # Compare account entries by value (nonce/balance/root_hash/code).
   defp entry_value(:undefined), do: :undefined
 
-  defp entry_value({nonce, balance, storage, code}) do
-    {nonce, balance, CMerkleTree.root_hash(storage), code}
+  defp entry_value({nonce, balance, root_hash, code}) do
+    {nonce, balance, root_hash, code}
   end
 
   describe "clone GC must not corrupt parent storage" do
@@ -78,8 +89,7 @@ defmodule CAccountMapLifetimeTest do
                  entry_value(CAccountMap.get(base, addr(5)))
       end)
 
-      {_, _, storage, _} = CAccountMap.get(base, addr(5))
-      assert_storage_usable(storage)
+      assert_map_storage_usable(base, addr(5))
     end
 
     test "many ephemeral clones with reads between GC rounds" do
@@ -103,8 +113,7 @@ defmodule CAccountMapLifetimeTest do
       end
 
       for i <- 1..8 do
-        {_, _, storage, _} = CAccountMap.get(base, addr(i))
-        assert_storage_usable(storage)
+        assert_map_storage_usable(base, addr(i))
       end
     end
 
@@ -121,8 +130,7 @@ defmodule CAccountMapLifetimeTest do
         end)
       end
 
-      acc = State.account(state, addr(1))
-      assert_storage_usable(Account.tree(acc))
+      assert_state_storage_usable(state, addr(1))
       assert State.hash(state) == State.hash(State.clone(state))
     end
   end
@@ -149,10 +157,11 @@ defmodule CAccountMapLifetimeTest do
         end)
       end
 
-      {_, _, storage_a, _} = CAccountMap.get(map, addr(10))
-      {_, _, storage_b, _} = CAccountMap.get(map, addr(11))
-      assert storage_a == storage_b
-      assert_storage_usable(storage_a)
+      assert CAccountMap.storage_root_hash(map, addr(10)) ==
+               CAccountMap.storage_root_hash(map, addr(11))
+
+      assert_map_storage_usable(map, addr(10))
+      assert_map_storage_usable(map, addr(11))
     end
 
     test "shared storage with fork mutation splits only the mutated branch" do
@@ -167,21 +176,17 @@ defmodule CAccountMapLifetimeTest do
         fork =
           map
           |> CAccountMap.clone()
-          |> CAccountMap.put(
-            addr(20),
-            9,
-            900,
-            CMerkleTree.insert_items(storage, [{slot(99), val(99)}]),
-            <<99>>
-          )
+          |> CAccountMap.storage_put_map(%{addr(20) => %{slot(99) => val(99)}})
+          |> CAccountMap.put_meta(addr(20), 9, 900, <<99>>)
 
         assert {9, 900, _, <<99>>} = CAccountMap.get(fork, addr(20))
         assert {1, 100, _, <<20>>} = CAccountMap.get(map, addr(20))
         assert {2, 200, _, <<21>>} = CAccountMap.get(map, addr(21))
+        assert CAccountMap.storage_get(fork, addr(20), slot(99)) == val(99)
+        assert CAccountMap.storage_get(map, addr(20), slot(99)) == nil
       end)
 
-      {_, _, parent_storage, _} = CAccountMap.get(map, addr(20))
-      assert_storage_usable(parent_storage)
+      assert_map_storage_usable(map, addr(20))
     end
   end
 
@@ -203,13 +208,12 @@ defmodule CAccountMapLifetimeTest do
       assert CAccountMap.get(base, addr(2)) != :undefined
 
       assert CAccountMap.size(base) == 4
-      {_, _, storage, _} = CAccountMap.get(base, addr(2))
-      assert_storage_usable(storage)
+      assert_map_storage_usable(base, addr(2))
     end
 
     test "put replaces storage root without leaving dangling tries" do
       base = put_sample(CAccountMap.new(), 3)
-      {_, _, old_storage, _} = CAccountMap.get(base, addr(3))
+      {_, _, old_root, _} = CAccountMap.get(base, addr(3))
 
       new_storage = CMerkleTree.insert_items(CMerkleTree.new(), [{slot(7), val(7)}])
 
@@ -227,9 +231,11 @@ defmodule CAccountMapLifetimeTest do
         _fork = CAccountMap.clone(base)
       end)
 
-      assert {30, 30_000, storage, <<30>>} = CAccountMap.get(base, addr(3))
-      assert storage != old_storage
-      assert_storage_usable(storage)
+      assert {30, 30_000, root, <<30>>} = CAccountMap.get(base, addr(3))
+      assert is_binary(root) and byte_size(root) == 32
+      assert root != old_root
+      assert CAccountMap.storage_get(base, addr(3), slot(7)) == val(7)
+      assert_map_storage_usable(base, addr(3))
     end
 
     test "nested clone chain with middle resource dropped" do
@@ -254,8 +260,7 @@ defmodule CAccountMapLifetimeTest do
         _ = c3
       end)
 
-      {_, _, storage, _} = CAccountMap.get(base, addr(2))
-      assert_storage_usable(storage)
+      assert_map_storage_usable(base, addr(2))
     end
   end
 
@@ -282,8 +287,7 @@ defmodule CAccountMapLifetimeTest do
       assert Enum.all?(Task.await_many(tasks, 60_000), &(&1 == :ok))
 
       for i <- 1..6 do
-        {_, _, storage, _} = CAccountMap.get(base, addr(i))
-        assert_storage_usable(storage)
+        assert_map_storage_usable(base, addr(i))
       end
     end
 
@@ -300,12 +304,11 @@ defmodule CAccountMapLifetimeTest do
       end
 
       base =
-        base
-        |> State.account(addr(1))
-        |> Account.storage_set_value(slot(42), val(42))
-        |> then(&State.set_account(base, addr(1), &1))
+        State.storage_put_map(base, %{
+          addr(1) => %{slot(42) => val(42)}
+        })
 
-      assert Account.storage_value(State.account(base, addr(1)), slot(42)) == val(42)
+      assert State.storage_value(base, addr(1), slot(42)) == val(42)
       assert is_binary(State.hash(base))
     end
   end
@@ -326,9 +329,10 @@ defmodule CAccountMapLifetimeTest do
       refute Map.has_key?(listed, addr(99))
 
       for i <- 1..5 do
-        {nonce, balance, storage, code} = Map.fetch!(listed, addr(i))
+        {nonce, balance, root, code} = Map.fetch!(listed, addr(i))
         assert {nonce, balance, code} == {i, i * 1_000, <<i>>}
-        assert_storage_usable(storage)
+        assert is_binary(root) and byte_size(root) == 32
+        assert_map_storage_usable(base, addr(i))
       end
     end
 
@@ -350,11 +354,9 @@ defmodule CAccountMapLifetimeTest do
   end
 
   describe "clone of a locked state stays writable (block sync path)" do
-    # Reproduces the startup block-sync hang: BlockProcess.cache_block/1 freezes the
-    # cached parent via Chain.State.lock/1 (mt->locked = true on every storage trie),
-    # and Block.create_empty/3 forks it via Chain.State.clone/1. The fork's storage
-    # tries must be writable (locked = false) or the EVM's storage writes return
-    # badarg and validation can never advance.
+    # BlockProcess.cache_block/1 freezes the cached parent via Chain.State.lock/1
+    # (frozen account map). Block.create_empty/3 and RPC/EdgeV2/Shell fork via
+    # Chain.State.clone/1. The fork must accept storage_put_map writes.
     test "storage write in a fork of a State.lock'd state succeeds and isolates parent" do
       base =
         State.new()
@@ -365,20 +367,40 @@ defmodule CAccountMapLifetimeTest do
       fork = State.clone(base)
 
       updated =
-        fork
-        |> State.account(addr(1))
-        |> Account.storage_set_value(slot(42), val(42))
-        |> then(&State.set_account(fork, addr(1), &1))
+        State.storage_put_map(fork, %{
+          addr(1) => %{slot(42) => val(42)}
+        })
 
-      assert Account.storage_value(State.account(updated, addr(1)), slot(42)) == val(42)
+      assert State.storage_value(updated, addr(1), slot(42)) == val(42)
       assert is_binary(State.hash(updated))
 
       # Parent stays frozen: the fork's COW write must not leak back.
-      assert Account.storage_value(State.account(base, addr(1)), slot(42)) ==
+      assert State.storage_value(base, addr(1), slot(42)) ==
                <<0::unsigned-size(256)>>
 
-      assert Account.storage_value(State.account(base, addr(1)), slot(1)) == val(1)
+      assert State.storage_value(base, addr(1), slot(1)) == val(1)
       assert is_binary(State.hash(base))
+    end
+
+    test "storage_put_map on locked parent raises and leaves parent unchanged" do
+      base =
+        State.new()
+        |> State.set_account(addr(1), sample_account(1))
+
+      before = State.storage_value(base, addr(1), slot(1))
+      {_n, _b, root, _c} = CAccountMap.get(base.accounts, addr(1))
+      assert byte_size(root) == 32
+
+      Chain.State.lock(base)
+
+      assert_raise ArgumentError, fn ->
+        State.storage_put_map(base, %{addr(1) => %{slot(42) => val(42)}})
+      end
+
+      assert State.storage_value(base, addr(1), slot(1)) == before
+
+      assert State.storage_value(base, addr(1), slot(42)) ==
+               <<0::unsigned-size(256)>>
     end
 
     test "storage write in a fork of a locked state with many accounts" do
@@ -393,22 +415,19 @@ defmodule CAccountMapLifetimeTest do
 
       fork =
         Enum.reduce(1..6, fork, fn i, state ->
-          acc =
-            state
-            |> State.account(addr(i))
-            |> Account.storage_set_value(slot(100 + i), val(100 + i))
-
-          State.set_account(state, addr(i), acc)
+          State.storage_put_map(state, %{
+            addr(i) => %{slot(100 + i) => val(100 + i)}
+          })
         end)
 
       for i <- 1..6 do
-        assert Account.storage_value(State.account(fork, addr(i)), slot(100 + i)) ==
+        assert State.storage_value(fork, addr(i), slot(100 + i)) ==
                  val(100 + i)
       end
 
       # Parent untouched.
       for i <- 1..6 do
-        assert Account.storage_value(State.account(base, addr(i)), slot(100 + i)) ==
+        assert State.storage_value(base, addr(i), slot(100 + i)) ==
                  <<0::unsigned-size(256)>>
       end
     end
@@ -425,14 +444,13 @@ defmodule CAccountMapLifetimeTest do
       fork = State.clone(base)
 
       fork =
-        fork
-        |> State.account(addr(1))
-        |> Account.storage_set_value(slot(77), val(77))
-        |> then(&State.set_account(fork, addr(1), &1))
+        State.storage_put_map(fork, %{
+          addr(1) => %{slot(77) => val(77)}
+        })
 
-      assert Account.storage_value(State.account(fork, addr(1)), slot(77)) == val(77)
+      assert State.storage_value(fork, addr(1), slot(77)) == val(77)
 
-      assert Account.storage_value(State.account(base, addr(1)), slot(77)) ==
+      assert State.storage_value(base, addr(1), slot(77)) ==
                <<0::unsigned-size(256)>>
 
       assert is_binary(State.hash(fork))
@@ -459,19 +477,16 @@ defmodule CAccountMapLifetimeTest do
 
       fork =
         Enum.reduce(1..2, fork, fn i, state ->
-          acc =
-            state
-            |> State.account(addr(i))
-            |> Account.storage_set_value(slot(100 + i), val(100 + i))
-
-          State.set_account(state, addr(i), acc)
+          State.storage_put_map(state, %{
+            addr(i) => %{slot(100 + i) => val(100 + i)}
+          })
         end)
 
       for i <- 1..2 do
-        assert Account.storage_value(State.account(fork, addr(i)), slot(100 + i)) ==
+        assert State.storage_value(fork, addr(i), slot(100 + i)) ==
                  val(100 + i)
 
-        assert Account.storage_value(State.account(base, addr(i)), slot(100 + i)) ==
+        assert State.storage_value(base, addr(i), slot(100 + i)) ==
                  <<0::unsigned-size(256)>>
       end
     end
@@ -489,19 +504,16 @@ defmodule CAccountMapLifetimeTest do
 
       fork =
         Enum.reduce(1..10, fork, fn i, state ->
-          acc =
-            state
-            |> State.account(addr(i))
-            |> Account.storage_set_value(slot(200 + i), val(200 + i))
-
-          State.set_account(state, addr(i), acc)
+          State.storage_put_map(state, %{
+            addr(i) => %{slot(200 + i) => val(200 + i)}
+          })
         end)
 
       for i <- 1..10 do
-        assert Account.storage_value(State.account(fork, addr(i)), slot(200 + i)) ==
+        assert State.storage_value(fork, addr(i), slot(200 + i)) ==
                  val(200 + i)
 
-        assert Account.storage_value(State.account(base, addr(i)), slot(200 + i)) ==
+        assert State.storage_value(base, addr(i), slot(200 + i)) ==
                  <<0::unsigned-size(256)>>
       end
     end
@@ -524,18 +536,11 @@ defmodule CAccountMapLifetimeTest do
       fork =
         restored
         |> State.clone()
-        |> then(fn state ->
-          acc =
-            state
-            |> State.account(addr(1))
-            |> Account.storage_set_value(slot(501), val(501))
+        |> State.storage_put_map(%{addr(1) => %{slot(501) => val(501)}})
 
-          State.set_account(state, addr(1), acc)
-        end)
+      assert State.storage_value(fork, addr(1), slot(501)) == val(501)
 
-      assert Account.storage_value(State.account(fork, addr(1)), slot(501)) == val(501)
-
-      assert Account.storage_value(State.account(restored, addr(1)), slot(501)) ==
+      assert State.storage_value(restored, addr(1), slot(501)) ==
                <<0::unsigned-size(256)>>
     end
   end

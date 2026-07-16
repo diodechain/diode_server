@@ -262,13 +262,20 @@ defmodule ChainTest do
         # for {key, value} <- to_list(result.storage_root) do
         #   assert {key, value} == {key, Account.storageInteger(account, key)}
         # end
-        assert to_list(Account.tree(result)) == to_list(Account.tree(account))
+        # result is map-backed (no live trie); compare via State.storage_to_list.
+        assert storage_list(state, addr) == to_list(Account.tree(account))
       end
     end
 
     post_keys = Chain.State.accounts(state) |> Enum.map(fn {key, _acc} -> key end)
     reference_keys = Keyword.keys(reference_accounts) |> Enum.map(&Wallet.address!/1)
     assert post_keys == reference_keys
+  end
+
+  defp storage_list(state, addr) do
+    State.storage_to_list(state, addr)
+    |> Enum.map(fn {key, value} -> {compress(key), compress(value)} end)
+    |> Enum.sort()
   end
 
   defp to_list(tree) do

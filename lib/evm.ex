@@ -41,10 +41,9 @@ defmodule Evm do
 
     @type t :: %Evm.Task{}
 
-    @spec store(Evm.Task.t()) :: CMerkleTree.t()
+    @spec store(Evm.Task.t()) :: list()
     def store(%Task{chain_state: state} = task) do
-      State.ensure_account(state, address(task))
-      |> Account.tree()
+      State.storage_to_list(state, address(task))
     end
 
     def code(%Task{code: code}), do: code
@@ -498,16 +497,10 @@ defmodule Evm do
   end
 
   defp cache_account(state, port, address) do
-    tree =
-      State.ensure_account(state, address)
-      |> Chain.Account.tree()
-
-    # IO.puts("value size: #{CMerkleTree.size(tree)}")
-
     cache =
-      if CMerkleTree.size(tree) < 100 do
+      if State.storage_size(state, address) < 100 do
         values =
-          CMerkleTree.to_list(tree)
+          State.storage_to_list(state, address)
           |> Enum.map(fn {k, v} -> [k, v] end)
 
         [
@@ -562,14 +555,12 @@ defmodule Evm do
        ) do
     count = Diode.evm_storage_read_ahead() |> max(0) |> min(254) |> Kernel.+(1)
 
-    tree =
-      state(evm)
-      |> State.ensure_account(addr)
-      |> Chain.Account.tree()
-
     entries =
-      CMerkleTree.get_range_raw(tree, key, count)
-      |> Enum.map(fn {k, v} -> [k, v] end)
+      State.storage_get_range(state(evm), addr, key, count)
+      |> Enum.map(fn
+        {k, nil} -> [k, <<0::unsigned-size(256)>>]
+        {k, v} -> [k, v]
+      end)
 
     true = Port.command(evm.port, [<<length(entries)::unsigned-integer-size(8)>> | entries])
     {:cont, evm}
@@ -754,13 +745,7 @@ defmodule Evm do
 
   defp process_updates(rest, state) do
     updates = parse_map(rest, %{})
-
-    Enum.reduce(updates, state, fn {addr, kvs}, state ->
-      acc = State.ensure_account(state, addr)
-      root = CMerkleTree.insert_items(Account.tree(acc), Map.to_list(kvs))
-      acc = Chain.Account.put_tree(acc, root)
-      State.set_account(state, addr, acc)
-    end)
+    State.storage_put_map(state, updates)
   end
 
   defp parse_map(

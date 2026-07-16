@@ -19,10 +19,6 @@ defmodule CMerkleTree do
     insert_items(new(), list)
   end
 
-  def list_difference(_a, _b) do
-    raise "CMerkleTree.list_difference/2 removed; use CAccountMap.list_difference/2"
-  end
-
   def difference(a, b) do
     difference_raw(a, b)
     |> Enum.map(fn
@@ -119,19 +115,27 @@ defmodule CMerkleTree do
 
   def account_map_new(), do: error()
   def account_map_clone(_map), do: error()
-  def account_map_clone_lazy(_map), do: error()
   def account_map_root_hash(_map), do: error()
   def account_map_state_trie(_map), do: error()
+  def account_map_get_proofs(_map, _addr), do: error()
   def account_map_lock(_map), do: error()
   def account_map_get(_map, _addr), do: error()
   def account_map_put(_map, _addr, _nonce, _balance, _storage, _code), do: error()
+  def account_map_put_meta(_map, _addr, _nonce, _balance, _code), do: error()
   def account_map_delete(_map, _addr), do: error()
   def account_map_size(_map), do: error()
   def account_map_to_list(_map), do: error()
-  def account_map_list_difference_raw(_map_a, _map_b), do: error()
   def account_map_difference_full(_map_a, _map_b), do: error()
   def account_map_apply_difference(_map, _delta), do: error()
   def account_map_uncompact_state(_map), do: error()
+  def account_map_storage_put_map(_map, _updates), do: error()
+  def account_map_storage_get(_map, _addr, _key), do: error()
+  def account_map_storage_get_range(_map, _addr, _key, _count), do: error()
+  def account_map_storage_to_list(_map, _addr), do: error()
+  def account_map_storage_size(_map, _addr), do: error()
+  def account_map_storage_root_hash(_map, _addr), do: error()
+  def account_map_storage_root_hashes(_map, _addr), do: error()
+  def account_map_storage_get_proofs(_map, _addr, _key), do: error()
 
   defp struct_sizes_raw, do: error()
   defp memory_stats_raw(_tree), do: error()

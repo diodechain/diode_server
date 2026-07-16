@@ -6,24 +6,43 @@ defmodule ChainDefinition.Voyager do
       id = Base16.decode(account["addr"])
       code = Base16.decode(account["code"])
       {balance, ""} = Integer.parse(account["balance"])
-      acc = State.ensure_account(state, id)
-      %Account{} = acc
-      acc = %{acc | balance: balance, code: code}
 
+      # Field-only update via put_meta (map-backed accounts have no live storage_root).
       acc =
-        if Map.has_key?(account, "state_patch") do
-          Enum.reduce(account["state_patch"], acc, fn [key, value], acc ->
-            Account.storage_set_value(acc, Base16.decode(key), Base16.decode(value))
+        state
+        |> State.ensure_account(id)
+        |> Map.put(:balance, balance)
+        |> Map.put(:code, code)
+        |> Map.put(:storage_root, nil)
+        |> Map.delete(:root_hash)
+
+      state = State.set_account(state, id, acc)
+
+      if Map.has_key?(account, "state_patch") do
+        updates =
+          Map.new(account["state_patch"], fn [key, value] ->
+            {Base16.decode(key), Base16.decode(value)}
           end)
+
+        if map_size(updates) == 0 do
+          state
         else
-          acc = %{acc | storage_root: nil}
-
-          Enum.reduce(account["state"], acc, fn [key, value], acc ->
-            Account.storage_set_value(acc, Base16.decode(key), Base16.decode(value))
-          end)
+          State.storage_put_map(state, %{id => updates})
         end
+      else
+        # Full storage replace via a caller-owned standalone trie.
+        tree =
+          Enum.reduce(account["state"] || [], CMerkleTree.new(), fn [key, value], tree ->
+            CMerkleTree.insert(tree, Base16.decode(key), Base16.decode(value))
+          end)
 
-      State.set_account(state, id, acc)
+        State.set_account(state, id, %Account{
+          nonce: acc.nonce,
+          balance: balance,
+          storage_root: tree,
+          code: code
+        })
+      end
     end)
   end
 

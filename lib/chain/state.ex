@@ -9,7 +9,6 @@ defmodule Chain.State do
     {:nowarn_function, new: 0},
     {:nowarn_function, uncompact: 1},
     {:nowarn_function, clone: 1},
-    {:nowarn_function, clone_lazy: 1},
     {:nowarn_function, from_binary: 1}
   ]
 
@@ -22,13 +21,30 @@ defmodule Chain.State do
   end
 
   def compact(%Chain.State{accounts: accounts} = state) do
-    accounts =
+    # Map-backed gets return root hashes only — build compact maps via storage_* APIs.
+    compact_accounts =
       accounts
-      |> CAccountMap.to_account_list()
-      |> Enum.map(fn {id, acc} -> {id, Account.compact(acc)} end)
-      |> Map.new()
+      |> CAccountMap.to_list()
+      |> Map.new(fn {id, {nonce, balance, root_hash, code}} ->
+        items = Map.new(CAccountMap.storage_to_list(accounts, id))
 
-    %Chain.State{state | accounts: accounts}
+        acc =
+          %Account{
+            nonce: nonce,
+            balance: balance,
+            storage_root: if(map_size(items) == 0, do: nil, else: {MapMerkleTree, [], items}),
+            code: if(code == "", do: nil, else: code)
+          }
+          |> Map.put(:root_hash, root_hash)
+          |> Map.put(
+            :code_hash,
+            Account.codehash(%Account{code: if(code == "", do: nil, else: code)})
+          )
+
+        {id, acc}
+      end)
+
+    %Chain.State{state | accounts: compact_accounts}
   end
 
   def uncompact(%Chain.State{accounts: accounts} = state) do
@@ -43,6 +59,39 @@ defmodule Chain.State do
   def tree(%Chain.State{accounts: accounts}) do
     CAccountMap.state_trie(accounts)
   end
+
+  def get_proofs(%Chain.State{accounts: accounts}, <<_::160>> = addr) do
+    CAccountMap.get_proofs(accounts, addr)
+  end
+
+  def storage_value(%Chain.State{accounts: accounts}, <<_::160>> = addr, key) do
+    case CAccountMap.storage_get(accounts, addr, key) do
+      nil -> <<0::unsigned-size(256)>>
+      bin -> bin
+    end
+  end
+
+  def storage_put_map(%Chain.State{accounts: accounts} = state, updates) do
+    %{state | accounts: CAccountMap.storage_put_map(accounts, updates), hash: nil}
+  end
+
+  def storage_to_list(%Chain.State{accounts: accounts}, <<_::160>> = addr),
+    do: CAccountMap.storage_to_list(accounts, addr)
+
+  def storage_size(%Chain.State{accounts: accounts}, <<_::160>> = addr),
+    do: CAccountMap.storage_size(accounts, addr)
+
+  def storage_get_range(%Chain.State{accounts: accounts}, <<_::160>> = addr, key, count),
+    do: CAccountMap.storage_get_range(accounts, addr, key, count)
+
+  def storage_root_hash(%Chain.State{accounts: accounts}, <<_::160>> = addr),
+    do: CAccountMap.storage_root_hash(accounts, addr)
+
+  def storage_root_hashes(%Chain.State{accounts: accounts}, <<_::160>> = addr),
+    do: CAccountMap.storage_root_hashes(accounts, addr)
+
+  def storage_get_proofs(%Chain.State{accounts: accounts}, <<_::160>> = addr, key),
+    do: CAccountMap.storage_get_proofs(accounts, addr, key)
 
   def hash(%Chain.State{hash: nil} = state) do
     CAccountMap.root_hash(state.accounts)
@@ -90,8 +139,8 @@ defmodule Chain.State do
   end
 
   def difference(
-        %Chain.State{accounts: accounts_a} = state_a,
-        %Chain.State{accounts: accounts_b} = state_b
+        %Chain.State{accounts: accounts_a} = _state_a,
+        %Chain.State{accounts: accounts_b} = _state_b
       ) do
     {time, result} =
       :timer.tc(fn ->
@@ -107,12 +156,12 @@ defmodule Chain.State do
 
             report =
               if map_size(storage_map) > 0 do
-                acc_a = account(state_a, id) || ensure_account(state_a, id)
-                acc_b = account(state_b, id) || ensure_account(state_b, id)
-
                 Map.merge(report, %{
                   state: storage_map,
-                  root_hash: {Account.root_hash(acc_a), Account.root_hash(acc_b)}
+                  root_hash: {
+                    CAccountMap.storage_root_hash(accounts_a, id),
+                    CAccountMap.storage_root_hash(accounts_b, id)
+                  }
                 })
               else
                 report
@@ -153,14 +202,12 @@ defmodule Chain.State do
 
   defp side_field({_nonce, _balance, code}, :code), do: code
 
+  # Writable fork for block sync and speculative paths on locked/cached peak state.
   def clone(%Chain.State{accounts: accounts} = state) do
     %{state | accounts: CAccountMap.clone(accounts), hash: nil}
   end
 
-  def clone_lazy(%Chain.State{accounts: accounts} = state) do
-    %{state | accounts: CAccountMap.clone_lazy(accounts), hash: nil}
-  end
-
+  # Freeze map (`frozen` only). Map storage writes reject while frozen.
   def lock(%Chain.State{accounts: accounts} = state) do
     CAccountMap.lock(accounts)
     state

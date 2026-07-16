@@ -7,7 +7,7 @@ defmodule Chain.Account do
   @type t :: %Chain.Account{
           nonce: non_neg_integer(),
           balance: non_neg_integer(),
-          storage_root: CMerkleTree.t(),
+          storage_root: CMerkleTree.t() | nil,
           code: binary() | nil
         }
 
@@ -24,9 +24,37 @@ defmodule Chain.Account do
   def nonce(%Chain.Account{nonce: nonce}), do: nonce
   def balance(%Chain.Account{balance: balance}), do: balance
 
+  @doc """
+  Live storage trie for standalone (genesis/import) accounts only.
+  Map-backed accounts (`storage_root: nil` with `:root_hash`) have no live trie —
+  use `Chain.State.storage_*` APIs instead.
+  """
   @spec tree(Chain.Account.t()) :: CMerkleTree.t()
-  def tree(%Chain.Account{storage_root: nil}), do: CMerkleTree.new()
+  def tree(%Chain.Account{storage_root: nil} = acc) do
+    if map_backed?(acc) do
+      raise ArgumentError,
+            "map-backed account has no live storage_root; use Chain.State.storage_* APIs"
+    else
+      CMerkleTree.new()
+    end
+  end
+
   def tree(%Chain.Account{storage_root: root}), do: root
+
+  @doc """
+  Build an account from `CAccountMap.get/2` parts.
+  When `storage` is a 32-byte root hash, the account is map-backed (`storage_root: nil`).
+  When `storage` is a merkle resource (or nil), it is a standalone trie for genesis/put.
+  """
+  def from_parts(nonce, balance, <<root_hash::binary-size(32)>>, code) do
+    %Chain.Account{
+      nonce: nonce,
+      balance: balance,
+      storage_root: nil,
+      code: if(code == "", do: nil, else: code)
+    }
+    |> Map.put(:root_hash, root_hash)
+  end
 
   def from_parts(nonce, balance, storage, code) do
     %Chain.Account{
@@ -43,7 +71,16 @@ defmodule Chain.Account do
   end
 
   def put_tree(%Chain.Account{} = acc, root) do
-    %Chain.Account{acc | storage_root: root}
+    acc
+    |> Map.put(:storage_root, root)
+    |> Map.delete(:root_hash)
+  end
+
+  def root_hash(%Chain.Account{storage_root: nil} = acc) do
+    case Map.get(acc, :root_hash) do
+      <<_::binary-size(32)>> = hash -> hash
+      _ -> CMerkleTree.root_hash(CMerkleTree.new())
+    end
   end
 
   def root_hash(%Chain.Account{} = acc) do
@@ -56,13 +93,7 @@ defmodule Chain.Account do
 
   def uncompact(%Chain.Account{storage_root: {MapMerkleTree, _opts, items}} = acc)
       when is_map(items) do
-    # old_root = Map.get(acc, :root_hash)
     storage_root = CMerkleTree.from_map(items)
-
-    # if old_root != CMerkleTree.root_hash(storage_root) do
-    #   IO.inspect({old_root, CMerkleTree.root_hash(storage_root)}, label: "root_hash mismatch")
-    # end
-
     %Chain.Account{acc | storage_root: storage_root}
   end
 
@@ -71,6 +102,10 @@ defmodule Chain.Account do
   end
 
   def compact(%Chain.Account{} = acc) do
+    if map_backed?(acc) do
+      raise ArgumentError, "map-backed accounts are compacted via Chain.State.compact/1"
+    end
+
     tree = tree(acc)
 
     if CMerkleTree.size(tree) == 0 do
@@ -82,10 +117,17 @@ defmodule Chain.Account do
     |> Map.put(:code_hash, codehash(acc))
   end
 
-  def storage_set_value(acc, key = <<_k::256>>, value = <<_v::256>>) do
-    %Chain.Account{} = acc
+  def storage_set_value(%Chain.Account{} = acc, key = <<_k::256>>, value = <<_v::256>>) do
+    if map_backed?(acc) do
+      raise ArgumentError,
+            "map-backed account storage writes go through Chain.State.storage_put_map/2"
+    end
+
     store = CMerkleTree.insert(tree(acc), key, value)
-    %{acc | storage_root: store}
+
+    acc
+    |> Map.put(:storage_root, store)
+    |> Map.delete(:root_hash)
   end
 
   def storage_set_value(acc, key, value) when is_integer(key) do
@@ -102,6 +144,11 @@ defmodule Chain.Account do
   end
 
   def storage_value(%Chain.Account{} = acc, key) when is_binary(key) do
+    if map_backed?(acc) do
+      raise ArgumentError,
+            "map-backed account storage reads go through Chain.State.storage_value/3"
+    end
+
     case CMerkleTree.get(tree(acc), key) do
       nil -> <<0::unsigned-size(256)>>
       bin -> bin
@@ -131,4 +178,7 @@ defmodule Chain.Account do
   def codehash(%Chain.Account{code: code}) do
     Diode.hash(code)
   end
+
+  defp map_backed?(%Chain.Account{storage_root: nil} = acc), do: Map.has_key?(acc, :root_hash)
+  defp map_backed?(_), do: false
 end

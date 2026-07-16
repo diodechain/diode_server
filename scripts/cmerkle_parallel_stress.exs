@@ -198,7 +198,7 @@ defmodule CMerkleParallelStress do
         run_named("P18_writer_sim", fn -> p18_writer_sim(ctx) end)
 
       "P18L" ->
-        run_named("P18_lazy_clone_eth_call", fn -> p18_lazy_clone_eth_call(ctx) end)
+        run_named("P18_clone_eth_call", fn -> p18_clone_eth_call(ctx) end)
 
       "P19" ->
         run_named("P19_large_map_small_delta", fn -> p19_large_map_small_delta(ctx) end)
@@ -713,16 +713,9 @@ defmodule CMerkleParallelStress do
 
             1 ->
               id = addr(rem(w, n) + 1)
-              {_, _, storage, _} = CAccountMap.get(base, id)
-
-              alt =
-                CMerkleTree.insert(
-                  CMerkleTree.clone(storage),
-                  slot(w + j + 50_000),
-                  <<j::unsigned-size(256)>>
-                )
-
-              _ = CMerkleTree.difference(storage, alt)
+              _ = CAccountMap.storage_root_hash(base, id)
+              _ = CAccountMap.storage_to_list(base, id)
+              _ = CAccountMap.storage_get(base, id, slot(w + j + 50_000))
 
             2 ->
               fork = CAccountMap.clone(base)
@@ -751,13 +744,10 @@ defmodule CMerkleParallelStress do
       |> then(fn st ->
         Enum.reduce(1..min(ops, n), st, fn i, acc ->
           id = addr(rem(i, n) + 1)
-          acc0 = State.account(acc, id)
-          tree = Account.tree(acc0)
 
-          tree =
-            CMerkleTree.insert(tree, slot(i + 100_000), <<i * 11::unsigned-size(256)>>)
-
-          State.set_account(acc, id, Account.put_tree(acc0, tree))
+          State.storage_put_map(acc, %{
+            id => %{slot(i + 100_000) => <<i * 11::unsigned-size(256)>>}
+          })
         end)
       end)
 
@@ -795,13 +785,12 @@ defmodule CMerkleParallelStress do
       locked = State.lock(prev)
       fork = State.clone(locked)
       id = addr(rem(w, n) + 1)
-      acc0 = State.account(fork, id)
-      tree = Account.tree(acc0)
 
-      tree =
-        CMerkleTree.insert(tree, slot(w + 300_000), <<w * 13::unsigned-size(256)>>)
+      fork =
+        State.storage_put_map(fork, %{
+          id => %{slot(w + 300_000) => <<w * 13::unsigned-size(256)>>}
+        })
 
-      _ = State.set_account(fork, id, Account.put_tree(acc0, tree))
       _ = State.hash(fork)
       :ok
     end)
@@ -847,11 +836,10 @@ defmodule CMerkleParallelStress do
               |> CMerkleTree.lock()
 
           1 ->
-            _ =
-              CMerkleTree.difference(
-                Account.tree(State.account(live, addr(1))),
-                Account.tree(State.account(other, addr(1)))
-              )
+            # Compare storage root hashes / lists (get no longer returns live tries).
+            _ = CAccountMap.storage_root_hash(live.accounts, addr(1))
+            _ = CAccountMap.storage_root_hash(other.accounts, addr(1))
+            _ = CAccountMap.storage_to_list(live.accounts, addr(1))
 
           2 ->
             _ = CAccountMap.uncompact_state(compact)
@@ -889,13 +877,10 @@ defmodule CMerkleParallelStress do
       |> then(fn st ->
         Enum.reduce(1..min(ops, n), st, fn i, acc ->
           id = addr(rem(i, n) + 1)
-          acc0 = State.account(acc, id)
-          tree = Account.tree(acc0)
 
-          tree =
-            CMerkleTree.insert(tree, slot(i + 300_000), <<i * 17::unsigned-size(256)>>)
-
-          State.set_account(acc, id, Account.put_tree(acc0, tree))
+          State.storage_put_map(acc, %{
+            id => %{slot(i + 300_000) => <<i * 17::unsigned-size(256)>>}
+          })
         end)
       end)
 
@@ -935,13 +920,10 @@ defmodule CMerkleParallelStress do
       |> then(fn st ->
         Enum.reduce(1..min(ops, n), st, fn i, acc ->
           id = addr(rem(i, n) + 1)
-          acc0 = State.account(acc, id)
-          tree = Account.tree(acc0)
 
-          tree =
-            CMerkleTree.insert(tree, slot(i + 100_000), <<i * 11::unsigned-size(256)>>)
-
-          State.set_account(acc, id, Account.put_tree(acc0, tree))
+          State.storage_put_map(acc, %{
+            id => %{slot(i + 100_000) => <<i * 11::unsigned-size(256)>>}
+          })
         end)
       end)
 
@@ -961,7 +943,7 @@ defmodule CMerkleParallelStress do
     run.(:diff, differ, fn _ -> State.difference(prev, block) end)
     run.(:lock, lockers, fn _ -> State.lock(State.clone(block)) end)
     run.(:legacy, legacy, fn _ -> CAccountMap.to_list(block.accounts) end)
-    run.(:native, native, fn _ -> CAccountMap.list_difference(prev.accounts, block.accounts) end)
+    run.(:native, native, fn _ -> CAccountMap.difference_full(prev.accounts, block.accounts) end)
   end
 
   defp p18_writer_sim(%{tasks: tasks, accounts: n}) do
@@ -970,15 +952,9 @@ defmodule CMerkleParallelStress do
     block =
       prev
       |> State.clone()
-      |> then(fn st ->
-        acc = State.account(st, addr(1))
-
-        tree =
-          Account.tree(acc)
-          |> CMerkleTree.insert(slot(400_000), <<400_000::unsigned-size(256)>>)
-
-        State.set_account(st, addr(1), Account.put_tree(acc, tree))
-      end)
+      |> State.storage_put_map(%{
+        addr(1) => %{slot(400_000) => <<400_000::unsigned-size(256)>>}
+      })
 
     writer =
       Task.async(fn ->
@@ -993,12 +969,19 @@ defmodule CMerkleParallelStress do
         map = block.accounts
 
         case rem(w, 4) do
-          0 -> _ = CAccountMap.lock(map)
-          1 -> _ = CAccountMap.to_list(map)
-          2 -> {_, _, sa, _} = CAccountMap.get(map, addr(1))
-          {_, _, sb, _} = CAccountMap.get(map, addr(rem(w, n) + 1))
-          _ = CMerkleTree.difference(sa, sb)
-          _ -> _ = CAccountMap.delete(CAccountMap.clone(map), addr(rem(w, n) + 1))
+          0 ->
+            _ = CAccountMap.lock(map)
+
+          1 ->
+            _ = CAccountMap.to_list(map)
+
+          2 ->
+            _ = CAccountMap.storage_root_hash(map, addr(1))
+            _ = CAccountMap.storage_root_hash(map, addr(rem(w, n) + 1))
+            _ = CAccountMap.storage_to_list(map, addr(1))
+
+          _ ->
+            _ = CAccountMap.delete(CAccountMap.clone(map), addr(rem(w, n) + 1))
         end
 
         :ok
@@ -1012,25 +995,18 @@ defmodule CMerkleParallelStress do
     Task.await(writer, :infinity)
   end
 
-  defp p18_lazy_clone_eth_call(%{tasks: tasks, accounts: n}) do
+  defp p18_clone_eth_call(%{tasks: tasks, accounts: n}) do
     base = build_live_state(max(n, 50))
 
     1..tasks
     |> Task.async_stream(
       fn w ->
+        id = addr(rem(w, max(n, 50)) + 1)
+
         fork =
           base
-          |> State.clone_lazy()
-          |> then(fn st ->
-            id = addr(rem(w, max(n, 50)) + 1)
-            acc = State.account(st, id)
-
-            tree =
-              Account.tree(acc)
-              |> CMerkleTree.insert(slot(900_000 + w), <<w::unsigned-size(256)>>)
-
-            State.set_account(st, id, Account.put_tree(acc, tree))
-          end)
+          |> State.clone()
+          |> State.storage_put_map([{id, [{slot(900_000 + w), <<w::unsigned-size(256)>>}]}])
 
         _ = State.hash(fork)
         :ok
@@ -1052,9 +1028,10 @@ defmodule CMerkleParallelStress do
       |> then(fn st ->
         Enum.reduce(1..5, st, fn i, acc ->
           id = addr(i)
-          acc0 = State.account(acc, id)
-          tree = Account.tree(acc0) |> CMerkleTree.insert(slot(i + 500_000), <<i * 13::unsigned-size(256)>>)
-          State.set_account(acc, id, Account.put_tree(acc0, tree))
+
+          State.storage_put_map(acc, %{
+            id => %{slot(i + 500_000) => <<i * 13::unsigned-size(256)>>}
+          })
         end)
       end)
 
@@ -1091,11 +1068,22 @@ defmodule CMerkleParallelStress do
     |> Task.async_stream(
       fn w ->
         case rem(w, 5) do
-          0 -> _ = CAccountMap.list_difference(map, other.accounts)
-          1 -> _ = CAccountMap.lock(map)
-          2 -> _ = State.difference(live, other)
-          3 -> _ = CMerkleTree.difference(Account.tree(State.account(live, addr(1))), Account.tree(State.account(other, addr(1))))
-          _ -> _ = CAccountMap.to_list(map)
+          0 ->
+            _ = CAccountMap.difference_full(map, other.accounts)
+
+          1 ->
+            _ = CAccountMap.lock(map)
+
+          2 ->
+            _ = State.difference(live, other)
+
+          3 ->
+            _ = CAccountMap.storage_root_hash(live.accounts, addr(1))
+            _ = CAccountMap.storage_root_hash(other.accounts, addr(1))
+            _ = CAccountMap.storage_to_list(live.accounts, addr(1))
+
+          _ ->
+            _ = CAccountMap.to_list(map)
         end
 
         :ok

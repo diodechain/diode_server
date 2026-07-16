@@ -125,7 +125,7 @@ defmodule ChainStateMerkleTest do
       assert_roundtrip(prev, next)
     end
 
-    test "single account: delete storage slot (CMerkleTree.delete)" do
+    test "single account: delete storage slot (storage_put_map zero)" do
       prev =
         State.new()
         |> put_account(
@@ -136,14 +136,10 @@ defmodule ChainStateMerkleTest do
           ])
         )
 
-      acc_prev = State.account(prev, addr(1))
-
-      tree2 =
-        acc_prev
-        |> Account.tree()
-        |> CMerkleTree.delete(word32(2))
-
-      next = State.set_account(prev, addr(1), Account.put_tree(acc_prev, tree2))
+      next =
+        State.storage_put_map(prev, %{
+          addr(1) => %{word32(2) => <<0::unsigned-size(256)>>}
+        })
 
       assert_roundtrip(prev, next)
     end
@@ -362,9 +358,9 @@ defmodule ChainStateMerkleTest do
         )
 
       assert State.hash(fork) != parent_hash
-      assert Account.storage_value(State.account(fork, addr(1)), word32(99)) == val32(99)
+      assert State.storage_value(fork, addr(1), word32(99)) == val32(99)
 
-      assert Account.storage_value(State.account(base, addr(1)), word32(99)) ==
+      assert State.storage_value(base, addr(1), word32(99)) ==
                <<0::unsigned-size(256)>>
 
       assert is_binary(State.hash(base))
@@ -381,21 +377,18 @@ defmodule ChainStateMerkleTest do
 
       fork =
         Enum.reduce(1..2, fork, fn aid, st ->
-          acc =
-            st
-            |> State.account(addr(aid))
-            |> Account.storage_set_value(slot_u256(500 + aid), val_u256(aid * 100))
-
-          put_account(st, aid, acc)
+          State.storage_put_map(st, %{
+            addr(aid) => %{slot_u256(500 + aid) => val_u256(aid * 100)}
+          })
         end)
 
       assert is_binary(State.hash(fork))
 
       for aid <- 1..2 do
-        assert Account.storage_value(State.account(fork, addr(aid)), slot_u256(500 + aid)) ==
+        assert State.storage_value(fork, addr(aid), slot_u256(500 + aid)) ==
                  val_u256(aid * 100)
 
-        assert Account.storage_value(State.account(parent, addr(aid)), slot_u256(500 + aid)) ==
+        assert State.storage_value(parent, addr(aid), slot_u256(500 + aid)) ==
                  <<0::unsigned-size(256)>>
       end
     end

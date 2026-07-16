@@ -29,20 +29,30 @@
 | `memory_stats_raw` | 1 | resource | tests, benches |
 | `malloc_info_raw` | 0 | — | tests, `cmerkle_memory_bench.exs` |
 | `account_map_new` | 0 | — | `CAccountMap.new/0`, `Chain.State` |
-| `account_map_clone` | 1 | account map resource | `CAccountMap.clone/1`, `Chain.State.clone/1` |
-| `account_map_clone_lazy` | 1 | account map resource | `CAccountMap.clone_lazy/1`, speculative `Chain.State.clone_lazy/1` |
-| `account_map_lock` | 2 | account map resource, optional store/nil (ignored for freeze) | `CAccountMap.lock/1`, `Chain.State.lock/1` |
-| `account_map_get` | 2 | resource, 20-byte address | `CAccountMap.get/2` |
-| `account_map_put` | 6 | resource, address, nonce, balance, storage resource, code | `CAccountMap.put/5` |
-| `account_map_delete` | 2 | resource, address | `CAccountMap.delete/2` |
+| `account_map_clone` | 1 | account map resource | `CAccountMap.clone/1`, `Chain.State.clone/1` (writable fork; OK on frozen parent) |
+| `account_map_lock` | 1 | account map resource | `CAccountMap.lock/1` — `frozen` only (O(1); no per-trie seal) |
+| `account_map_get` | 2 | resource, 20-byte address | `CAccountMap.get/2` returns `{nonce, balance, storage_root_hash_bin32, code}` — never a live storage resource |
+| `account_map_put` | 6 | resource, address, nonce, balance, storage, code | Cold path (import/uncompact/genesis); rejects frozen |
+| `account_map_put_meta` | 5 | resource, address, nonce, balance, code | Metadata-only put; keeps existing storage |
+| `account_map_delete` | 2 | resource, address | Rejects frozen |
 | `account_map_root_hash` | 1 | resource | `CAccountMap.root_hash/1`, `Chain.State.hash/1` |
-| `account_map_state_trie` | 1 | resource | `CAccountMap.state_trie/1`, `Chain.State.tree/1` |
+| `account_map_state_trie` | 1 | resource | `CAccountMap.state_trie/1`, `Chain.State.tree/1` (Edge state roots) |
+| `account_map_get_proofs` | 2 | map, address | Account inclusion proof on internal state_trie |
+| `account_map_storage_put_map` | 2 | map, update list | EVM `su` hot path — one NIF for multi-account slots |
+| `account_map_storage_get` | 3 | map, addr, key | `State.storage_value/3`, RPC |
+| `account_map_storage_get_range` | 4 | map, addr, key, count | EVM `gs` |
+| `account_map_storage_to_list` | 2 | map, addr | RPC `eth_getStorage`, EVM cache |
+| `account_map_storage_size` | 2 | map, addr | EVM cache threshold |
+| `account_map_storage_root_hash` | 2 | map, addr | Edge / diffs |
+| `account_map_storage_root_hashes` | 2 | map, addr | Edge `getaccountroots` |
+| `account_map_storage_get_proofs` | 3 | map, addr, key | Edge storage proofs |
 | `account_map_size` | 1 | resource | `CAccountMap.size/1` |
-| `account_map_to_list` | 1 | resource | `CAccountMap.to_list/1`, RPC export |
-| `account_map_list_difference_raw` | 2 | two account map resources | `CAccountMap.list_difference/2` |
-| `account_map_difference_full` | 2 | two account map resources | `CAccountMap.difference_full/2`, `Chain.State.difference/2` |
-| `account_map_apply_difference` | 2 | account map resource, delta list | `CAccountMap.apply_difference/2`, `Chain.State.apply_difference/2` |
-| `account_map_uncompact_state` | 1 | compact account map or account map resource | Returns `{am, hash}`; `CAccountMap.uncompact_state/1`, `Chain.State.uncompact/1` |
+| `account_map_to_list` | 1 | resource | `CAccountMap.to_list/1` |
+| `account_map_difference_full` | 2 | two maps | `Chain.State.difference/2` |
+| `account_map_apply_difference` | 2 | map, delta list | `Chain.State.apply_difference/2` |
+| `account_map_uncompact_state` | 1 | compact or resource | Returns `{am, hash}` |
+
+**Frozen map:** `account_map_lock/1` sets map-level `frozen` only. Map mutations (`put`/`put_meta`/`delete`/`apply_difference`/`storage_put_map`) fail while frozen. `account_map_get` / `to_list` export storage root hashes (never live tries), so Elixir cannot mutate map-owned storage via bare `CMerkleTree.insert`. `clone/1` forks writable unlocked wrappers for sync and speculative RPC/Edge/Shell.
 
 **Trust:** Erlang validates some shapes (e.g. `to_bytes32`), but the NIF must treat all binaries and terms as hostile (size, allocation, scheduler impact).
 
@@ -66,7 +76,7 @@
 | F-5 | **Interaction `LockedStates::mtx` vs tree mutexes** | Medium | CWE-833 | **Fixed:** `enter_lock` pins `has_clone` on local/canonical under global+tree lock, drops global before `switch_local_to_canonical`, and map entries hold a `has_clone` ref. `difference_raw` snapshots pointers under global, bumps `read_pins` (not `has_clone`), releases global, then acquires dual tree locks. `leave_lock` erases map entries under global, releases global, then detaches under tree lock only. |
 | F-6 | **`make_writeable` COW under `Lock` RAII** | High | CWE-667 | **Fixed:** COW now transfers the held mutex (unlock old `SharedState`, lock new) instead of leaving `Lock` holding a destroyed mutex while mutating a forked tree. |
 | F-7 | **`leave_lock` / canonical map UAF** | High | CWE-416 | **Fixed:** Map erase drops the map's `has_clone` ref; canonical pointers are re-validated before switch; `SharedState` is not deleted while referenced from the dedup map. |
-| F-7b | **Abandoned `SharedState` after canonical switch** | High | CWE-404 | **Fixed:** `switch_local_to_canonical` enqueues unreferenced locals on `pending_orphans`; `try_reclaim_orphans` deletes when `has_clone == 0`; `difference_raw` pins `SharedState` during dual-lock; `account_map_lock` dedupes by `root_hash`. Monitor via `nif_stats_raw/0`. |
+| F-7b | **Abandoned `SharedState` after canonical switch** | High | CWE-404 | **Fixed:** orphan reclaim path for standalone `CMerkleTree.lock` / `difference_raw`. `account_map_lock` is `frozen`-only (get no longer exports live storage). Monitor via `nif_stats_raw/0`. |
 | F-6 | **Global `locked_states` / `stats_mutex` on upgrade** | Low | CWE-665 | `on_reload`/`on_upgrade` no-op; hot upgrade could leave stale globals. Acceptable if NIF not hot-reloaded. |
 
 ### Information disclosure / introspection
@@ -80,7 +90,7 @@
 
 | ID | Topic | Severity | CWE | Notes |
 |----|--------|----------|-----|--------|
-| F-9 | **Unbounded work per NIF** | Medium | CWE-400 | Long-running exports use dirty schedulers: **CPU-bound** — `get_proofs_raw`, `difference_raw`, `to_list`, `import_map`, `count_zeros`, `memory_stats_raw`, `clone`, `account_map_clone`, `account_map_lock`, `account_map_to_list`, `account_map_list_difference_raw`, `account_map_uncompact_state`; **IO-bound** — `malloc_info_raw`. `account_map_put`/`delete` stay on normal schedulers; first COW copy uses `enif_consume_timeslice` every 1024 entries. Large dirty-NIF loops also call `enif_consume_timeslice` every 512 iterations. Ensure adequate dirty CPU schedulers at runtime (`+SDcpu` on heavy sync nodes). |
+| F-9 | **Unbounded work per NIF** | Medium | CWE-400 | Long-running exports use dirty schedulers: **CPU-bound** — `get_proofs_raw`, `difference_raw`, `to_list`, `import_map`, `count_zeros`, `memory_stats_raw`, `clone`, `account_map_clone`, `account_map_lock`, `account_map_to_list`, `account_map_difference_full`, `account_map_apply_difference`, `account_map_storage_put_map`, `account_map_storage_to_list`, `account_map_storage_get_proofs`, `account_map_get_proofs`, `account_map_uncompact_state`; **IO-bound** — `malloc_info_raw`. `account_map_put`/`put_meta`/`delete`/`storage_get*` stay on normal schedulers where short. Large dirty-NIF loops call `enif_consume_timeslice` every 512 iterations. Ensure adequate dirty CPU schedulers at runtime (`+SDcpu` on heavy sync nodes). |
 
 ### Memory safety (manual review)
 

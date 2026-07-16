@@ -272,15 +272,20 @@ defmodule Network.Rpc do
       "eth_getStorageAt" ->
         [address, location, ref] = params
 
-        get_account([address, ref])
-        |> Chain.Account.storage_value(Base16.decode_int(location))
-        |> result()
+        with_block(ref, fn block ->
+          Chain.Block.state(block)
+          |> Chain.State.storage_value(Base16.decode(address), Base16.decode_int(location))
+          |> result()
+        end)
 
       "eth_getStorage" ->
-        get_account(params)
-        |> Chain.Account.tree()
-        |> CMerkleTree.to_list()
-        |> result()
+        [address, ref] = params
+
+        with_block(ref, fn block ->
+          Chain.Block.state(block)
+          |> Chain.State.storage_to_list(Base16.decode(address))
+          |> result()
+        end)
 
       "eth_estimateGas" ->
         # TODO real estimate
@@ -856,7 +861,8 @@ defmodule Network.Rpc do
   end
 
   defp apply_transaction(tx, block) do
-    state = Block.state(block) |> Chain.State.clone_lazy()
+    # Peak/cached blocks are State.lock'd; use clone/1 for a writable fork.
+    state = Block.state(block) |> Chain.State.clone()
 
     case Chain.Transaction.apply(tx, block, state) do
       {:ok, _state, rcpt = %{msg: :ok}} ->
