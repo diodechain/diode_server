@@ -203,23 +203,18 @@ struct StorageSlot {
 
 struct CompactStorage {
     std::vector<StorageSlot> slots;
+    // Cached storage root; filled on uncompact seed or first hash. Writes materialize
+    // into a live trie and drop this shared_ptr (parent clones keep a valid cache).
+    mutable uint256_t root_hash;
+    mutable bool has_root = false;
 };
-
-static std::unique_ptr<CompactStorage> clone_compact_storage(const CompactStorage *src)
-{
-    if (src == nullptr) {
-        return nullptr;
-    }
-    auto dup = std::make_unique<CompactStorage>();
-    dup->slots = src->slots;
-    return dup;
-}
 
 struct AccountEntry {
     uint64_t nonce;
     uint256_t balance;
     merkletree *storage;
-    std::unique_ptr<CompactStorage> compact_storage;
+    // Phase D: shared across forks until materialize / replace; no deep slot copy on clone.
+    std::shared_ptr<CompactStorage> compact_storage;
     bin_t code;
 
     AccountEntry()
@@ -227,7 +222,7 @@ struct AccountEntry {
 
     AccountEntry(const AccountEntry &other)
         : nonce(other.nonce), balance(other.balance), storage(other.storage),
-          compact_storage(clone_compact_storage(other.compact_storage.get())), code(other.code)
+          compact_storage(other.compact_storage), code(other.code)
     {
     }
 
@@ -245,7 +240,7 @@ struct AccountEntry {
             balance = other.balance;
             storage = other.storage;
             code = other.code;
-            compact_storage = clone_compact_storage(other.compact_storage.get());
+            compact_storage = other.compact_storage;
         }
         return *this;
     }
@@ -263,6 +258,28 @@ struct AccountEntry {
         return *this;
     }
 };
+
+// Phase D: deep-copy before in-place slot / has_root mutation when shared.
+// Hot-path writes use materialize_storage + drop instead (read shared slots, then
+// reset this entry's pointer so parents keep the shared CompactStorage).
+static void __attribute__((unused)) ensure_unique_compact(AccountEntry &entry)
+{
+    if (!entry.compact_storage) {
+        return;
+    }
+    if (entry.compact_storage.use_count() > 1) {
+        entry.compact_storage = std::make_shared<CompactStorage>(*entry.compact_storage);
+    }
+}
+
+static void __attribute__((unused)) invalidate_compact_root(AccountEntry &entry)
+{
+    if (!entry.compact_storage) {
+        return;
+    }
+    ensure_unique_compact(entry);
+    entry.compact_storage->has_root = false;
+}
 
 static void release_entry_storage(AccountEntry &entry);
 static merkletree *materialize_storage(AccountEntry &entry);
@@ -940,11 +957,20 @@ static void insert_state_trie_hash(SharedAccountMap *shared, const uint160_t &ad
 static void update_state_trie_for_entry(SharedAccountMap *shared, const uint160_t &addr,
         AccountEntry &entry, AccountHashCtx &ctx)
 {
-    if (entry.storage == nullptr && !entry.compact_storage) {
-        materialize_storage(entry);
+    uint256_t storage_root;
+    const uint256_t *root_override = nullptr;
+    if (entry.storage == nullptr) {
+        if (entry.compact_storage) {
+            if (!storage_root_hash_for_entry(nullptr, entry, storage_root, 0)) {
+                return;
+            }
+            root_override = &storage_root;
+        } else {
+            materialize_storage(entry);
+        }
     }
     uint256_t account_hash;
-    if (!ctx.compute(entry, nullptr, nullptr, account_hash)) {
+    if (!ctx.compute(entry, root_override, nullptr, account_hash)) {
         return;
     }
     insert_state_trie_hash(shared, addr, account_hash);
@@ -1227,6 +1253,14 @@ static bool storage_root_hash_for_entry(ErlNifEnv *env, const AccountEntry &entr
     if (!entry.compact_storage || entry.compact_storage->slots.empty()) {
         Lock lock(empty_storage_tree);
         out = empty_storage_tree->shared_state->tree.root_hash();
+        if (entry.compact_storage) {
+            entry.compact_storage->root_hash = out;
+            entry.compact_storage->has_root = true;
+        }
+        return true;
+    }
+    if (entry.compact_storage->has_root) {
+        out = entry.compact_storage->root_hash;
         return true;
     }
     Tree temp;
@@ -1237,6 +1271,8 @@ static bool storage_root_hash_for_entry(ErlNifEnv *env, const AccountEntry &entr
         nif_loop_progress(env, progress_base + i);
     }
     out = temp.root_hash();
+    entry.compact_storage->root_hash = out;
+    entry.compact_storage->has_root = true;
     return true;
 }
 
@@ -1246,7 +1282,7 @@ struct DiffAccountSide {
     uint256_t balance;
     bin_t code;
     merkletree *storage;
-    std::unique_ptr<CompactStorage> compact_storage;
+    std::shared_ptr<CompactStorage> compact_storage;
 
     DiffAccountSide()
         : present(false), nonce(0), balance(), storage(nullptr), compact_storage(nullptr) {}
@@ -1269,7 +1305,7 @@ static void snapshot_side(const AccountEntry &src, DiffAccountSide &out)
     out.balance = src.balance;
     out.code = src.code;
     out.storage = src.storage;
-    out.compact_storage = clone_compact_storage(src.compact_storage.get());
+    out.compact_storage = src.compact_storage;
     if (src.storage != nullptr) {
         enif_keep_resource(src.storage);
     }
@@ -1280,7 +1316,14 @@ static bool entries_equal(ErlNifEnv *env, const AccountEntry &a, const AccountEn
     if (a.nonce != b.nonce || a.balance != b.balance || a.code != b.code) {
         return false;
     }
+    if (a.storage != nullptr && b.storage != nullptr &&
+        a.storage->shared_state == b.storage->shared_state) {
+        return true;
+    }
     if (a.storage != nullptr && a.storage == b.storage) {
+        return true;
+    }
+    if (a.compact_storage && a.compact_storage == b.compact_storage) {
         return true;
     }
     uint256_t root_a, root_b;
@@ -1388,6 +1431,22 @@ static ERL_NIF_TERM build_storage_diff_list(ErlNifEnv *env, DiffAccountSide &sid
     return list;
 }
 
+static ERL_NIF_TERM root_term_for_diff_side(ErlNifEnv *env, DiffAccountSide &side,
+        size_t progress_base)
+{
+    if (!side.present) {
+        return make_atom(env, "nil");
+    }
+    AccountEntry tmp;
+    tmp.storage = side.storage;
+    tmp.compact_storage = side.compact_storage;
+    uint256_t root;
+    if (!storage_root_hash_for_entry(env, tmp, root, progress_base)) {
+        return make_atom(env, "nil");
+    }
+    return make_binary(env, root.data(), 32);
+}
+
 static ERL_NIF_TERM
 account_map_difference_full(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
@@ -1403,20 +1462,31 @@ account_map_difference_full(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     }
 
     std::vector<DiffItem> diffs;
-    std::unordered_set<uint160_t> key_set;
 
     {
         DualAccountMapLock map_lock(am_a->shared, am_b->shared);
 
-        for (auto &entry : am_a->shared->accounts) {
-            key_set.insert(entry.first);
-        }
-        for (auto &entry : am_b->shared->accounts) {
-            key_set.insert(entry.first);
+        SharedState *trie_a = am_a->shared->state_trie->shared_state;
+        SharedState *trie_b = am_b->shared->state_trie->shared_state;
+        if (trie_a == trie_b) {
+            return enif_make_list(env, 0);
         }
 
-        std::vector<uint160_t> keys(key_set.begin(), key_set.end());
+        std::vector<uint160_t> keys;
+        {
+            SharedStateLock trie_lock(trie_a, trie_b);
+            Tree output;
+            trie_a->tree.difference(trie_b->tree, output);
+            trie_b->tree.difference(trie_a->tree, output);
+            output.each([&](pair_t &pair) {
+                if (pair.key.size() != 20) {
+                    return;
+                }
+                keys.push_back(uint160_t(pair.key.data()));
+            });
+        }
         std::sort(keys.begin(), keys.end());
+        keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
 
         size_t i = 0;
         for (auto &addr : keys) {
@@ -1425,6 +1495,11 @@ account_map_difference_full(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
             auto it_b = am_b->shared->accounts.find(addr);
             bool in_a = it_a != am_a->shared->accounts.end();
             bool in_b = it_b != am_b->shared->accounts.end();
+
+            if (!in_a && !in_b) {
+                nif_loop_progress(env, i);
+                continue;
+            }
 
             if (in_a && in_b && entries_equal(env, it_a->second, it_b->second, i)) {
                 nif_loop_progress(env, i);
@@ -1452,8 +1527,11 @@ account_map_difference_full(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
         ERL_NIF_TERM side_a = diff_side_fields_to_term(env, item.a);
         ERL_NIF_TERM side_b = diff_side_fields_to_term(env, item.b);
         ERL_NIF_TERM storage_diff = build_storage_diff_list(env, item.a, item.b, j * 1000);
-        ERL_NIF_TERM quad = enif_make_tuple4(env, addr_term, side_a, side_b, storage_diff);
-        list = enif_make_list_cell(env, quad, list);
+        ERL_NIF_TERM root_a = root_term_for_diff_side(env, item.a, j * 1000 + 500);
+        ERL_NIF_TERM root_b = root_term_for_diff_side(env, item.b, j * 1000 + 750);
+        ERL_NIF_TERM sextuple =
+            enif_make_tuple6(env, addr_term, side_a, side_b, storage_diff, root_a, root_b);
+        list = enif_make_list_cell(env, sextuple, list);
         release_snapshot_side(item.a);
         release_snapshot_side(item.b);
         nif_loop_progress(env, j);
@@ -1925,7 +2003,35 @@ account_map_storage_roots(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
         return make_tree_roots_blob(env, empty_storage_tree->shared_state->tree);
     }
 
-    merkletree *mt = materialize_storage(it->second);
+    AccountEntry &entry = it->second;
+    if (entry.storage != nullptr) {
+        Lock tree_lock(entry.storage);
+        return make_tree_roots_blob(env, entry.storage->shared_state->tree);
+    }
+
+    // Compact: never materialize solely to read roots; build a temp tree when needed.
+    if (entry.compact_storage && entry.compact_storage->slots.empty()) {
+        uint256_t root;
+        storage_root_hash_for_entry(env, entry, root, 0);
+        Lock tree_lock(empty_storage_tree);
+        return make_tree_roots_blob(env, empty_storage_tree->shared_state->tree);
+    }
+    if (entry.compact_storage) {
+        Tree temp;
+        size_t i = 0;
+        for (auto &slot : entry.compact_storage->slots) {
+            i++;
+            temp.insert_item(slot.key, slot.value);
+            nif_loop_progress(env, i);
+        }
+        if (!entry.compact_storage->has_root) {
+            entry.compact_storage->root_hash = temp.root_hash();
+            entry.compact_storage->has_root = true;
+        }
+        return make_tree_roots_blob(env, temp);
+    }
+
+    merkletree *mt = materialize_storage(entry);
     Lock tree_lock(mt);
     return make_tree_roots_blob(env, mt->shared_state->tree);
 }
@@ -2008,7 +2114,7 @@ static bool parse_compact_storage(ErlNifEnv *env, ERL_NIF_TERM storage_term,
         return false;
     }
 
-    entry.compact_storage = std::make_unique<CompactStorage>();
+    entry.compact_storage = std::make_shared<CompactStorage>();
 
     const ERL_NIF_TERM *elems;
     int arity;
@@ -2376,6 +2482,11 @@ account_map_uncompact_state(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
             ParsedCompactAccount parsed;
             if (!parse_compact_account(env, value, parsed, scratch.code_buf)) {
                 return uncompact_state_fail(env, &iter, am);
+            }
+
+            if (parsed.has_compact_root_hash && parsed.entry.compact_storage) {
+                parsed.entry.compact_storage->root_hash = parsed.compact_root_hash;
+                parsed.entry.compact_storage->has_root = true;
             }
 
             const uint256_t *storage_root_override =

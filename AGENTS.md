@@ -29,7 +29,9 @@ Ethereum-compatible JSON-RPC endpoint plus the Diode PEER/EDGE protocols.
   are gitignored and persist across sessions, so this is only needed after a
   clean checkout of that dep.
 - **CAccountMap / state NIF semantics** (clone, lock, storage APIs, get shape):
-  see [`docs/caccount-map-nif.md`](docs/caccount-map-nif.md).
+  see [`docs/caccount-map-nif.md`](docs/caccount-map-nif.md). Difference/clone
+  performance (cached compact roots, COW, trie-driven `difference_full`):
+  [`docs/specs/change-state-diff-perf.md`](docs/specs/change-state-diff-perf.md).
 
 ### Lint
 - `mix lint` = `compile` + `mix format --check-formatted` + `mix credo --only warning` + `mix dialyzer`.
@@ -42,7 +44,9 @@ Ethereum-compatible JSON-RPC endpoint plus the Diode PEER/EDGE protocols.
   a separate `mix test --max-failures 1` invocation (per-file isolation). Test
   env pins ports `RPC_PORT=18001`, `EDGE2_PORT=18003`, `PEER_PORT=18004`.
 - For `Chain.State` / CAccountMap mutability and storage rules, see
-  [`docs/caccount-map-nif.md`](docs/caccount-map-nif.md).
+  [`docs/caccount-map-nif.md`](docs/caccount-map-nif.md). Perf contract tests:
+  `test/state_diff_perf_contract_test.exs`; bench:
+  `scripts/state_diff_bench.exs`.
 
 ### Running the node (dev mode)
 - `./dev` runs `MIX_ENV=dev iex -S mix run` (wipes `data_dev/` first). For a

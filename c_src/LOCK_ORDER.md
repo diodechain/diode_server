@@ -26,12 +26,12 @@ Bare-tree Elixir NIFs (`new` / `insert` / `difference_raw` / `lock` / …) are g
 | `account_map_lock` | `AccountMapLock` → set `frozen=true` only (O(1); no per-trie seal) | Dirty scheduler; put/delete/storage_put_map reject via `frozen` |
 | `account_map_storage_put_map` | `AccountMapLock` → reject if frozen → per-addr `write_storage_slot` → `update_state_trie_for_entry` | Dirty CPU; EVM `su` hot path |
 | `account_map_storage` | `AccountMapLock` → read-only storage query (`:get`/`:range`/`:list`/`:size`) | Dirty CPU |
-| `account_map_storage_roots` / `account_map_state_roots` | `AccountMapLock` → tree lock → root + 16 hashes blob | No live trie export |
+| `account_map_storage_roots` / `account_map_state_roots` | `AccountMapLock` → tree lock (live) **or** temp tree from compact slots (never materialize solely for roots) | No live trie export; compact may use cached root |
 | `account_map_proof` | `AccountMapLock` → account or storage proof | Dirty CPU; arities 2 and 3 |
-| `account_map_uncompact_state` | `AccountMapLock(input)` → `materialize_storage` (brief tree lock) → `batch_insert` (state_store lock) | Dirty scheduler |
+| `account_map_uncompact_state` | `AccountMapLock(input)` → parse/seed compact roots → `batch_insert` (state_store lock) | Dirty scheduler; compact entries stay lazy when `:root_hash` present |
 | `account_map_compact` | `AccountMapLock` (read-only; OK frozen) → per-account storage list via live tree lock or compact_storage slots | Dirty CPU |
-| `account_map_put/delete` | `AccountMapLock` only; reject if `frozen`; storage arg may be `:keep` / list / `nil` | May `release_resource` → async GC `release_merkletree_shared` |
-| `account_map_difference_full` | Dual map lock (`DualAccountMapLock`, address order) → snapshot sides → release → per-account storage diffs | Dirty CPU; never hold map lock across storage diff build |
+| `account_map_put/delete` | `AccountMapLock` only; reject if `frozen`; storage arg may be `:keep` / list / `nil` | `:keep` on compact updates `state_trie` via cached storage root (no materialize) |
+| `account_map_difference_full` | `DualAccountMapLock` → if `state_trie` `SharedState*` equal return `[]` → else `SharedStateLock` on both tries → leaf symmetric difference → snapshot candidates → release map lock → per-candidate storage diffs + roots (6-tuple) | Dirty CPU; never hold map lock across `build_storage_diff_list` |
 | `account_map_apply_difference` | `AccountMapLock` → reject if `frozen` → storage/field writes (`write_storage_slot` → `make_writeable_locked`) | Dirty CPU |
 | Insert / COW (internal) | Tree lock → ItemPool / PreAllocator / stripe pool | Same-thread nesting |
 

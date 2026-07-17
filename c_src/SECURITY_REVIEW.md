@@ -23,7 +23,7 @@ All exports below are always registered (~21 entries). There is no separate bare
 | `account_map_state_roots` | 1 | resource | 544-byte `<<root::32, hashes16::512>>`; Edge `getstateroots` |
 | `account_map_size` | 1 | resource | `CAccountMap.size/1` |
 | `account_map_to_list` | 1 | resource | `CAccountMap.to_list/1`, RPC account dumps |
-| `account_map_difference_full` | 2 | two maps | `Chain.State.difference/2` |
+| `account_map_difference_full` | 2 | two maps | `Chain.State.difference/2`; 6-tuple entries; trie-driven candidates |
 | `account_map_apply_difference` | 2 | map, delta list | `Chain.State.apply_difference/2` |
 | `account_map_compact` | 1 | account map | Dirty CPU; compact map for DB (OK frozen) |
 | `account_map_uncompact_state` | 1 | compact or resource | Returns `{am, hash}` |

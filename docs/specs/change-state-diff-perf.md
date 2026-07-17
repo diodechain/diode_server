@@ -1,15 +1,23 @@
-# State Diff Performance Specification v0.1.0
+# State Diff Performance Specification v0.1.2
 
 > **Spec type:** Change  
-> **Path:** `docs/specs/change-state-diff-perf.md`
+> **Path:** `docs/specs/change-state-diff-perf.md`  
+> **Status:** Implemented (Phases A–E)
 
 ## Overview
 
 This change eliminates multi-second `Chain.State.difference/2` walls on jump-shaped
-(compact) peaks when only a few accounts change. The NIF today rebuilds temporary
-Merkle trees from every `CompactStorage` slot vector solely to compare storage
-roots, deep-copies those slot vectors on every clone, and has Elixir re-fetch
-roots (materializing compact storage) after the NIF already did the work.
+(compact) peaks when only a few accounts change.
+
+**Before:** The NIF rebuilt temporary Merkle trees from every `CompactStorage` slot
+vector solely to compare storage roots, deep-copied those slot vectors on every
+clone, scanned all accounts for equality, and had Elixir re-fetch roots
+(materializing compact storage) after the NIF already did the work.
+
+**After (shipping):** Compact storage roots are cached; live equality uses
+`SharedState*`; `difference_full` is driven by `state_trie` leaf differences and
+returns 6-tuples with roots; compact storage is `shared_ptr` COW on clone;
+Elixir consumes NIF roots without a second `storage_root_hash` pass.
 
 **Integration context:** `c_src/nif.cpp` (`CompactStorage`, `entries_equal`,
 `storage_root_hash_for_entry`, `fork_shared_accountmap`, `account_map_difference_full`,
@@ -93,22 +101,29 @@ Strict outputs: cached root MUST match a fresh trie hash of the same slots.
 
 ### Cache invalidation (Phase A)
 
-`CompactStorage.has_root` MUST be set `false` (and root ignored) before or when:
+`CompactStorage.has_root` MUST be set `false` (and root ignored) before or when
+mutating slots **in place** on a compact entry. The shipping write path instead:
 
-- Mutating any slot (`write_storage_slot`, `apply_storage_delta` storage map)
-- Replacing compact with live storage (`materialize_storage` resets compact)
-- Any path that changes slot contents without going through those helpers
-  (implementations MUST route mutations through them or invalidate explicitly)
+- Materializes compact slots into a live `merkletree`, then
+- Resets `compact_storage` on that entry (refcount drop; siblings keep the shared
+  compact object and its cached root)
 
-After invalidation, the next `storage_root_hash_for_entry` MUST recompute once and
-set `has_root` again if the entry remains compact.
+So invalidation is ownership drop, not an in-place `has_root=false` clear.
+
+Helpers `ensure_unique_compact` / `invalidate_compact_root` MUST exist for any
+future in-place compact mutation (COW when `use_count() > 1`, then clear
+`has_root`). After a true in-place invalidation, the next
+`storage_root_hash_for_entry` MUST recompute once and set `has_root` again if the
+entry remains compact.
 
 ### COW (Phase D)
 
 - `shared_ptr<CompactStorage>` (or equivalent intrusive shared ownership).
 - Copy/assign/fork: share the pointer; do **not** copy `slots`.
-- Before mutating slots or clearing `has_root` for a write: if `use_count() > 1`,
-  allocate a unique copy (deep-copy slots + root flags), then mutate.
+- Write path (shipping): `materialize_storage` reads shared slots into a new live
+  trie, then `compact_storage.reset()` on the writing entry only.
+- In-place compact mutation (if added): if `use_count() > 1`, allocate a unique
+  copy (deep-copy slots + root flags), then mutate / clear `has_root`.
 - `snapshot_side` MAY share the compact pointer (refcount bump); MUST NOT force a
   deep copy solely for snapshotting.
 
@@ -311,18 +326,19 @@ mix test test/cmerkle_account_map_diff_test.exs \
 ### Memory
 
 - `mix test test/cmerkle_nif_leak_test.exs`
-- Phase D: optional RSS comparison via bench / leak harness notes
+- Phase D: `cow_unique_after_write` includes an RSS smoke check on compact clone
+  (`test/state_diff_perf_contract_test.exs`)
 
 ### Required unit cases
 
-Covered by `test/state_diff_perf_contract_test.exs` (must stay green through Phases A–E):
+Covered by `test/state_diff_perf_contract_test.exs` (must stay green):
 
 | Name | Assert |
 |------|--------|
 | `cached_root_after_uncompact` | Compact→uncompact preserves storage roots; compact Elixir structs carry `:root_hash` |
 | `root_invalidated_after_storage_put` | After `storage_put_map`, root changes and `State.difference` reports `{before, after}` |
-| `cow_unique_after_write` | Clone of compact-uncompact peak + write does not mutate parent |
-| `difference_full tuple shape` | Shipping 4-tuple today; Phase C upgrades to 6-tuple (update this test with Phase C) |
+| `cow_unique_after_write` | Clone + write does not mutate parent; compact clone RSS growth stays well below full slot duplication |
+| `difference_full tuple shape` | 6-tuple `{addr, side_a, side_b, storage_diff, root_a, root_b}` |
 | `compact_small_delta prepare_state shape` | Few changed accounts on compact peak round-trip via difference/apply |
 
 Production NIF surface: `test/count_zeros_test.exs`, `test/caccount_map_test.exs`,
@@ -360,20 +376,24 @@ as the NIF.
 ## Implementation Checklist
 
 - [x] Contract tests: `test/state_diff_perf_contract_test.exs`
-- [ ] Phase A: `CompactStorage` root cache + invalidation + uncompact seed
-- [ ] Phase A bench gate (`nif_ms` &lt; 50)
-- [ ] Phase B: `SharedState*` equality in `entries_equal`
-- [ ] Phase C: 6-tuple NIF + Elixir stops double `storage_root_hash` (update tuple-shape test)
-- [ ] Phase C: `storage_roots` uses compact cache (no materialize-for-root)
-- [ ] Phase D: `shared_ptr` COW; fork no longer deep-copies slots
-- [ ] Phase D leak / RSS acceptance
-- [ ] Phase E: state_trie-driven candidate set; `nif_ms` &lt; 20
-- [ ] All listed correctness tests green
-- [ ] `docs/caccount-map-nif.md` updated for cache, COW, trie-driven diff
-- [ ] Each phase mergeable alone with tests green
+- [x] Phase A: `CompactStorage` root cache + invalidation + uncompact seed
+- [x] Phase A bench gate (`nif_ms` &lt; 50)
+- [x] Phase B: `SharedState*` equality in `entries_equal`
+- [x] Phase C: 6-tuple NIF + Elixir stops double `storage_root_hash` (update tuple-shape test)
+- [x] Phase C: `storage_roots` uses compact cache (no materialize-for-root)
+- [x] Phase D: `shared_ptr` COW; fork no longer deep-copies slots
+- [x] Phase D leak / RSS acceptance
+- [x] Phase E: state_trie-driven candidate set; `nif_ms` &lt; 20
+- [x] All listed correctness tests green
+- [x] `docs/caccount-map-nif.md` updated for cache, COW, trie-driven diff
+- [x] Each phase mergeable alone with tests green
 
 ---
 
 ## Version History
 
+- **v0.1.2** — Docs/spec aligned with shipping behavior: status, COW write path
+  (materialize+drop), Phase D RSS contract, LOCK_ORDER / bench commentary.
+- **v0.1.1** — Phases A–E implemented (cached compact roots, SharedState* equality,
+  6-tuple roots, CompactStorage `shared_ptr` COW, state_trie-driven `difference_full`).
 - **v0.1.0** — Initial specification (Phases A–E locked).

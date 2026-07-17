@@ -1,14 +1,15 @@
 # Benchmark / profile Chain.State.difference (the path behind
-# "State diff took longer than 1s ... accounts=N").
+# "State diff took longer than 1s ... accounts=N" — historical prod warning).
 #
 # prepare_state on non-jump blocks does:
 #   State.difference(prev_state, block_state)
 # which is mostly CAccountMap.difference_full/2 plus light Elixir wrapping
-# (decode_storage_diff + storage_root_hash per changed account).
+# (decode_storage_diff; roots come from the NIF 6-tuple).
 #
-# Typical prod warning shape is few changed accounts (e.g. 20) but multi-second
-# wall time — difference_full still walks the full account map and, for equal
-# nonce/balance/code, recomputes both storage roots (see entries_equal in nif.cpp).
+# After Phases A–E (docs/specs/change-state-diff-perf.md): difference_full is
+# state_trie-driven (O(changed)), compact roots are cached, and elixir_ms ≈ 0.
+# Use compact_small_delta / live_small_delta at 14k/20/32 as the acceptance gate
+# (avg nif_ms < 20).
 #
 # Run from repo root (no full app start):
 #   mix run --no-start scripts/state_diff_bench.exs
@@ -19,7 +20,7 @@
 # Scenarios:
 #   live_small_delta     — large live map, mutate K accounts
 #   locked_peak_delta    — lock peak then clone+mutate (prepare_state / writer pattern)
-#   compact_small_delta  — jump-shaped compact→uncompact peak + small delta (prod hotspot)
+#   compact_small_delta  — jump-shaped compact→uncompact peak + small delta
 #   storage_only_delta   — storage writes only (no nonce bump)
 #   fat_storage          — few accounts, huge storage trees (storage-diff dominated)
 #   all                  — run every scenario
@@ -128,11 +129,9 @@ defmodule StateDiffBench do
     IO.puts(:stderr, """
 
     Interpretation hints:
-    - compact_small_delta nif-dominated with changed << map_size: entries_equal calls
-      storage_root_hash_for_entry on every unchanged account, rebuilding a temp Tree from
-      compact slots (nif.cpp). Matches "State diff took longer than 1s ... accounts=20".
-    - live_small_delta staying fast: live trees use cached root_hash / pointer checks.
-    - elixir_ms large: decode_storage_diff + State.difference's per-account storage_root_hash.
+    - compact_small_delta / live_small_delta with small changed count: Phase E trie-driven
+      candidate set + Phase A cached compact roots; expect nif_ms well under 20.
+    - elixir_ms ≈ 0: Phase C roots come from the NIF 6-tuple (no storage_root_hash refetch).
     - fat_storage nif-heavy with small map_size: build_storage_diff_list / Tree::difference.
     """)
   end
@@ -148,7 +147,7 @@ defmodule StateDiffBench do
 
         {elixir_us, result} =
           :timer.tc(fn ->
-            Enum.map(full, fn {id, side_a, side_b, state_diff} ->
+            Enum.map(full, fn {id, side_a, side_b, state_diff, root_a, root_b} ->
               report =
                 %{}
                 |> put_field(:nonce, side_a, side_b)
@@ -162,8 +161,8 @@ defmodule StateDiffBench do
                   Map.merge(report, %{
                     state: storage_map,
                     root_hash: {
-                      CAccountMap.storage_root_hash(prev.accounts, id),
-                      CAccountMap.storage_root_hash(next.accounts, id)
+                      decode_root(root_a),
+                      decode_root(root_b)
                     }
                   })
                 else
@@ -202,6 +201,11 @@ defmodule StateDiffBench do
       Map.put(report, field, {a, b})
     end
   end
+
+  defp decode_root(nil),
+    do: CAccountMap.storage_root_hash(CAccountMap.new(), <<0::unsigned-size(160)>>)
+
+  defp decode_root(<<_::binary-size(32)>> = root), do: root
 
   defp side_field(nil, :nonce), do: 0
   defp side_field(nil, :balance), do: 0
@@ -268,9 +272,8 @@ defmodule StateDiffBench do
     {peak, next}
   end
 
-  # Jump-block shaped: uncompact leaves compact_storage slots; unchanged accounts
-  # pay storage_root_hash_for_entry by rebuilding a temp Tree from every slot
-  # (nif.cpp entries_equal). This is the usual multi-second / few-account warning.
+  # Jump-block shaped: uncompact leaves compact_storage with cached roots; small
+  # deltas should stay O(changed) via state_trie-driven difference_full.
   defp build_compact_small_delta(n, changed, slots) do
     peak = build_live_state(n, slots) |> State.normalize() |> State.lock()
     prev = peak |> State.compact() |> State.uncompact() |> State.lock()
@@ -278,8 +281,8 @@ defmodule StateDiffBench do
     {prev, next}
   end
 
-  # Storage-only mutations (no nonce bump) so changed rows also go through
-  # storage root comparison inside entries_equal.
+  # Storage-only mutations (no nonce bump): storage root change still updates
+  # state_trie so Phase E finds the candidates.
   defp build_storage_only_delta(n, changed, slots) do
     prev = build_live_state(n, slots) |> State.normalize() |> State.lock()
 
@@ -339,8 +342,7 @@ defmodule StateDiffBench do
             {slot(i * 10_000 + s), <<i * 999 + s::unsigned-size(256)>>}
           end
 
-        # Bump nonce so changed rows exit entries_equal early; unchanged rows still
-        # pay storage_root_hash_for_entry across the full map (the prod hotspot).
+        # Bump nonce so the account RLP / state_trie leaf changes (Phase E candidate).
         acc = State.storage_put_map(acc, %{id => updates})
         meta = State.ensure_account(acc, id)
         State.set_account(acc, id, %{meta | nonce: meta.nonce + 1})

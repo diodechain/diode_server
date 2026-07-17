@@ -258,7 +258,7 @@ defmodule CMerkleLockCloneRegressionTest do
 
       full_ids =
         CAccountMap.difference_full(peak.accounts, next.accounts)
-        |> Enum.map(fn {id, _, _, _} -> id end)
+        |> Enum.map(fn {id, _, _, _, _, _} -> id end)
         |> Enum.sort()
 
       assert full_ids == Enum.sort([addr(2), addr(9)])

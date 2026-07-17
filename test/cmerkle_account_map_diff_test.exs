@@ -26,7 +26,7 @@ defmodule CMerkleAccountMapDiffTest do
 
   defp full_addrs(map_a, map_b) do
     CAccountMap.difference_full(map_a, map_b)
-    |> Enum.map(fn {addr, _, _, _} -> addr end)
+    |> Enum.map(fn {addr, _, _, _, _, _} -> addr end)
     |> Enum.sort()
   end
 
@@ -34,9 +34,11 @@ defmodule CMerkleAccountMapDiffTest do
     full = CAccountMap.difference_full(map_a, map_b)
     assert is_list(full)
 
-    for {addr, _side_a, _side_b, storage_diff} <- full do
+    for {addr, _side_a, _side_b, storage_diff, root_a, root_b} <- full do
       assert byte_size(addr) == 20
       assert is_list(storage_diff) or is_map(storage_diff)
+      assert root_a == nil or match?(<<_::binary-size(32)>>, root_a)
+      assert root_b == nil or match?(<<_::binary-size(32)>>, root_b)
       in_a = CAccountMap.get(map_a, addr) != :undefined
       in_b = CAccountMap.get(map_b, addr) != :undefined
       assert in_a or in_b

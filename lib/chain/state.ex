@@ -117,7 +117,7 @@ defmodule Chain.State do
     {time, result} =
       :timer.tc(fn ->
         Enum.map(CAccountMap.difference_full(accounts_a, accounts_b), fn
-          {id, side_a, side_b, state_diff} ->
+          {id, side_a, side_b, state_diff, root_a, root_b} ->
             report =
               %{}
               |> put_side_field_diff(:nonce, side_a, side_b)
@@ -130,10 +130,7 @@ defmodule Chain.State do
               if map_size(storage_map) > 0 do
                 Map.merge(report, %{
                   state: storage_map,
-                  root_hash: {
-                    CAccountMap.storage_root_hash(accounts_a, id),
-                    CAccountMap.storage_root_hash(accounts_b, id)
-                  }
+                  root_hash: {decode_diff_root(root_a), decode_diff_root(root_b)}
                 })
               else
                 report
@@ -150,6 +147,23 @@ defmodule Chain.State do
     end
 
     result
+  end
+
+  defp decode_diff_root(nil), do: empty_storage_root()
+  defp decode_diff_root(<<_::binary-size(32)>> = root), do: root
+
+  defp empty_storage_root do
+    key = {__MODULE__, :empty_storage_root}
+
+    case :persistent_term.get(key, :undefined) do
+      :undefined ->
+        root = CAccountMap.storage_root_hash(CAccountMap.new(), <<0::unsigned-size(160)>>)
+        :persistent_term.put(key, root)
+        root
+
+      root ->
+        root
+    end
   end
 
   defp put_side_field_diff(report, field, side_a, side_b) do

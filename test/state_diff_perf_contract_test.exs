@@ -104,11 +104,36 @@ defmodule StateDiffPerfContractTest do
       assert CAccountMap.storage_root_hash(peak.accounts, addr(1)) == parent_root
       assert CAccountMap.storage_get(peak.accounts, addr(1), slot(10_001)) == parent_slot
     end
+
+    test "clone of compact peak does not roughly double RSS (shared_ptr COW)" do
+      # Phase D acceptance: clone shares CompactStorage; growth should be far below
+      # a full slot-vector duplication (~accounts * slots * ~64 bytes).
+      peak = peak_from_compact(400, 16)
+      before = read_rss_kb()
+      _fork = State.clone(peak)
+      after_clone = read_rss_kb()
+      growth_kb = max(after_clone - before, 0)
+      # Full deep copy of 400*16 slots would be hundreds of KB of payload alone;
+      # allow generous overhead for map/trie wrapper fork but fail on ~2x slot dump.
+      assert growth_kb < 4_000
+    end
+  end
+
+  defp read_rss_kb do
+    case File.read("/proc/self/status") do
+      {:ok, status} ->
+        case Regex.run(~r/VmRSS:\s+(\d+)/, status) do
+          [_, kb] -> String.to_integer(kb)
+          _ -> 0
+        end
+
+      _ ->
+        0
+    end
   end
 
   describe "difference_full tuple shape" do
-    # Phase C extends to a 6-tuple with root_a/root_b; assert shipping 4-tuple until then.
-    test "difference_full returns addr/sides/storage_diff quads" do
+    test "difference_full returns addr/sides/storage_diff/roots sextuples" do
       prev =
         CAccountMap.new()
         |> CAccountMap.put(addr(1), 1, 100, [{slot(1), <<1::unsigned-size(256)>>}], <<1>>)
@@ -119,7 +144,11 @@ defmodule StateDiffPerfContractTest do
 
       full = CAccountMap.difference_full(prev, next)
       assert full != []
-      assert Enum.all?(full, &(tuple_size(&1) == 4))
+      assert Enum.all?(full, &(tuple_size(&1) == 6))
+
+      assert Enum.all?(full, fn {_addr, _a, _b, _diff, root_a, root_b} ->
+               match?(<<_::binary-size(32)>>, root_a) and match?(<<_::binary-size(32)>>, root_b)
+             end)
     end
   end
 

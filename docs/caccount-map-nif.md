@@ -41,6 +41,18 @@ implementation spec for difference/clone performance work:
 
 - `Chain.State.clone/1` forks a writable map. Use it after `Chain.State.lock/1`
   (cached peak / block sync) and for RPC / EdgeV2 / Shell speculative execution.
+- Compact account storage uses `shared_ptr` COW: clone shares slot vectors until a
+  write materializes unique live storage (parent keeps the shared compact object).
+  Storage roots are cached on `CompactStorage` (seeded from Elixir `:root_hash` on
+  uncompact). Meta-only `:keep` puts on compact accounts update `state_trie` via
+  that cached root without materializing.
+- `account_map_difference_full/2` is driven by the symmetric difference of
+  `state_trie` leaves (not a full accounts scan), returns 6-tuples
+  `{addr, side_a, side_b, storage_diff, root_a, root_b}`, and compares live
+  storage via shared `SharedState*` when possible. `Chain.State.difference/2`
+  consumes those roots (no second `storage_root_hash` pass).
+- `account_map_storage_roots/2` does **not** materialize compact entries solely to
+  read roots; it may build a temporary trie for the intermediate-hash blob.
 - `lock/1` sets map-level `frozen` only. Mutations
   (`put` / `delete` / `apply_difference` / `storage_put_map`) reject frozen maps.
 - `Chain.Transaction.apply/3` mutates state in place on an unlocked candidate.
