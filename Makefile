@@ -8,7 +8,8 @@ TESTDATA := test/pems/device1_certificate.pem test/pems/device2_certificate.pem
 .PHONY: all
 all: evm/evm priv/merkletree_nif.so
 
-priv/merkletree_nif.so: $(wildcard c_src/*.cpp c_src/*.hpp)
+.PHONY: priv/merkletree_nif.so
+priv/merkletree_nif.so:
 	$(MAKE) -C c_src nif
 
 evm/evm: $(wildcard evm/*.cpp evm/*.hpp evm/*/*.cpp evm/*/*.hpp)

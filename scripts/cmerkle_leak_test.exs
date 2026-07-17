@@ -1,4 +1,4 @@
-# CMerkleTree NIF memory leak regression harness.
+# CAccountMap NIF memory leak regression harness.
 #
 # Run from repo root:
 #   mix run --no-start scripts/cmerkle_leak_test.exs -- --rounds 50 --max-delta-kb 81920
@@ -12,6 +12,7 @@
 #   --seed N            RNG seed (default: 20260709)
 #
 # Emits LEAK_OK <scenario> <window> on success. Exit non-zero on RSS regression.
+# Uses CMerkleTree.nif_stats/0 for orphan SharedState counts.
 
 defmodule CMerkleLeakTest do
   @moduledoc false
@@ -48,7 +49,7 @@ defmodule CMerkleLeakTest do
     :rand.seed(:exsss, {seed, seed, seed})
 
     IO.puts(:stderr, """
-    === CMerkleTree leak test ===
+    === CAccountMap leak test ===
     otp=#{System.otp_release()} pid=#{:os.getpid()}
     rounds=#{rounds} accounts=#{accounts} max_delta_kb=#{max_delta_kb} plateau=#{plateau}
     scenarios=#{inspect(scenarios)}
@@ -103,22 +104,19 @@ defmodule CMerkleLeakTest do
       end)
   end
 
+  # A: empty / tiny map lock storm (frozen-only; no bare-tree lock)
   defp run_workload("A", rounds, _accounts) do
     Enum.each(1..rounds, fn _ ->
-      CMerkleTree.new() |> CMerkleTree.lock()
+      CAccountMap.new() |> CAccountMap.lock()
     end)
   end
 
+  # B: account_map_lock with identical list-storage roots
   defp run_workload("B", rounds, accounts) do
     Enum.each(1..rounds, fn _ ->
       map =
         Enum.reduce(1..accounts, CAccountMap.new(), fn i, acc ->
-          storage =
-            CMerkleTree.insert_items(CMerkleTree.new(), [
-              {slot(1), val(1)},
-              {slot(2), val(2)}
-            ])
-
+          storage = [{slot(1), val(1)}, {slot(2), val(2)}]
           CAccountMap.put(acc, addr(i), i, i * 1_000, storage, <<i>>)
         end)
 
@@ -126,6 +124,7 @@ defmodule CMerkleLeakTest do
     end)
   end
 
+  # C: compact → uncompact → normalize → lock (block-sync shaped)
   defp run_workload("C", rounds, accounts) do
     Enum.each(1..rounds, fn _ ->
       state =
@@ -133,11 +132,9 @@ defmodule CMerkleLeakTest do
           acc = %Account{
             nonce: i,
             balance: i * 1_000,
-            storage_root:
-              CMerkleTree.insert_items(CMerkleTree.new(), [
-                {slot(i), val(i)}
-              ]),
-            code: <<i>>
+            storage_root: [{slot(i), val(i)}],
+            code: <<i>>,
+            map_backed: false
           }
 
           State.set_account(st, addr(i), acc)
@@ -161,6 +158,7 @@ defmodule CMerkleLeakTest do
 
   defp warmup_gc do
     force_gc()
+    _ = CAccountMap.new()
     _ = CMerkleTree.nif_stats()
   end
 

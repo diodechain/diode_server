@@ -43,6 +43,7 @@ defmodule Shell do
   def call_tx(tx, blockRef) do
     Stats.tc(:call_tx, fn ->
       Network.Rpc.with_block(blockRef, fn block ->
+        # Cached blocks are State.lock'd; clone/1 is required for a writable fork.
         state = Chain.Block.state(block) |> Chain.State.clone()
 
         Stats.tc(:apply, fn ->
@@ -119,8 +120,7 @@ defmodule Shell do
 
   def get_slot(address, slot) do
     Chain.with_peak_state(fn state ->
-      Chain.State.ensure_account(state, address)
-      |> Chain.Account.storage_value(slot)
+      Chain.State.storage_value(state, Chain.State.normalize_address(address), slot)
     end)
   end
 

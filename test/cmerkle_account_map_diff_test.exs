@@ -14,8 +14,7 @@ defmodule CMerkleAccountMapDiffTest do
 
   defp build_map(n, mutate \\ nil) do
     Enum.reduce(1..n, CAccountMap.new(), fn i, acc ->
-      storage =
-        CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i * 3::unsigned-size(256)>>)
+      storage = [{slot(i), <<i * 3::unsigned-size(256)>>}]
 
       nonce = if mutate == {:nonce, i}, do: i + 1000, else: i
       balance = if mutate == {:balance, i}, do: i * 9_999, else: i * 1_000
@@ -25,63 +24,56 @@ defmodule CMerkleAccountMapDiffTest do
     end)
   end
 
-  defp legacy_diff(map_a, map_b) do
-    CMerkleTree.list_difference(
-      CAccountMap.to_account_list(map_a),
-      CAccountMap.to_account_list(map_b)
-    )
+  defp full_addrs(map_a, map_b) do
+    CAccountMap.difference_full(map_a, map_b)
+    |> Enum.map(fn {addr, _, _, _, _, _} -> addr end)
+    |> Enum.sort()
   end
 
-  defp assert_diff_equivalent(map_a, map_b) do
-    native = CAccountMap.list_difference(map_a, map_b)
-    legacy = legacy_diff(map_a, map_b)
+  defp assert_difference_full_shape(map_a, map_b) do
+    full = CAccountMap.difference_full(map_a, map_b)
+    assert is_list(full)
 
-    assert Map.keys(native) |> Enum.sort() == Map.keys(legacy) |> Enum.sort()
-
-    for key <- Map.keys(native) do
-      {na, nb} = native[key]
-      {la, lb} = legacy[key]
-      assert account_equal?(na, la)
-      assert account_equal?(nb, lb)
+    for {addr, _side_a, _side_b, storage_diff, root_a, root_b} <- full do
+      assert byte_size(addr) == 20
+      assert is_list(storage_diff) or is_map(storage_diff)
+      assert root_a == nil or match?(<<_::binary-size(32)>>, root_a)
+      assert root_b == nil or match?(<<_::binary-size(32)>>, root_b)
+      in_a = CAccountMap.get(map_a, addr) != :undefined
+      in_b = CAccountMap.get(map_b, addr) != :undefined
+      assert in_a or in_b
     end
+
+    full
   end
 
-  defp account_equal?(nil, nil), do: true
-
-  defp account_equal?(%Account{} = a, %Account{} = b) do
-    a.nonce == b.nonce && a.balance == b.balance && a.code == b.code &&
-      Account.root_hash(a) == Account.root_hash(b)
-  end
-
-  defp account_equal?(a, b), do: a == b
-
-  describe "native vs legacy list_difference equivalence" do
+  describe "difference_full" do
     test "empty maps" do
       a = CAccountMap.new()
       b = CAccountMap.new()
-      assert_diff_equivalent(a, b)
-      assert CAccountMap.list_difference(a, b) == %{}
+      assert CAccountMap.difference_full(a, b) == []
     end
 
     test "identical maps" do
       a = build_map(40)
       b = CAccountMap.clone(a)
-      assert_diff_equivalent(a, b)
-      assert CAccountMap.list_difference(a, b) == %{}
+      assert CAccountMap.difference_full(a, b) == []
     end
 
     test "same shared map resource" do
       a = build_map(10)
-      assert CAccountMap.list_difference(a, a) == %{}
+      assert CAccountMap.difference_full(a, a) == []
     end
 
     test "add-only and delete-only accounts" do
       a = build_map(30)
       b = build_map(35)
-      assert_diff_equivalent(a, b)
+      assert full_addrs(a, b) == Enum.map(31..35, &addr/1) |> Enum.sort()
+      assert_difference_full_shape(a, b)
 
       c = build_map(20)
-      assert_diff_equivalent(a, c)
+      assert full_addrs(a, c) == Enum.map(21..30, &addr/1) |> Enum.sort()
+      assert_difference_full_shape(a, c)
     end
 
     test "scalar field mutations" do
@@ -90,7 +82,7 @@ defmodule CMerkleAccountMapDiffTest do
       for mutate <- [{:nonce, 3}, {:balance, 7}, {:code, 11}] do
         fork = CAccountMap.clone(base)
         {kind, i} = mutate
-        storage = CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i::unsigned-size(256)>>)
+        storage = [{slot(i), <<i::unsigned-size(256)>>}]
 
         fork =
           case kind do
@@ -99,7 +91,8 @@ defmodule CMerkleAccountMapDiffTest do
             :code -> CAccountMap.put(fork, addr(i), i, i * 1_000, storage, <<99, 88>>)
           end
 
-        assert_diff_equivalent(base, fork)
+        assert full_addrs(base, fork) == [addr(i)]
+        assert_difference_full_shape(base, fork)
       end
     end
 
@@ -107,24 +100,20 @@ defmodule CMerkleAccountMapDiffTest do
       a = build_map(25)
       b = CAccountMap.clone(a)
       id = addr(5)
-      {nonce, balance, storage, code} = CAccountMap.get(b, id)
 
-      storage =
-        CMerkleTree.insert(
-          CMerkleTree.clone(storage),
-          slot(99_999),
-          <<99_999::unsigned-size(256)>>
-        )
+      b =
+        CAccountMap.storage_put_map(b, %{
+          id => %{slot(99_999) => <<99_999::unsigned-size(256)>>}
+        })
 
-      b = CAccountMap.put(b, id, nonce, balance, storage, code)
-      assert_diff_equivalent(a, b)
+      assert full_addrs(a, b) == [id]
+      assert_difference_full_shape(a, b)
+      assert CAccountMap.storage_get(b, id, slot(99_999)) == <<99_999::unsigned-size(256)>>
+      assert CAccountMap.storage_get(a, id, slot(99_999)) == nil
     end
 
     test "shared storage trie across accounts" do
-      storage =
-        CMerkleTree.insert_items(CMerkleTree.new(), [
-          {slot(1), <<1::unsigned-size(256)>>}
-        ])
+      storage = [{slot(1), <<1::unsigned-size(256)>>}]
 
       a =
         Enum.reduce(1..12, CAccountMap.new(), fn i, acc ->
@@ -132,11 +121,11 @@ defmodule CMerkleAccountMapDiffTest do
         end)
 
       b = CAccountMap.clone(a)
-      assert_diff_equivalent(a, b)
+      assert CAccountMap.difference_full(a, b) == []
 
       b = CAccountMap.put(b, addr(3), 99, 999, storage, <<1>>)
-      refute CAccountMap.list_difference(a, b) == %{}
-      assert_diff_equivalent(a, b)
+      assert full_addrs(a, b) == [addr(3)]
+      assert_difference_full_shape(a, b)
     end
 
     test "compact maps via State.compact" do
@@ -144,8 +133,15 @@ defmodule CMerkleAccountMapDiffTest do
         State.new()
         |> then(fn st ->
           Enum.reduce(1..80, st, fn i, acc ->
-            storage = CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i::unsigned-size(256)>>)
-            acc0 = Account.put_tree(Account.new(nonce: i, balance: i), storage)
+            storage = [{slot(i), <<i::unsigned-size(256)>>}]
+
+            acc0 = %{
+              Account.new(nonce: i, balance: i)
+              | storage_root: storage,
+                map_backed: false,
+                root_hash: nil
+            }
+
             State.set_account(acc, addr(i), acc0)
           end)
         end)
@@ -156,22 +152,17 @@ defmodule CMerkleAccountMapDiffTest do
       fork =
         live
         |> State.clone()
-        |> then(fn st ->
-          acc = State.account(st, addr(10))
+        |> State.storage_put_map(%{
+          addr(10) => %{slot(50_000) => <<50_000::unsigned-size(256)>>}
+        })
 
-          tree =
-            Account.tree(acc)
-            |> CMerkleTree.insert(slot(50_000), <<50_000::unsigned-size(256)>>)
-
-          State.set_account(st, addr(10), Account.put_tree(acc, tree))
-        end)
-
-      assert_diff_equivalent(compact_nif, fork.accounts)
-      assert_diff_equivalent(compact_nif, live.accounts)
+      assert full_addrs(compact_nif, fork.accounts) == [addr(10)]
+      assert_difference_full_shape(compact_nif, fork.accounts)
+      assert CAccountMap.difference_full(compact_nif, live.accounts) == []
     end
 
     @tag :slow
-    test "randomized equivalence property" do
+    test "randomized difference_full consistency" do
       for seed <- 1..50 do
         :rand.seed(:exsss, {seed, seed, seed})
         n = :rand.uniform(120) + 5
@@ -190,30 +181,29 @@ defmodule CMerkleAccountMapDiffTest do
                 CAccountMap.delete(acc, id)
 
               2 ->
-                storage =
-                  CMerkleTree.insert(
-                    CMerkleTree.new(),
-                    slot(i + 10_000),
-                    <<i::unsigned-size(256)>>
-                  )
-
+                storage = [{slot(i + 10_000), <<i::unsigned-size(256)>>}]
                 CAccountMap.put(acc, id, i + 1, i * 2_000, storage, <<i>>)
 
               _ ->
-                {nonce, balance, storage, code} = CAccountMap.get(acc, id)
+                case CAccountMap.get(acc, id) do
+                  :undefined ->
+                    acc
 
-                storage =
-                  CMerkleTree.insert(
-                    CMerkleTree.clone(storage),
-                    slot(i + 20_000),
-                    <<i * 2::unsigned-size(256)>>
-                  )
-
-                CAccountMap.put(acc, id, nonce, balance, storage, code)
+                  {_nonce, _balance, _root, _code} ->
+                    CAccountMap.storage_put_map(acc, %{
+                      id => %{slot(i + 20_000) => <<i * 2::unsigned-size(256)>>}
+                    })
+                end
             end
           end)
 
-        assert_diff_equivalent(a, b)
+        full = assert_difference_full_shape(a, b)
+
+        if CAccountMap.root_hash(a) == CAccountMap.root_hash(b) do
+          assert full == []
+        else
+          assert full != []
+        end
       end
     end
   end
@@ -224,23 +214,23 @@ defmodule CMerkleAccountMapDiffTest do
         State.new()
         |> then(fn st ->
           Enum.reduce(1..30, st, fn i, acc ->
-            storage = CMerkleTree.insert(CMerkleTree.new(), slot(i), <<i::unsigned-size(256)>>)
-            State.set_account(acc, addr(i), Account.put_tree(Account.new(nonce: i), storage))
+            storage = [{slot(i), <<i::unsigned-size(256)>>}]
+
+            State.set_account(acc, addr(i), %{
+              Account.new(nonce: i)
+              | storage_root: storage,
+                map_backed: false,
+                root_hash: nil
+            })
           end)
         end)
 
       next =
         prev
         |> State.clone()
-        |> then(fn st ->
-          acc = State.account(st, addr(7))
-
-          tree =
-            Account.tree(acc)
-            |> CMerkleTree.insert(slot(77_777), <<77_777::unsigned-size(256)>>)
-
-          State.set_account(st, addr(7), Account.put_tree(acc, tree))
-        end)
+        |> State.storage_put_map(%{
+          addr(7) => %{slot(77_777) => <<77_777::unsigned-size(256)>>}
+        })
 
       delta = State.difference(prev, next)
 

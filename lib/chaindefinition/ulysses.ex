@@ -1,6 +1,8 @@
 defmodule ChainDefinition.Ulysses do
   alias Chain.{State, Account}
 
+  def genesis_storage(), do: %{}
+
   def apply(%State{} = state) do
     Enum.reduce(patch(), state, fn account, state ->
       id = Base16.decode(account["addr"])

@@ -36,8 +36,8 @@ defmodule ChainTest do
          code: Rlpx.bin2addr(state["code"]),
          nonce: Rlpx.bin2num(state["nonce"]),
          storage_root:
-           Enum.reduce(state["storage"], CMerkleTree.new(), fn {key, value}, tree ->
-             CMerkleTree.insert(tree, Rlpx.hex2num(key), Rlpx.bin2num(value))
+           Enum.map(state["storage"] || %{}, fn {key, value} ->
+             {Hash.to_bytes32(Rlpx.hex2num(key)), Hash.to_bytes32(Rlpx.bin2num(value))}
            end)
        }}
     end)
@@ -259,10 +259,19 @@ defmodule ChainTest do
         assert Account.nonce(result) == Account.nonce(account)
         assert Account.code(result) == Account.code(account)
 
-        # for {key, value} <- to_list(result.storage_root) do
-        #   assert {key, value} == {key, Account.storageInteger(account, key)}
-        # end
-        assert to_list(Account.tree(result)) == to_list(Account.tree(account))
+        # result is map-backed (no live trie); compare via State.storage_to_list.
+        ref_list =
+          case account do
+            %Account{storage_root: pairs} when is_list(pairs) ->
+              pairs
+              |> Enum.map(fn {key, value} -> {compress(key), compress(value)} end)
+              |> Enum.sort()
+
+            _ ->
+              []
+          end
+
+        assert storage_list(state, addr) == ref_list
       end
     end
 
@@ -271,8 +280,8 @@ defmodule ChainTest do
     assert post_keys == reference_keys
   end
 
-  defp to_list(tree) do
-    CMerkleTree.to_list(tree)
+  defp storage_list(state, addr) do
+    State.storage_to_list(state, addr)
     |> Enum.map(fn {key, value} -> {compress(key), compress(value)} end)
     |> Enum.sort()
   end

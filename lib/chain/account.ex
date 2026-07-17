@@ -2,13 +2,23 @@
 # Copyright 2021-2024 Diode
 # Licensed under the Diode License, Version 1.1
 defmodule Chain.Account do
-  defstruct nonce: 0, balance: 0, storage_root: nil, code: nil
+  defstruct nonce: 0, balance: 0, storage_root: nil, code: nil, map_backed: false, root_hash: nil
+
+  # Matches C++ empty storage trie root (root_hash of an empty storage trie).
+  @empty_storage_root Base.decode16!(
+                        "438A90405DAA876539082CD0BAF6CDDAA3BF880F1C8AF0C0381F0042DB93088A"
+                      )
 
   @type t :: %Chain.Account{
           nonce: non_neg_integer(),
           balance: non_neg_integer(),
-          storage_root: CMerkleTree.t(),
-          code: binary() | nil
+          storage_root:
+            nil
+            | [{binary(), binary()}]
+            | {atom(), list(), map()},
+          code: binary() | nil,
+          map_backed: boolean(),
+          root_hash: binary() | nil
         }
 
   def new(props \\ []) do
@@ -24,87 +34,40 @@ defmodule Chain.Account do
   def nonce(%Chain.Account{nonce: nonce}), do: nonce
   def balance(%Chain.Account{balance: balance}), do: balance
 
-  @spec tree(Chain.Account.t()) :: CMerkleTree.t()
-  def tree(%Chain.Account{storage_root: nil}), do: CMerkleTree.new()
-  def tree(%Chain.Account{storage_root: root}), do: root
+  @doc """
+  Build an account from `CAccountMap.get/2` parts.
+  A 32-byte `storage` root marks the account map-backed (`map_backed: true`).
+  Otherwise `storage` is a put payload (`nil` / slot list / compact MapMerkleTree tuple).
+  """
+  def from_parts(nonce, balance, <<root_hash::binary-size(32)>>, code) do
+    %Chain.Account{
+      nonce: nonce,
+      balance: balance,
+      storage_root: nil,
+      code: if(code == "", do: nil, else: code),
+      map_backed: true,
+      root_hash: root_hash
+    }
+  end
 
   def from_parts(nonce, balance, storage, code) do
     %Chain.Account{
       nonce: nonce,
       balance: balance,
       storage_root: storage,
-      code: if(code == "", do: nil, else: code)
+      code: if(code == "", do: nil, else: code),
+      map_backed: false,
+      root_hash: nil
     }
   end
 
-  def clone(%Chain.Account{} = acc) do
-    %Chain.Account{acc | storage_root: CMerkleTree.clone(tree(acc))}
-  end
+  def root_hash(%Chain.Account{root_hash: <<_::binary-size(32)>> = hash}), do: hash
 
-  def put_tree(%Chain.Account{} = acc, root) do
-    %Chain.Account{acc | storage_root: root}
-  end
+  def root_hash(%Chain.Account{storage_root: nil}), do: @empty_storage_root
 
-  def root_hash(%Chain.Account{} = acc) do
-    CMerkleTree.root_hash(tree(acc))
-  end
-
-  def uncompact(%Chain.Account{storage_root: nil} = acc) do
-    %Chain.Account{acc | storage_root: CMerkleTree.new()}
-  end
-
-  def uncompact(%Chain.Account{storage_root: {MapMerkleTree, _opts, items}} = acc)
-      when is_map(items) do
-    # old_root = Map.get(acc, :root_hash)
-    storage_root = CMerkleTree.from_map(items)
-
-    # if old_root != CMerkleTree.root_hash(storage_root) do
-    #   IO.inspect({old_root, CMerkleTree.root_hash(storage_root)}, label: "root_hash mismatch")
-    # end
-
-    %Chain.Account{acc | storage_root: storage_root}
-  end
-
-  def uncompact(%Chain.Account{storage_root: items} = acc) when is_list(items) do
-    %Chain.Account{acc | storage_root: CMerkleTree.from_list(items)}
-  end
-
-  def compact(%Chain.Account{} = acc) do
-    tree = tree(acc)
-
-    if CMerkleTree.size(tree) == 0 do
-      %Chain.Account{acc | storage_root: nil}
-    else
-      %Chain.Account{acc | storage_root: {MapMerkleTree, [], Map.new(CMerkleTree.to_list(tree))}}
-    end
-    |> Map.put(:root_hash, CMerkleTree.root_hash(tree))
-    |> Map.put(:code_hash, codehash(acc))
-  end
-
-  def storage_set_value(acc, key = <<_k::256>>, value = <<_v::256>>) do
-    %Chain.Account{} = acc
-    store = CMerkleTree.insert(tree(acc), key, value)
-    %{acc | storage_root: store}
-  end
-
-  def storage_set_value(acc, key, value) when is_integer(key) do
-    storage_set_value(acc, <<key::unsigned-size(256)>>, value)
-  end
-
-  def storage_set_value(acc, key, value) when is_integer(value) do
-    storage_set_value(acc, key, <<value::unsigned-size(256)>>)
-  end
-
-  @spec storage_value(Chain.Account.t(), binary() | integer()) :: binary() | nil
-  def storage_value(acc, key) when is_integer(key) do
-    storage_value(acc, <<key::unsigned-size(256)>>)
-  end
-
-  def storage_value(%Chain.Account{} = acc, key) when is_binary(key) do
-    case CMerkleTree.get(tree(acc), key) do
-      nil -> <<0::unsigned-size(256)>>
-      bin -> bin
-    end
+  def root_hash(%Chain.Account{}) do
+    raise ArgumentError,
+          "account missing :root_hash; use Chain.State.storage_root_hash/2"
   end
 
   @spec to_rlp(Chain.Account.t()) :: [...]

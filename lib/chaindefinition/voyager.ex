@@ -1,29 +1,43 @@
 defmodule ChainDefinition.Voyager do
-  alias Chain.{State, Account}
+  alias Chain.State
+
+  def genesis_storage(), do: %{}
 
   def apply(%State{} = state) do
     Enum.reduce(patch(), state, fn account, state ->
       id = Base16.decode(account["addr"])
       code = Base16.decode(account["code"])
       {balance, ""} = Integer.parse(account["balance"])
-      acc = State.ensure_account(state, id)
-      %Account{} = acc
-      acc = %{acc | balance: balance, code: code}
 
-      acc =
-        if Map.has_key?(account, "state_patch") do
-          Enum.reduce(account["state_patch"], acc, fn [key, value], acc ->
-            Account.storage_set_value(acc, Base16.decode(key), Base16.decode(value))
+      acc0 =
+        state
+        |> State.ensure_account(id)
+        |> Map.put(:balance, balance)
+        |> Map.put(:code, code)
+        |> Map.put(:map_backed, false)
+        |> Map.put(:root_hash, nil)
+
+      if Map.has_key?(account, "state_patch") do
+        state = State.set_account(state, id, %{acc0 | storage_root: nil})
+
+        updates =
+          Map.new(account["state_patch"], fn [key, value] ->
+            {Base16.decode(key), Base16.decode(value)}
           end)
+
+        if map_size(updates) == 0 do
+          state
         else
-          acc = %{acc | storage_root: nil}
-
-          Enum.reduce(account["state"], acc, fn [key, value], acc ->
-            Account.storage_set_value(acc, Base16.decode(key), Base16.decode(value))
-          end)
+          State.storage_put_map(state, %{id => updates})
         end
+      else
+        slots =
+          Enum.map(account["state"] || [], fn [key, value] ->
+            {Base16.decode(key), Base16.decode(value)}
+          end)
 
-      State.set_account(state, id, acc)
+        State.set_account(state, id, %{acc0 | storage_root: slots})
+      end
     end)
   end
 

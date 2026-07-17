@@ -28,6 +28,10 @@ Ethereum-compatible JSON-RPC endpoint plus the Diode PEER/EDGE protocols.
   `make -C deps/libsecp256k1/` (see `.github/workflows/ci.yml`). Build artifacts
   are gitignored and persist across sessions, so this is only needed after a
   clean checkout of that dep.
+- **CAccountMap / state NIF semantics** (clone, lock, storage APIs, get shape):
+  see [`docs/caccount-map-nif.md`](docs/caccount-map-nif.md). Difference/clone
+  performance (cached compact roots, COW, trie-driven `difference_full`):
+  [`docs/specs/change-state-diff-perf.md`](docs/specs/change-state-diff-perf.md).
 
 ### Lint
 - `mix lint` = `compile` + `mix format --check-formatted` + `mix credo --only warning` + `mix dialyzer`.
@@ -39,12 +43,12 @@ Ethereum-compatible JSON-RPC endpoint plus the Diode PEER/EDGE protocols.
 - `make test` generates test PEM certs, then runs each `test/*_test.exs` file in
   a separate `mix test --max-failures 1` invocation (per-file isolation). Test
   env pins ports `RPC_PORT=18001`, `EDGE2_PORT=18003`, `PEER_PORT=18004`.
-- `Chain.State` is a MUTABLE NIF-backed `CMerkleTree`: `Chain.Transaction.apply/3`
-  mutates the state passed to it in place. Use `Chain.State.clone/1` to get an
-  independent copy before reapplying. `test/evm_test.exs` "create contract"
-  currently fails for this reason (it reuses `state` across `apply` calls
-  without cloning). This is a pre-existing repo issue — CI has `mix test`
-  commented out and does not gate on it.
+- For `Chain.State` / CAccountMap mutability and storage rules, see
+  [`docs/caccount-map-nif.md`](docs/caccount-map-nif.md). Perf contract tests:
+  `test/state_diff_perf_contract_test.exs`. Benches (no app start):
+  `scripts/state_diff_bench.exs` (`State.difference`),
+  `scripts/state_uncompact_bench.exs` (`state(uncompact:…)`),
+  `scripts/state_delta_apply_bench.exs` (`state(delta:…)`).
 
 ### Running the node (dev mode)
 - `./dev` runs `MIX_ENV=dev iex -S mix run` (wipes `data_dev/` first). For a

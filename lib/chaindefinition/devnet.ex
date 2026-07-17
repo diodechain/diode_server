@@ -36,25 +36,22 @@ defmodule ChainDefinition.Devnet do
       addr_balance(0xCECA2F8CF1983B4CF0C1BA51FD382C2BC37ABA58, ether(50_000)),
       addr_balance(0x68E0BAFDDA9EF323F692FC080D612718C941D120, ether(50_000)),
 
-      # The Registry with the accountant placed
+      # The Registry (storage applied via genesis_storage/0)
       addr_account(
         Diode.registry_address(),
         Account.new(
           balance: ether(100_000_000),
           code: Contract.Registry.test_code()
         )
-        |> Account.storage_set_value(1, accountant)
       ),
 
-      # The Fleet with the operator and accountant placed
+      # The Fleet (storage applied via genesis_storage/0)
       addr_account(
         Diode.fleet_address(),
         Account.new(
           balance: 0,
           code: Contract.Fleet.code()
         )
-        |> Account.storage_set_value(0, Diode.registry_address() |> :binary.decode_unsigned())
-        |> Account.storage_set_value(2, accountant)
       )
     ]
 
@@ -62,6 +59,27 @@ defmodule ChainDefinition.Devnet do
       Enum.map(Diode.wallets(), fn wallet ->
         {Wallet.address!(wallet), Account.new(balance: ether(100_000_000))}
       end)
+  end
+
+  @doc """
+  Initial contract storage slots for genesis accounts.
+  Keys and values are 32-byte binaries for `Chain.State.storage_put_map/2`.
+  """
+  @spec genesis_storage() :: %{binary() => %{binary() => binary()}}
+  def genesis_storage() do
+    accountant = Hash.to_bytes32(0x96CDE043E986040CB13FFAFD80EB8CEAC196FB84)
+    registry = Diode.registry_address()
+    fleet = Diode.fleet_address()
+
+    %{
+      registry => %{
+        Hash.to_bytes32(1) => accountant
+      },
+      fleet => %{
+        Hash.to_bytes32(0) => Hash.to_bytes32(registry),
+        Hash.to_bytes32(2) => accountant
+      }
+    }
   end
 
   @spec genesis_transactions(Wallet.t()) :: [Chain.Transaction.t()]

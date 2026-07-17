@@ -55,11 +55,5 @@ defmodule Bench do
       {:ok, state, _rcpt} = Transaction.apply(tx, block, state)
       state
     end)
-
-    # # Checking value of i at position 0
-    # acc = Chain.State.account(state, addr)
-    # len = Chain.Account.storageInteger(acc, 0)
-    # IO.puts("#{length(txlist)} == #{len}")
-    # ^len = length(txlist)
   end
 end

@@ -5,8 +5,8 @@
 # Regression tests: Chain.State.difference / apply_difference must round-trip
 # (matches persisted block delta replay in Model.ChainSql.do_state/1).
 #
-# Heavy cases mirror production: Evm.process_updates uses 32-byte key/value maps and
-# CMerkleTree.insert_items/2; State.clone/1 + Account.clone/1 share trie pools (COW);
+# Heavy cases mirror production: Evm.process_updates uses 32-byte key/value maps;
+# State.clone/1 shares trie pools (COW);
 # sequential <<n::256>> slots maximize shared key prefixes (trie depth).
 defmodule ChainStateMerkleTest do
   # NIF uses process-global allocators / stripe pools; run sequentially to avoid cross-test races.
@@ -45,8 +45,7 @@ defmodule ChainStateMerkleTest do
   end
 
   defp account_from_evm_map(kvs) when is_map(kvs) do
-    tree = CMerkleTree.insert_items(CMerkleTree.new(), Map.to_list(kvs))
-    Account.put_tree(Account.new(), tree)
+    %{Account.new() | storage_root: Map.to_list(kvs), map_backed: false, root_hash: nil}
   end
 
   defp account_with_storage(pairs) do
@@ -54,9 +53,7 @@ defmodule ChainStateMerkleTest do
   end
 
   defp account_with_storage(%Account{} = acc, pairs) do
-    Enum.reduce(pairs, acc, fn {k, v}, a ->
-      Account.storage_set_value(a, k, v)
-    end)
+    %{acc | storage_root: pairs, map_backed: false, root_hash: nil}
   end
 
   defp put_account(%State{} = st, i, acc), do: State.set_account(st, addr(i), acc)
@@ -125,7 +122,7 @@ defmodule ChainStateMerkleTest do
       assert_roundtrip(prev, next)
     end
 
-    test "single account: delete storage slot (CMerkleTree.delete)" do
+    test "single account: delete storage slot (storage_put_map zero)" do
       prev =
         State.new()
         |> put_account(
@@ -136,14 +133,10 @@ defmodule ChainStateMerkleTest do
           ])
         )
 
-      acc_prev = State.account(prev, addr(1))
-
-      tree2 =
-        acc_prev
-        |> Account.tree()
-        |> CMerkleTree.delete(word32(2))
-
-      next = State.set_account(prev, addr(1), Account.put_tree(acc_prev, tree2))
+      next =
+        State.storage_put_map(prev, %{
+          addr(1) => %{word32(2) => <<0::unsigned-size(256)>>}
+        })
 
       assert_roundtrip(prev, next)
     end
@@ -229,8 +222,8 @@ defmodule ChainStateMerkleTest do
     end
   end
 
-  describe "EVM-shaped payloads (32-byte key/value, insert_items)" do
-    test "batch insert_items like Evm.process_updates/2" do
+  describe "EVM-shaped payloads (32-byte key/value via storage_put_map)" do
+    test "batch storage updates like Evm.process_updates/2" do
       kvs =
         for i <- 0..399, into: %{} do
           {slot_u256(i), val_u256(Bitwise.bxor(i, 0xDEAD_BEEF))}
@@ -307,16 +300,18 @@ defmodule ChainStateMerkleTest do
       assert_roundtrip(prev, next)
     end
 
-    test "root_hash on deep U256-slot tree (get_proofs shape is NIF-specific; root_hash stresses trie)" do
-      t =
-        CMerkleTree.insert_items(
-          CMerkleTree.new(),
-          Enum.map(0..220, fn i -> {slot_u256(i), val_u256(i)} end)
+    test "storage_root_hash and storage_get_proofs on deep U256-slot account" do
+      st =
+        State.new()
+        |> put_account(
+          1,
+          account_with_storage(Enum.map(0..220, fn i -> {slot_u256(i), val_u256(i)} end))
         )
 
-      assert is_binary(CMerkleTree.root_hash(t))
-      p = CMerkleTree.get_proofs(t, slot_u256(0))
-      assert is_tuple(p) or is_map(p)
+      root = State.storage_root_hash(st, addr(1))
+      assert is_binary(root) and byte_size(root) == 32
+      p = State.storage_get_proofs(st, addr(1), slot_u256(0))
+      assert is_tuple(p) or is_map(p) or is_list(p)
     end
 
     test "large mutation round-trip after independent clones (no lock)" do
@@ -328,9 +323,11 @@ defmodule ChainStateMerkleTest do
         State.new()
         |> put_account(
           1,
-          Enum.reduce(0..500, account_u256_slots(0..130), fn i, a ->
-            Account.storage_set_value(a, slot_u256(i), val_u256(i + 99))
-          end)
+          account_with_storage(
+            Enum.map(0..500, fn i ->
+              {slot_u256(i), val_u256(i + 99)}
+            end)
+          )
         )
 
       assert_roundtrip(prev, next)
@@ -338,14 +335,14 @@ defmodule ChainStateMerkleTest do
   end
 
   describe "lock → clone writable fork (block sync path)" do
-    test "normalized :store fork writable after parent lock" do
+    test "normalized state fork writable after parent lock" do
       base =
         State.new()
         |> put_account(1, account_with_storage([{word32(1), val32(1)}]))
         |> put_account(2, account_u256_slots(0..8))
         |> State.normalize()
 
-      assert base.store != nil
+      assert is_binary(State.hash(base))
       parent_hash = State.hash(base)
 
       Chain.State.lock(base)
@@ -362,9 +359,9 @@ defmodule ChainStateMerkleTest do
         )
 
       assert State.hash(fork) != parent_hash
-      assert Account.storage_value(State.account(fork, addr(1)), word32(99)) == val32(99)
+      assert State.storage_value(fork, addr(1), word32(99)) == val32(99)
 
-      assert Account.storage_value(State.account(base, addr(1)), word32(99)) ==
+      assert State.storage_value(base, addr(1), word32(99)) ==
                <<0::unsigned-size(256)>>
 
       assert is_binary(State.hash(base))
@@ -381,21 +378,18 @@ defmodule ChainStateMerkleTest do
 
       fork =
         Enum.reduce(1..2, fork, fn aid, st ->
-          acc =
-            st
-            |> State.account(addr(aid))
-            |> Account.storage_set_value(slot_u256(500 + aid), val_u256(aid * 100))
-
-          put_account(st, aid, acc)
+          State.storage_put_map(st, %{
+            addr(aid) => %{slot_u256(500 + aid) => val_u256(aid * 100)}
+          })
         end)
 
       assert is_binary(State.hash(fork))
 
       for aid <- 1..2 do
-        assert Account.storage_value(State.account(fork, addr(aid)), slot_u256(500 + aid)) ==
+        assert State.storage_value(fork, addr(aid), slot_u256(500 + aid)) ==
                  val_u256(aid * 100)
 
-        assert Account.storage_value(State.account(parent, addr(aid)), slot_u256(500 + aid)) ==
+        assert State.storage_value(parent, addr(aid), slot_u256(500 + aid)) ==
                  <<0::unsigned-size(256)>>
       end
     end

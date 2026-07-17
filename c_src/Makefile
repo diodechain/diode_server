@@ -49,12 +49,14 @@ uncompact_harness.bin: uncompact_harness.cpp merkletree.hpp merkletree.cpp item_
 uncompact_harness: uncompact_harness.bin
 
 # Optional: libFuzzer + ASan on SHA (requires Clang with fuzzer runtime)
-.PHONY: nif nif-asan fuzz_sha
+.PHONY: nif nif-asan fuzz_sha FORCE
 fuzz_sha: fuzz_sha.bin
 	./fuzz_sha.bin -runs=5000
 
 fuzz_sha.bin: fuzz_sha.cpp sha.cpp Makefile
 	clang++ -std=c++17 -I. -g -O1 -fsanitize=fuzzer,address -fno-omit-frame-pointer -o fuzz_sha.bin fuzz_sha.cpp sha.cpp -lstdc++
+
+FORCE:
 
 nif: ../priv/merkletree_nif.so
 

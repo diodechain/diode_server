@@ -1,4 +1,4 @@
-# CMerkleTree NIF — deadlock / hang watchdog for fuzz and stress harnesses.
+# CAccountMap NIF — deadlock / hang watchdog for fuzz and stress harnesses.
 #
 # Wraps a child command, monitors stdout/stderr for progress markers, and exits
 # with code 124 if the child stops making progress or exceeds wall-clock budget.
@@ -40,7 +40,7 @@ defmodule CMerkleDeadlockWatchdog do
     poll_ms = Keyword.get(opts, :poll_interval, 5) * 1_000
 
     IO.puts(:stderr, """
-    === CMerkleTree deadlock watchdog ===
+    === CAccountMap deadlock watchdog ===
     command=#{inspect(cmd)}
     progress_timeout=#{div(progress_timeout_ms, 1000)}s wall_timeout=#{format_wall(wall_timeout_ms)} poll=#{div(poll_ms, 1000)}s
     """)

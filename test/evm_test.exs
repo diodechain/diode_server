@@ -52,19 +52,22 @@ defmodule EvmTest do
 
     # Fail test 1: Too little balance
     ctx_fail = %{ctx | gasLimit: Transaction.gas_limit(ctx) * 1_000_000} |> Transaction.sign(priv)
-    assert {:error, :not_enough_balance} == Transaction.apply(ctx_fail, block, state)
 
-    # Fail test 2: Too little gas
+    assert {:error, :not_enough_balance} ==
+             Transaction.apply(ctx_fail, block, Chain.State.clone(state))
+
+    # Fail test 2: Too little gas (clone — apply mutates state / nonce in place)
     ctx_fail = %{ctx | gasLimit: 1} |> Transaction.sign(priv)
 
     {:ok, _state, %TransactionReceipt{msg: :evmc_out_of_gas}} =
-      Transaction.apply(ctx_fail, block, state)
+      Transaction.apply(ctx_fail, block, Chain.State.clone(state))
 
     {:ok, state, %TransactionReceipt{msg: :ok}} = Transaction.apply(ctx, block, state)
 
-    # Checking value of i at position 0
-    acc = Chain.State.account(state, Transaction.new_contract_address(ctx))
-    value = Chain.Account.storage_value(acc, 0) |> :binary.decode_unsigned()
+    value =
+      Chain.State.storage_value(state, Transaction.new_contract_address(ctx), 0)
+      |> :binary.decode_unsigned()
+
     assert value == 0
 
     # Method call increment
@@ -79,11 +82,11 @@ defmodule EvmTest do
 
     assert Wallet.pubkey!(Transaction.origin(tx)) == Wallet.pubkey!(from_wallet)
 
-    # Fail test 3: value on non_payable method
+    # Fail test 3: value on non_payable method (clone — apply mutates state / nonce)
     tx_fail = %{tx | value: 1} |> Transaction.sign(priv)
 
     {:ok, _state, %TransactionReceipt{msg: :evmc_revert}} =
-      Transaction.apply(tx_fail, block, state)
+      Transaction.apply(tx_fail, block, Chain.State.clone(state))
 
     {:ok, state, %TransactionReceipt{msg: :ok, evmout: evmout}} =
       Transaction.apply(tx, block, state)
@@ -91,8 +94,10 @@ defmodule EvmTest do
     assert evmout == ""
 
     # Checking value of i at position 0
-    acc = Chain.State.account(state, Transaction.new_contract_address(ctx))
-    value = Chain.Account.storage_value(acc, 0) |> :binary.decode_unsigned()
+    value =
+      Chain.State.storage_value(state, Transaction.new_contract_address(ctx), 0)
+      |> :binary.decode_unsigned()
+
     assert value == 1
   end
 

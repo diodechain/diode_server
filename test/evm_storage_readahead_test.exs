@@ -25,16 +25,15 @@ defmodule EvmStorageReadaheadTest do
 
       base = 0x3000
       count = gs_range_count()
+      addr = <<1::unsigned-size(160)>>
 
-      tree =
-        CMerkleTree.new()
-        |> then(fn t ->
-          Enum.reduce(0..(count - 1), t, fn i, acc ->
-            CMerkleTree.insert(acc, base + i, i + 1)
-          end)
+      slots =
+        Enum.map(0..(count - 1), fn i ->
+          {<<base + i::unsigned-size(256)>>, <<i + 1::unsigned-size(256)>>}
         end)
 
-      range = CMerkleTree.get_range(tree, base, count)
+      map = CAccountMap.put(CAccountMap.new(), addr, 1, 100, slots, <<>>)
+      range = CAccountMap.storage_get_range(map, addr, <<base::unsigned-size(256)>>, count)
       assert length(range) == 255
       assert length(range) <= 255
     end)
@@ -90,8 +89,7 @@ defmodule EvmStorageReadaheadTest do
     {:ok, state, %TransactionReceipt{msg: :ok}} = Transaction.apply(ctx, block, state)
 
     contract = Transaction.new_contract_address(ctx)
-    acc = Chain.State.account(state, contract)
-    assert Chain.Account.storage_value(acc, 0) |> :binary.decode_unsigned() == 0
+    assert Chain.State.storage_value(state, contract, 0) |> :binary.decode_unsigned() == 0
 
     tx =
       %{
@@ -108,7 +106,6 @@ defmodule EvmStorageReadaheadTest do
 
     {:ok, state, %TransactionReceipt{msg: :ok}} = Transaction.apply(tx, block, state)
 
-    acc = Chain.State.account(state, contract)
-    assert Chain.Account.storage_value(acc, 0) |> :binary.decode_unsigned() == 1
+    assert Chain.State.storage_value(state, contract, 0) |> :binary.decode_unsigned() == 1
   end
 end
