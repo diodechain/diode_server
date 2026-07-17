@@ -66,3 +66,22 @@ implementation spec for difference/clone performance work:
   (`CMerkleTree.nif_stats/0`). No bare-tree test NIF mode.
 - EVM binary: `evm/evm` (needs `libboost-dev`)
 - `deps/libsecp256k1`: build once with `make -C deps/libsecp256k1/` (not via `mix`)
+
+## Performance benches
+
+Run without starting the full node (`mix run --no-start …`). Defaults target ~14k
+accounts (prod jump-block scale).
+
+| Script | Prod warning / path |
+|--------|---------------------|
+| `scripts/state_diff_bench.exs` | `State diff took longer than 1s…` / `State.difference` |
+| `scripts/state_uncompact_bench.exs` | `state(uncompact:0x…) took Nms` / jump-block `State.uncompact` |
+| `scripts/state_delta_apply_bench.exs` | `state(delta:0x…) took Nms` / clone + `apply_difference` + `normalize` |
+
+Examples:
+
+```bash
+mix run --no-start scripts/state_uncompact_bench.exs -- --scenario sparse_jump
+mix run --no-start scripts/state_delta_apply_bench.exs -- --scenario all --changed 20
+mix run --no-start scripts/state_diff_bench.exs -- --scenario compact_small_delta
+```

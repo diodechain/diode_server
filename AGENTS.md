@@ -45,8 +45,10 @@ Ethereum-compatible JSON-RPC endpoint plus the Diode PEER/EDGE protocols.
   env pins ports `RPC_PORT=18001`, `EDGE2_PORT=18003`, `PEER_PORT=18004`.
 - For `Chain.State` / CAccountMap mutability and storage rules, see
   [`docs/caccount-map-nif.md`](docs/caccount-map-nif.md). Perf contract tests:
-  `test/state_diff_perf_contract_test.exs`; bench:
-  `scripts/state_diff_bench.exs`.
+  `test/state_diff_perf_contract_test.exs`. Benches (no app start):
+  `scripts/state_diff_bench.exs` (`State.difference`),
+  `scripts/state_uncompact_bench.exs` (`state(uncompact:…)`),
+  `scripts/state_delta_apply_bench.exs` (`state(delta:…)`).
 
 ### Running the node (dev mode)
 - `./dev` runs `MIX_ENV=dev iex -S mix run` (wipes `data_dev/` first). For a
